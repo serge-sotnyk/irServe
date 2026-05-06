@@ -13,9 +13,26 @@ target
 # Contains mutation testing data
 **/mutants.out*/
 
-# RustRover
-#  JetBrains specific template is maintained in a separate JetBrains.gitignore that can
-#  be found at https://github.com/github/gitignore/blob/main/Global/JetBrains.gitignore
-#  and can be added to the global gitignore or merged into this file.  For a more nuclear
-#  option (not recommended) you can uncomment the following to ignore the entire idea folder.
-#.idea/
+# Local planning artifacts (kept locally, never committed)
+irServeChat.pdf
+
+# OS junk
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Editor / IDE (RustRover etc.)
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Local Claude scratch
+.claude/local/
+
+# Node (root level only; submodule node_modules are governed by their own .gitignore)
+/node_modules/
+
+# Logs and runtime scratch
+*.log
+_tmp/
