@@ -62,16 +62,20 @@ git clone --recurse-submodules git@github.com:serge-sotnyk/irServe.git
 # If already cloned without --recurse-submodules:
 git submodule update --init --recursive
 
-# Install npm dependencies for the reference implementation
+# Install reference-implementation dependencies and build the runnable bundle.
+# vercel/serve uses pnpm (see its packageManager field); corepack ships with Node 16+.
 cd third_party/serve
-npm install
+corepack pnpm install        # the prepare script may print a non-fatal warning about pnpm not on PATH; ignore it
+corepack pnpm compile        # produces build/main.js (the runnable entry point)
 cd ../..
 
 # Smoke test that the reference oracle is operational
 mkdir -p _tmp && echo hello > _tmp/index.html
-node third_party/serve/build/main.js -l 3010 _tmp &
-curl -i http://127.0.0.1:3010/index.html
-# expect: 200 OK with body "hello"
+node third_party/serve/build/main.js -l 3010 --no-clipboard _tmp &
+sleep 2
+curl -i http://127.0.0.1:3010/
+# expect: 200 OK, body "hello"
+# (note: GET /index.html returns 301 -> /index because cleanUrls is on by default in serve)
 ```
 
 There is no Rust toolchain requirement yet; it appears at Stage 5.

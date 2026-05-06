@@ -36,10 +36,11 @@ irServe/
 ```bash
 git clone --recurse-submodules git@github.com:serge-sotnyk/irServe.git
 cd irServe/third_party/serve
-npm install
+corepack pnpm install
+corepack pnpm compile
 ```
 
-The `npm install` step is what makes the reference oracle actually runnable. See [`AGENTS.md`](./AGENTS.md) for the smoke-test command.
+`vercel/serve` uses pnpm; `corepack` ships with Node 16+ so no global install is needed. After this, `node third_party/serve/build/main.js -l 3010 <dir>` runs the reference oracle. See [`AGENTS.md`](./AGENTS.md) for a smoke probe.
 
 ## References
 
