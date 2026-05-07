@@ -65,8 +65,8 @@ These rules are the methodology core. Violations undermine the entire experiment
    - Exact terminal output / stdout formatting.
    - Exact HTML/CSS of the directory listing.
    - Bug-for-bug parity with `serve`.
-6. **Reverse-engineering before Stage 5.** Until the Rust oracle harness exists at Stage 5, behavior verification uses ad-hoc probes against the pinned reference (see [`tools/probe/`](./tools/probe/)). Probe results are recorded in `docs/reference/serve/inventory.md` entries.
-7. **Order of artifacts.** `inventory.md` (Stage 1) is research, not contract. OpenSpec specs (Stage 4) are the contract. Implementation proposals (Stage 5+) are change requests. Never skip stages by writing implementation proposals against unverified behavior.
+6. **Reverse-engineering before Stage 5b.** Until the Rust oracle harness exists at Stage 5b, behavior verification uses ad-hoc probes against the pinned reference (see [`tools/probe/`](./tools/probe/)). Probe results are recorded in `docs/reference/serve/inventory.md` entries. Stage 5a produces the first implementation proposal (specs delta + design + tasks) but no Rust code or harness.
+7. **Order of artifacts.** `inventory.md` (Stage 1) is research, not contract. OpenSpec specs (Stage 4) are the contract. Implementation proposals (Stage 5a+) are change requests. Never skip stages by writing implementation proposals against unverified behavior.
 
 ## Compatibility levels
 
@@ -106,7 +106,7 @@ curl -i http://127.0.0.1:3010/
 # (note: GET /index.html returns 301 → /index because cleanUrls is on by default in serve)
 ```
 
-There is no Rust toolchain requirement yet; it appears at Stage 5.
+There is no Rust toolchain requirement yet; it appears at Stage 5b.
 
 ## References
 

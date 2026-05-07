@@ -39,4 +39,4 @@ Authoritative version with examples is in [README §Anti-hallucination rules](./
 - One blank line between sections.
 - Code fences specify a language (`bash`, `text`, `markdown`, etc.).
 
-Code style for Rust will be added at Stage 5 when the first Rust crate is introduced.
+Code style for Rust will be added at Stage 5b when the first Rust crate is introduced.

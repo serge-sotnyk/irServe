@@ -1114,7 +1114,12 @@ Reference source:
 - Oracle test: planned.
 
 Requirement (draft):
-A `rewrites` entry `{source, destination}` matches the request path against `source` (minimatch or `path-to-regexp`). On match, the server responds with status 200 (no redirect) and serves the file at `destination` (with `path-to-regexp` segments interpolated). Rewrites apply only when the original request path did not directly resolve to a file.
+A `rewrites` entry `{source, destination}` matches the request path against `source` (minimatch or `path-to-regexp`). On match, the server responds with status 200 (no redirect) and serves the file at `destination` (with `path-to-regexp` segments interpolated). Whether rewrites are short-circuited by an existing original-path file depends on the path shape:
+
+- If the original request path has a non-empty extension (e.g. `/page.html`, `/asset.css`) and the file exists, the file is served directly and the rewrite does not apply.
+- If the original request path has no extension (e.g. `/about`, `/api`), `serve` does NOT pre-stat it before applying rewrites. A matching rewrite serves its destination instead, even if the extensionless original path exists as a regular file.
+
+This pre-stat gate is `path.extname(relativePath) !== ''` at `src/index.js:608-616`.
 
 Scenarios:
 - GIVEN `{ "source": "/projects/:id/edit", "destination": "/edit-project-:id.html" }`.
