@@ -1,0 +1,109 @@
+{
+  "$schemaVersion": 1,
+  "case": "traversal-raw-encoded",
+  "description": "Wire-level path-traversal probe using the raw-socket mode so that '..', '%2e%2e' and '//' are sent verbatim — fetch and Node's URL parser would normalize all three before the request reached the network. Backs SRV-SEC-001 and addresses the verification gap recorded in Q-010.",
+  "fixture": {
+    "files": {
+      "public/index.html": "<!doctype html><title>safe</title>\n"
+    }
+  },
+  "serveArgs": [],
+  "volatileHeaders": [
+    "last-modified"
+  ],
+  "volatileBodies": [],
+  "requests": [
+    {
+      "name": "raw_dotdot_literal",
+      "request": {
+        "method": "GET",
+        "mode": "raw",
+        "path": "/../package.json"
+      },
+      "requestLine": "GET /../package.json HTTP/1.1",
+      "response": {
+        "body": {
+          "kind": "text",
+          "length": 1627,
+          "sha256": "d06e67ede4034cea52ced7be0f259fffe84e49c10df1a9431a33d2261c66f9e2",
+          "preview": "64f\r\n<!DOCTYPE html><head> <meta name=\"viewport\" content=\"width=device-width, initial-scale=1, user-scalable=no\"/> <style> body { margin: 0; font-family: -apple-system, BlinkMacSystemFont, \"Segoe UI\","
+        },
+        "headers": {
+          "content-type": "text/html; charset=utf-8",
+          "vary": "Accept-Encoding"
+        },
+        "status": 400,
+        "statusText": "Bad Request"
+      }
+    },
+    {
+      "name": "raw_dotdot_percent_encoded",
+      "request": {
+        "method": "GET",
+        "mode": "raw",
+        "path": "/%2e%2e/package.json"
+      },
+      "requestLine": "GET /%2e%2e/package.json HTTP/1.1",
+      "response": {
+        "body": {
+          "kind": "text",
+          "length": 1627,
+          "sha256": "d06e67ede4034cea52ced7be0f259fffe84e49c10df1a9431a33d2261c66f9e2",
+          "preview": "64f\r\n<!DOCTYPE html><head> <meta name=\"viewport\" content=\"width=device-width, initial-scale=1, user-scalable=no\"/> <style> body { margin: 0; font-family: -apple-system, BlinkMacSystemFont, \"Segoe UI\","
+        },
+        "headers": {
+          "content-type": "text/html; charset=utf-8",
+          "vary": "Accept-Encoding"
+        },
+        "status": 400,
+        "statusText": "Bad Request"
+      }
+    },
+    {
+      "name": "raw_double_slash",
+      "request": {
+        "method": "GET",
+        "mode": "raw",
+        "path": "//etc/passwd"
+      },
+      "requestLine": "GET //etc/passwd HTTP/1.1",
+      "response": {
+        "body": {
+          "kind": "text",
+          "length": 1653,
+          "sha256": "b15703f4ac16806efec2b33f9cbc7e355dd2793f261ed1ea1f956830bc5b6939",
+          "preview": "669\r\n<!DOCTYPE html><head> <meta name=\"viewport\" content=\"width=device-width, initial-scale=1, user-scalable=no\"/> <style> body { margin: 0; font-family: -apple-system, BlinkMacSystemFont, \"Segoe UI\","
+        },
+        "headers": {
+          "content-type": "text/html; charset=utf-8",
+          "vary": "Accept-Encoding"
+        },
+        "status": 404,
+        "statusText": "Not Found"
+      }
+    },
+    {
+      "name": "raw_malformed_percent",
+      "request": {
+        "method": "GET",
+        "mode": "raw",
+        "path": "/%zz"
+      },
+      "requestLine": "GET /%zz HTTP/1.1",
+      "response": {
+        "body": {
+          "kind": "text",
+          "length": 1627,
+          "sha256": "d06e67ede4034cea52ced7be0f259fffe84e49c10df1a9431a33d2261c66f9e2",
+          "preview": "64f\r\n<!DOCTYPE html><head> <meta name=\"viewport\" content=\"width=device-width, initial-scale=1, user-scalable=no\"/> <style> body { margin: 0; font-family: -apple-system, BlinkMacSystemFont, \"Segoe UI\","
+        },
+        "headers": {
+          "content-type": "text/html; charset=utf-8",
+          "vary": "Accept-Encoding"
+        },
+        "status": 400,
+        "statusText": "Bad Request"
+      }
+    }
+  ]
+}

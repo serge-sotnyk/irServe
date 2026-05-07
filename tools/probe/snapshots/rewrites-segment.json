@@ -1,0 +1,80 @@
+{
+  "$schemaVersion": 1,
+  "case": "rewrites-segment",
+  "description": "Rewrite with path-to-regexp segment and SPA-style wildcard. Confirms 200 status (rewrites are silent unlike redirects) and that body is from destination file.",
+  "fixture": {
+    "files": {
+      "edit-project-123.html": "<p>edit-123</p>\n",
+      "index.html": "<p>spa-root</p>\n"
+    },
+    "serveJson": {
+      "rewrites": [
+        {
+          "source": "/projects/:id/edit",
+          "destination": "/edit-project-:id.html"
+        },
+        {
+          "source": "/spa/**",
+          "destination": "/index.html"
+        }
+      ]
+    }
+  },
+  "serveArgs": [],
+  "volatileHeaders": [
+    "last-modified"
+  ],
+  "volatileBodies": [],
+  "requests": [
+    {
+      "name": "segment_rewrite",
+      "request": {
+        "method": "GET",
+        "mode": "fetch",
+        "path": "/projects/123/edit"
+      },
+      "response": {
+        "body": {
+          "kind": "text",
+          "length": 16,
+          "sha256": "3915e135d21f11abf39e2705af054ec9687757e65e85f9ab3997c0cd27c8a4ad",
+          "preview": "<p>edit-123</p>\n"
+        },
+        "headers": {
+          "accept-ranges": "bytes",
+          "content-length": "16",
+          "content-type": "text/html; charset=utf-8",
+          "etag": "\"2d445a1a4ccf8975c7952775d10f919598a26313\"",
+          "vary": "Accept-Encoding"
+        },
+        "status": 200,
+        "statusText": "OK"
+      }
+    },
+    {
+      "name": "spa_fallback",
+      "request": {
+        "method": "GET",
+        "mode": "fetch",
+        "path": "/spa/some/deep/path"
+      },
+      "response": {
+        "body": {
+          "kind": "text",
+          "length": 16,
+          "sha256": "078100df83e59e80978326b37d73d25a62477cc9f84a179f465d6f930af9dde0",
+          "preview": "<p>spa-root</p>\n"
+        },
+        "headers": {
+          "accept-ranges": "bytes",
+          "content-length": "16",
+          "content-type": "text/html; charset=utf-8",
+          "etag": "\"c4332db2fc16c1a786412033c20104339dffeb31\"",
+          "vary": "Accept-Encoding"
+        },
+        "status": 200,
+        "statusText": "OK"
+      }
+    }
+  ]
+}

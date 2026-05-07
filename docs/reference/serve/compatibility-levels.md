@@ -6,6 +6,8 @@ IrServe is a Rust CLI static file server inspired by `vercel/serve`.
 
 IrServe aims to match the **observable HTTP behavior** of `npm serve` where practical. The reference implementations are `vercel/serve` and `vercel/serve-handler`, used as oracles for selected behavior tests, not as a source-level template.
 
+The catalog of behaviors verified against the pinned reference lives in [`oracle-matrix.md`](./oracle-matrix.md); the canonical evidence (committed) lives under [`tools/probe/snapshots/`](../../../tools/probe/snapshots/).
+
 ## Explicit non-goals
 
 - Node.js middleware API compatibility (`serve-handler` as embeddable library). See `decisions.md` D-001.
@@ -71,18 +73,25 @@ Each bullet cites the backing `SRV-*` entries from `inventory.md`. Bullets with 
 - Windows path quirks (case-sensitivity, separator handling, drive letters, `\\?\` long-path syntax, reserved names, trailing-dot/space stripping) — SRV-WIN-001 (placeholder, deferred).
 - Path-traversal corner cases beyond denial — captured under SRV-SEC-001 with explicit wire-level scenarios; remaining deep edge cases (mixed-separator forms across platforms) live with SRV-WIN-001.
 
-## Coverage gaps (status after Stage 2)
+## Coverage gaps (status after Stage 3)
 
-The six Stage-2 follow-ups previously logged here have been resolved as follows:
+The six Stage-2 follow-ups have evolved as follows:
 
-1. ✅ Documented precedence rules between rewrites / redirects / cleanUrls / trailingSlash / static files — captured in **SRV-ROUT-006**.
-2. ✅ `Cache-Control` header behavior — captured in **SRV-CACHE-005** with probe `cache-control-default`.
-3. ✅ `trailingSlash` level placement — confirmed at Level 2 (this file was reconciled with the inventory).
-4. ✅ CORS response-header semantics — captured in **SRV-CORS-001** with probes `cors-applied`, `cors-response-surface`, `cors-preflight`. Probe runner now tracks the `access-control-allow-*` allowlist.
-5. ⏳ Windows path quirks — gap acknowledged via the **SRV-WIN-001** deferred placeholder; full SRV bodies are out of MVP scope per the Level 4 policy.
-6. ⏳ Wire-level path traversal probing (Q-010) — raw-socket probe mode added (`tools/probe/run.mjs` `mode: "raw"`); probe `traversal-raw-encoded` recorded; SRV-SEC-001 updated with the four wire-level scenarios. Remaining: an oracle case in Stage 3 must assert these status codes against the reference before SRV-SEC-001 is promoted to `verified`.
+1. ✅ Documented precedence rules between rewrites / redirects / cleanUrls / trailingSlash / static files — captured in **SRV-ROUT-006**, promoted to `verified` in Stage 3 (ORC-014, ORC-016, ORC-017, ORC-018, ORC-020, ORC-032, ORC-033).
+2. ✅ `Cache-Control` header behavior — captured in **SRV-CACHE-005**, `verified` (ORC-047 through ORC-052).
+3. ✅ `trailingSlash` level placement — confirmed at Level 2.
+4. ✅ CORS response-header semantics — captured in **SRV-CORS-001**, `verified` (ORC-054 through ORC-057).
+5. ⏳ Windows path quirks — gap acknowledged via the **SRV-WIN-001** deferred placeholder; full SRV bodies are out of MVP scope per the Level 4 policy. Stays deferred.
+6. ✅ Wire-level path traversal probing (Q-010) — closed in Stage 3. SRV-SEC-001 is `verified` (ORC-038 through ORC-041).
 
-No new gaps were introduced during the Stage 2 capability refresh.
+Stage 3 introduces these residual coverage gaps (full list with rationale in [`oracle-matrix.md`](./oracle-matrix.md#coverage-gaps)):
+
+- Process-level CLI behavior (`--help`, `--version`, two-positional error) — needs an exit-code/stdout assertion mode in the runner; deferred to Stage 5b. Affects SRV-CLI-019 and SRV-CLI-007 scenario 3.
+- Default-port path (no `--listen`, no `PORT`) — every probe passes an explicit `--listen`; SRV-CLI-001 stays `accepted`.
+- `--no-etag` / `Last-Modified` path — no probe in Stage 3. SRV-CLI-013 and SRV-CACHE-002 stay `accepted`; SRV-CACHE-003 stays `unknown` (Q-009 open).
+- `headers` rule with `value: null` removal — the existing `headers-custom` probe is broken (intercepted by cleanUrls 301); SRV-HDR-002 stays `accepted`. Stage-5b cleanup TODO logged in `oracle-matrix.md`.
+- External-URL redirects (SRV-RDIR-003) — no probe; Q-007 stays open.
+- Symlinks / TLS / UDS / Windows pipe — Level 4 `deferred` SRVs remain at that status.
 
 ## How this document is used
 

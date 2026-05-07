@@ -1,0 +1,104 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/serge-sotnyk/irServe/tools/probe/snapshots/_schema.json",
+  "title": "Probe snapshot",
+  "description": "Normalized canonical response capture from the pinned vercel/serve reference for one probe case. Snapshots are written by `node tools/probe/run.mjs <id> --snapshot=update` and verified by `--snapshot=verify`. They are committed to the repository and serve as the Stage-3 source of truth for what the reference does. See docs/reference/serve/oracle-matrix.md.",
+  "type": "object",
+  "required": ["$schemaVersion", "case", "requests"],
+  "additionalProperties": false,
+  "properties": {
+    "$schemaVersion": {
+      "const": 1,
+      "description": "Snapshot schema version. Bump only when the on-disk shape changes incompatibly."
+    },
+    "case": {
+      "type": "string",
+      "description": "Probe case id (matches cases/<id>.json)."
+    },
+    "description": {
+      "type": ["string", "null"],
+      "description": "Echo of the case description."
+    },
+    "fixture": {
+      "type": ["object", "null"],
+      "description": "Echo of the case fixture (files + serveJson). Recorded so a snapshot is self-contained."
+    },
+    "serveArgs": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "Echo of the case serveArgs."
+    },
+    "volatileHeaders": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "Header names whose values are present-but-not-asserted during `--snapshot=verify`. The runner records the observed value (so it stays auditable in the snapshot file) but the diff treats the value as a wildcard. Default: [\"last-modified\"]. Override per case via `cases/<id>.json#snapshot.volatileHeaders`. Names are lowercase."
+    },
+    "volatileBodies": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "Request names whose response body is volatile across runs (e.g., directory listings that embed the absolute fixture path, or generated error pages that include port-specific content). The runner still records body length / sha256 / preview for audit, but `verify` masks those fields for these request names. The body's `kind` (text|binary|empty) is still asserted. Override per case via `cases/<id>.json#snapshot.volatileBodies`."
+    },
+    "requests": {
+      "type": "array",
+      "minItems": 1,
+      "description": "Per-request snapshot entries. Order matches the case's request list.",
+      "items": {
+        "type": "object",
+        "required": ["name", "request", "response"],
+        "additionalProperties": false,
+        "properties": {
+          "name": {
+            "type": "string",
+            "description": "Echo of the request's name field from the case."
+          },
+          "request": {
+            "type": "object",
+            "required": ["method", "path", "mode"],
+            "additionalProperties": false,
+            "properties": {
+              "method": { "type": "string" },
+              "path": { "type": "string" },
+              "mode": { "enum": ["fetch", "raw"] },
+              "headers": {
+                "type": "object",
+                "additionalProperties": { "type": "string" }
+              }
+            }
+          },
+          "requestLine": {
+            "type": "string",
+            "description": "Raw mode only: literal HTTP request line as sent on the wire (e.g., `GET /%2e%2e/etc/passwd HTTP/1.1`). Asserts that no client-side normalization sneaked in."
+          },
+          "response": {
+            "type": "object",
+            "required": ["status", "headers", "body"],
+            "additionalProperties": false,
+            "properties": {
+              "status": { "type": "integer" },
+              "statusText": { "type": "string" },
+              "headers": {
+                "type": "object",
+                "description": "Tracked response headers, name → value, all lowercase, sorted alphabetically.",
+                "additionalProperties": { "type": "string" }
+              },
+              "body": {
+                "type": "object",
+                "required": ["kind", "length", "sha256"],
+                "additionalProperties": false,
+                "properties": {
+                  "kind": { "enum": ["text", "binary", "empty"] },
+                  "length": { "type": "integer" },
+                  "sha256": { "type": "string" },
+                  "preview": {
+                    "type": "string",
+                    "description": "First 200 bytes of body decoded as UTF-8. Present only when kind is `text`."
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

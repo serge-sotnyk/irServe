@@ -1,0 +1,86 @@
+{
+  "$schemaVersion": 1,
+  "case": "prec-cleanurls-trailing",
+  "description": "Probe interaction of cleanUrls and trailingSlash. Fixture has both about.html and about/index.html. Tests /about, /about.html, /about/ under (a) defaults, (b) trailingSlash:true, (c) trailingSlash:false. Goal: identify which file is served and which redirects fire.",
+  "fixture": {
+    "files": {
+      "about.html": "<p>about-html-flat</p>\n",
+      "about/index.html": "<p>about-index</p>\n"
+    },
+    "serveJson": {
+      "trailingSlash": true
+    }
+  },
+  "serveArgs": [],
+  "volatileHeaders": [
+    "last-modified"
+  ],
+  "volatileBodies": [],
+  "requests": [
+    {
+      "name": "about_no_slash",
+      "request": {
+        "method": "GET",
+        "mode": "fetch",
+        "path": "/about"
+      },
+      "response": {
+        "body": {
+          "kind": "empty",
+          "length": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        "headers": {
+          "location": "/about/"
+        },
+        "status": 301,
+        "statusText": "Moved Permanently"
+      }
+    },
+    {
+      "name": "about_html",
+      "request": {
+        "method": "GET",
+        "mode": "fetch",
+        "path": "/about.html"
+      },
+      "response": {
+        "body": {
+          "kind": "empty",
+          "length": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        "headers": {
+          "location": "/about"
+        },
+        "status": 301,
+        "statusText": "Moved Permanently"
+      }
+    },
+    {
+      "name": "about_with_slash",
+      "request": {
+        "method": "GET",
+        "mode": "fetch",
+        "path": "/about/"
+      },
+      "response": {
+        "body": {
+          "kind": "text",
+          "length": 19,
+          "sha256": "072bb8edf5d0e930a66f7a96b521e68585f849720b57a3f0f8717c122102165d",
+          "preview": "<p>about-index</p>\n"
+        },
+        "headers": {
+          "accept-ranges": "bytes",
+          "content-length": "19",
+          "content-type": "text/html; charset=utf-8",
+          "etag": "\"eb8de5d4c04c56e6eeee5a4b7f1f744a600cb7fa\"",
+          "vary": "Accept-Encoding"
+        },
+        "status": 200,
+        "statusText": "OK"
+      }
+    }
+  ]
+}

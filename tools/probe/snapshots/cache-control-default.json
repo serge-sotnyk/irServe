@@ -1,0 +1,173 @@
+{
+  "$schemaVersion": 1,
+  "case": "cache-control-default",
+  "description": "Document the Cache-Control header behavior across response types under default config: (a) plain file response, (b) file response with a custom headers rule, (c) HTML directory listing (no index.html in fixture root), (d) 404 missing path. Backs SRV-CACHE-005.",
+  "fixture": {
+    "files": {
+      "asset.css": "body{}\n",
+      "tagged.css": "h1{}\n"
+    },
+    "serveJson": {
+      "headers": [
+        {
+          "source": "**/tagged.css",
+          "headers": [
+            {
+              "key": "Cache-Control",
+              "value": "public, max-age=600"
+            }
+          ]
+        }
+      ]
+    }
+  },
+  "serveArgs": [],
+  "volatileHeaders": [
+    "last-modified"
+  ],
+  "volatileBodies": [
+    "default_listing_html",
+    "default_listing_json"
+  ],
+  "requests": [
+    {
+      "name": "default_file_no_rule",
+      "request": {
+        "method": "GET",
+        "mode": "fetch",
+        "path": "/asset.css"
+      },
+      "response": {
+        "body": {
+          "kind": "text",
+          "length": 7,
+          "sha256": "2708d73bf31c36cdfa1aa466551ed101017280fa546caba4473cfef6e92a93b5",
+          "preview": "body{}\n"
+        },
+        "headers": {
+          "accept-ranges": "bytes",
+          "content-length": "7",
+          "content-type": "text/css; charset=utf-8",
+          "etag": "\"3daef43df4ef7acd6f554df47081815e1e7eb8ff\"",
+          "vary": "Accept-Encoding"
+        },
+        "status": 200,
+        "statusText": "OK"
+      }
+    },
+    {
+      "name": "default_listing_html",
+      "request": {
+        "method": "GET",
+        "mode": "fetch",
+        "path": "/"
+      },
+      "response": {
+        "body": {
+          "kind": "text"
+        },
+        "headers": {
+          "content-type": "text/html; charset=utf-8",
+          "vary": "Accept-Encoding"
+        },
+        "status": 200,
+        "statusText": "OK"
+      }
+    },
+    {
+      "name": "default_listing_json",
+      "request": {
+        "method": "GET",
+        "mode": "fetch",
+        "path": "/",
+        "headers": {
+          "Accept": "application/json"
+        }
+      },
+      "response": {
+        "body": {
+          "kind": "text"
+        },
+        "headers": {
+          "content-type": "application/json; charset=utf-8",
+          "vary": "Accept-Encoding"
+        },
+        "status": 200,
+        "statusText": "OK"
+      }
+    },
+    {
+      "name": "default_404_html",
+      "request": {
+        "method": "GET",
+        "mode": "fetch",
+        "path": "/missing"
+      },
+      "response": {
+        "body": {
+          "kind": "text",
+          "length": 1641,
+          "sha256": "8c45c679f40c3f81c111fbf2398d568189c3ab34d8a9704ad225cd8efe1b819f",
+          "preview": "<!DOCTYPE html><head> <meta name=\"viewport\" content=\"width=device-width, initial-scale=1, user-scalable=no\"/> <style> body { margin: 0; font-family: -apple-system, BlinkMacSystemFont, \"Segoe UI\", \"Rob"
+        },
+        "headers": {
+          "content-type": "text/html; charset=utf-8",
+          "vary": "Accept-Encoding"
+        },
+        "status": 404,
+        "statusText": "Not Found"
+      }
+    },
+    {
+      "name": "default_404_json",
+      "request": {
+        "method": "GET",
+        "mode": "fetch",
+        "path": "/missing",
+        "headers": {
+          "Accept": "application/json"
+        }
+      },
+      "response": {
+        "body": {
+          "kind": "text",
+          "length": 80,
+          "sha256": "d3c0644107ea757e4783a7cdcd683b3a781b6a88f30e0de8c6ed1c69ef4113ee",
+          "preview": "{\"error\":{\"code\":\"not_found\",\"message\":\"The requested path could not be found\"}}"
+        },
+        "headers": {
+          "content-type": "application/json; charset=utf-8",
+          "vary": "Accept-Encoding"
+        },
+        "status": 404,
+        "statusText": "Not Found"
+      }
+    },
+    {
+      "name": "rule_applies_cache_control",
+      "request": {
+        "method": "GET",
+        "mode": "fetch",
+        "path": "/tagged.css"
+      },
+      "response": {
+        "body": {
+          "kind": "text",
+          "length": 5,
+          "sha256": "65febb159ec7d50e79b9ba6a202bd0c792671664c2094a8a56e80381fa5dd09e",
+          "preview": "h1{}\n"
+        },
+        "headers": {
+          "accept-ranges": "bytes",
+          "cache-control": "public, max-age=600",
+          "content-length": "5",
+          "content-type": "text/css; charset=utf-8",
+          "etag": "\"ccb299b5057c9d6649651293dacf9687bcd15bda\"",
+          "vary": "Accept-Encoding"
+        },
+        "status": 200,
+        "statusText": "OK"
+      }
+    }
+  ]
+}

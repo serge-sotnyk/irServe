@@ -1,0 +1,115 @@
+{
+  "$schemaVersion": 1,
+  "case": "cleanurls-array",
+  "description": "`cleanUrls` array form: when configured as a list of glob patterns, only matching paths are subject to extension stripping / 301. Closes Q-005 by recording behavior for (a) a path inside the list — 301 to extensionless, (b) a path outside the list — direct 200 from the .html file with no rewrite. Backs SRV-ROUT-001 (array-form scope).",
+  "fixture": {
+    "files": {
+      "docs/guide.html": "<p>guide</p>\n",
+      "blog/post.html": "<p>post</p>\n"
+    },
+    "serveJson": {
+      "cleanUrls": [
+        "/docs/**"
+      ]
+    }
+  },
+  "serveArgs": [],
+  "volatileHeaders": [
+    "last-modified"
+  ],
+  "volatileBodies": [],
+  "requests": [
+    {
+      "name": "in_scope_redirect",
+      "request": {
+        "method": "GET",
+        "mode": "fetch",
+        "path": "/docs/guide.html"
+      },
+      "response": {
+        "body": {
+          "kind": "empty",
+          "length": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        "headers": {
+          "location": "/docs/guide"
+        },
+        "status": 301,
+        "statusText": "Moved Permanently"
+      }
+    },
+    {
+      "name": "in_scope_extensionless",
+      "request": {
+        "method": "GET",
+        "mode": "fetch",
+        "path": "/docs/guide"
+      },
+      "response": {
+        "body": {
+          "kind": "text",
+          "length": 13,
+          "sha256": "034b5d9b8941e9473149225d939fd31cf06088426a8186f9fad80f819adbaaf5",
+          "preview": "<p>guide</p>\n"
+        },
+        "headers": {
+          "accept-ranges": "bytes",
+          "content-length": "13",
+          "content-type": "text/html; charset=utf-8",
+          "etag": "\"6a884a1a1dff1c0f169bdcbfd54b27132cce60fb\"",
+          "vary": "Accept-Encoding"
+        },
+        "status": 200,
+        "statusText": "OK"
+      }
+    },
+    {
+      "name": "out_of_scope_html_direct",
+      "request": {
+        "method": "GET",
+        "mode": "fetch",
+        "path": "/blog/post.html"
+      },
+      "response": {
+        "body": {
+          "kind": "text",
+          "length": 12,
+          "sha256": "6c0c3e4aefcddd6fe89971ec2002e8205b7c275bbe2d87fda6c0558c333c054d",
+          "preview": "<p>post</p>\n"
+        },
+        "headers": {
+          "accept-ranges": "bytes",
+          "content-length": "12",
+          "content-type": "text/html; charset=utf-8",
+          "etag": "\"ceef107af23391da15f97e1622dfb30397ae3a2d\"",
+          "vary": "Accept-Encoding"
+        },
+        "status": 200,
+        "statusText": "OK"
+      }
+    },
+    {
+      "name": "out_of_scope_extensionless_miss",
+      "request": {
+        "method": "GET",
+        "mode": "fetch",
+        "path": "/blog/post"
+      },
+      "response": {
+        "body": {
+          "kind": "text",
+          "length": 1641,
+          "sha256": "8c45c679f40c3f81c111fbf2398d568189c3ab34d8a9704ad225cd8efe1b819f",
+          "preview": "<!DOCTYPE html><head> <meta name=\"viewport\" content=\"width=device-width, initial-scale=1, user-scalable=no\"/> <style> body { margin: 0; font-family: -apple-system, BlinkMacSystemFont, \"Segoe UI\", \"Rob"
+        },
+        "headers": {
+          "content-type": "text/html; charset=utf-8",
+          "vary": "Accept-Encoding"
+        },
+        "status": 404,
+        "statusText": "Not Found"
+      }
+    }
+  ]
+}

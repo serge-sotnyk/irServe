@@ -1,0 +1,13 @@
+{
+  "id": "error-page-custom",
+  "description": "Custom 404 page: when the served root contains `404.html`, a request for a missing path serves that file's content with status 404 and `Content-Type: text/html`. Backs SRV-FILE-003.",
+  "fixture": {
+    "files": {
+      "index.html": "<p>home</p>\n",
+      "404.html": "<p>custom-not-found</p>\n"
+    }
+  },
+  "requests": [
+    { "name": "missing_with_custom_404", "method": "GET", "path": "/no-such-page" }
+  ]
+}

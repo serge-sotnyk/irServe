@@ -1,0 +1,70 @@
+{
+  "$schemaVersion": 1,
+  "case": "listing-unlisted",
+  "description": "Directory listing with default unlisted (.DS_Store, .git) plus user-supplied unlisted entries; also confirms html vs json content-type from accept header.",
+  "fixture": {
+    "files": {
+      "a.txt": "a\n",
+      "b.txt": "b\n",
+      "secret.txt": "shh\n",
+      ".DS_Store": "ds\n",
+      ".git/HEAD": "ref\n"
+    },
+    "serveJson": {
+      "unlisted": [
+        "secret.txt"
+      ]
+    }
+  },
+  "serveArgs": [],
+  "volatileHeaders": [
+    "last-modified"
+  ],
+  "volatileBodies": [
+    "listing_html",
+    "listing_json"
+  ],
+  "requests": [
+    {
+      "name": "listing_html",
+      "request": {
+        "method": "GET",
+        "mode": "fetch",
+        "path": "/"
+      },
+      "response": {
+        "body": {
+          "kind": "text"
+        },
+        "headers": {
+          "content-type": "text/html; charset=utf-8",
+          "vary": "Accept-Encoding"
+        },
+        "status": 200,
+        "statusText": "OK"
+      }
+    },
+    {
+      "name": "listing_json",
+      "request": {
+        "method": "GET",
+        "mode": "fetch",
+        "path": "/",
+        "headers": {
+          "accept": "application/json"
+        }
+      },
+      "response": {
+        "body": {
+          "kind": "text"
+        },
+        "headers": {
+          "content-type": "application/json; charset=utf-8",
+          "vary": "Accept-Encoding"
+        },
+        "status": 200,
+        "statusText": "OK"
+      }
+    }
+  ]
+}

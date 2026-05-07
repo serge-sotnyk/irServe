@@ -1,0 +1,53 @@
+{
+  "$schemaVersion": 1,
+  "case": "cors-preflight",
+  "description": "Send a CORS preflight (OPTIONS with Origin and Access-Control-Request-* headers) under --cors and capture the response surface. Backs SRV-CORS-001.",
+  "fixture": {
+    "files": {
+      "asset.css": "body{}\n"
+    }
+  },
+  "serveArgs": [
+    "--cors"
+  ],
+  "volatileHeaders": [
+    "last-modified"
+  ],
+  "volatileBodies": [],
+  "requests": [
+    {
+      "name": "preflight_options",
+      "request": {
+        "method": "OPTIONS",
+        "mode": "fetch",
+        "path": "/asset.css",
+        "headers": {
+          "Access-Control-Request-Headers": "x-custom-header",
+          "Access-Control-Request-Method": "GET",
+          "Origin": "https://example.com"
+        }
+      },
+      "response": {
+        "body": {
+          "kind": "text",
+          "length": 7,
+          "sha256": "2708d73bf31c36cdfa1aa466551ed101017280fa546caba4473cfef6e92a93b5",
+          "preview": "body{}\n"
+        },
+        "headers": {
+          "accept-ranges": "bytes",
+          "access-control-allow-credentials": "true",
+          "access-control-allow-headers": "*",
+          "access-control-allow-origin": "*",
+          "access-control-allow-private-network": "true",
+          "content-length": "7",
+          "content-type": "text/css; charset=utf-8",
+          "etag": "\"3daef43df4ef7acd6f554df47081815e1e7eb8ff\"",
+          "vary": "Accept-Encoding"
+        },
+        "status": 200,
+        "statusText": "OK"
+      }
+    }
+  ]
+}

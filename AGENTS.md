@@ -23,8 +23,9 @@ Authoritative version with examples is in [README §Anti-hallucination rules](./
 
 - Methodology, stage map, getting started → [`README.md`](./README.md).
 - Compatibility levels → [`docs/reference/serve/compatibility-levels.md`](./docs/reference/serve/compatibility-levels.md).
+- Oracle matrix (Stage-3 verified-behavior catalogue) → [`docs/reference/serve/oracle-matrix.md`](./docs/reference/serve/oracle-matrix.md).
 - OpenSpec authoring rules → [`openspec/AGENTS.md`](./openspec/AGENTS.md).
-- Reference-behavior probes → [`tools/probe/README.md`](./tools/probe/README.md).
+- Reference-behavior probes → [`tools/probe/README.md`](./tools/probe/README.md). Canonical snapshots live in [`tools/probe/snapshots/`](./tools/probe/snapshots/).
 
 ## Notes for agents
 

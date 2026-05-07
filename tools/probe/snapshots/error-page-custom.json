@@ -1,0 +1,43 @@
+{
+  "$schemaVersion": 1,
+  "case": "error-page-custom",
+  "description": "Custom 404 page: when the served root contains `404.html`, a request for a missing path serves that file's content with status 404 and `Content-Type: text/html`. Backs SRV-FILE-003.",
+  "fixture": {
+    "files": {
+      "index.html": "<p>home</p>\n",
+      "404.html": "<p>custom-not-found</p>\n"
+    }
+  },
+  "serveArgs": [],
+  "volatileHeaders": [
+    "last-modified"
+  ],
+  "volatileBodies": [],
+  "requests": [
+    {
+      "name": "missing_with_custom_404",
+      "request": {
+        "method": "GET",
+        "mode": "fetch",
+        "path": "/no-such-page"
+      },
+      "response": {
+        "body": {
+          "kind": "text",
+          "length": 24,
+          "sha256": "211431b6a7f8f4824756a0cff685376d42967f4ddf90ab66af03038fb188adb5",
+          "preview": "<p>custom-not-found</p>\n"
+        },
+        "headers": {
+          "accept-ranges": "bytes",
+          "content-length": "24",
+          "content-type": "text/html; charset=utf-8",
+          "etag": "\"0de5b2324703081856e5b88e01eaf8cc9332e68f\"",
+          "vary": "Accept-Encoding"
+        },
+        "status": 404,
+        "statusText": "Not Found"
+      }
+    }
+  ]
+}

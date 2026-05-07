@@ -30,19 +30,58 @@ node tools/probe/run.mjs --list
 
 Set `PROBE_VERBOSE=1` to also dump `serve` stderr after each run.
 
+## Snapshot mode
+
+Probes can be paired with a committed canonical snapshot under
+`tools/probe/snapshots/<id>.json`. Snapshots are the Stage-3 artifact-of-record
+for what the pinned reference does — see
+[`docs/reference/serve/oracle-matrix.md`](../../docs/reference/serve/oracle-matrix.md).
+
+```bash
+# Capture / refresh the canonical snapshot for one probe
+node tools/probe/run.mjs <probe-id> --snapshot=update
+
+# Verify all probes against their committed snapshots
+node tools/probe/run.mjs --all --snapshot=verify
+
+# Force the legacy behavior (only writes results/)
+node tools/probe/run.mjs <probe-id> --snapshot=none
+```
+
+Without `--snapshot=`, the runner auto-selects: `verify` when a snapshot
+exists, `none` otherwise. A snapshot mismatch surfaces as a non-zero exit
+with a line-by-line diff of the prettified expected vs actual snapshot.
+
+The snapshot schema is `tools/probe/snapshots/_schema.json`. Recorded fields:
+status, response statusText, the same allowlisted headers as the result
+file, body shape (kind + length + sha256 + first 200 utf-8 bytes for
+textual responses), and (in raw mode) the literal request line. The
+`volatileHeaders` list (default: `["last-modified"]`) names headers whose
+values are recorded but not asserted during `verify`. Override per case via
+`cases/<id>.json#snapshot.volatileHeaders` when, for example, an `etag`
+value depends on file mtime.
+
+Snapshots are intentionally hand-edit-hostile: if a diff looks wrong, the
+fix is upstream of the snapshot — adjust the case, the runner, or the
+fixture, then re-run with `--snapshot=update`.
+
 ## Conventions
 
 - Probe ids prefixed with `_` (e.g. `_smoke`) are infrastructure, not behavior evidence.
 - A probe id should be referenced from one or more SRV-* entries in `docs/reference/serve/inventory.md`. The inventory entry's `Reference source` line should read `Probe: tools/probe/cases/<id>.json`.
-- Result files are gitignored. The probe is the source of truth; results are reproducible.
+- Result files (`tools/probe/results/`) are gitignored — they are reproducible and verbose. Snapshot files (`tools/probe/snapshots/`) are committed and serve as the canonical record.
 - The runner is dependency-free (Node 18+ built-ins only). Do not introduce npm dependencies into this directory.
 
 ## Limits
 
-This is not a full oracle harness. It does not:
+This runner freezes one side of the comparison — the reference. It does
+not:
 
-- compare two implementations,
-- diff against a recorded snapshot,
+- run a Rust implementation against the same fixtures (Stage 5b concern),
+- decode `Transfer-Encoding: chunked` in raw mode,
 - run in CI.
 
-Those are Stage 5b concerns (the Rust scaffold + first vertical slice; Stage 5a delivers the implementation proposal only). The probe runner is intentionally one-sided: it documents what `serve` does, not whether `irServe` matches.
+`--snapshot=verify` proves that the recorded reference behavior is still
+reproducible against the pinned `third_party/serve`; it does **not** prove
+that `irServe` matches anything. The Rust-side comparison lands at Stage
+5b together with `tests/oracle/`.

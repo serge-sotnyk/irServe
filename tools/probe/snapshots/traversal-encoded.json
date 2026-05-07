@@ -1,0 +1,109 @@
+{
+  "$schemaVersion": 1,
+  "case": "traversal-encoded",
+  "description": "Path traversal probes: percent-encoded, multi-slash, plain dot-dot. Records the actual response codes. Note: clients may normalize //... so observe carefully.",
+  "fixture": {
+    "files": {
+      "index.html": "root\n",
+      "secret.txt": "secret\n"
+    }
+  },
+  "serveArgs": [],
+  "volatileHeaders": [
+    "last-modified"
+  ],
+  "volatileBodies": [],
+  "requests": [
+    {
+      "name": "encoded_dotdot",
+      "request": {
+        "method": "GET",
+        "mode": "fetch",
+        "path": "/%2e%2e/etc/passwd"
+      },
+      "response": {
+        "body": {
+          "kind": "text",
+          "length": 1641,
+          "sha256": "8c45c679f40c3f81c111fbf2398d568189c3ab34d8a9704ad225cd8efe1b819f",
+          "preview": "<!DOCTYPE html><head> <meta name=\"viewport\" content=\"width=device-width, initial-scale=1, user-scalable=no\"/> <style> body { margin: 0; font-family: -apple-system, BlinkMacSystemFont, \"Segoe UI\", \"Rob"
+        },
+        "headers": {
+          "content-type": "text/html; charset=utf-8",
+          "vary": "Accept-Encoding"
+        },
+        "status": 404,
+        "statusText": "Not Found"
+      }
+    },
+    {
+      "name": "double_slash_passwd",
+      "request": {
+        "method": "GET",
+        "mode": "fetch",
+        "path": "//etc/passwd"
+      },
+      "response": {
+        "body": {
+          "kind": "text",
+          "length": 1641,
+          "sha256": "8c45c679f40c3f81c111fbf2398d568189c3ab34d8a9704ad225cd8efe1b819f",
+          "preview": "<!DOCTYPE html><head> <meta name=\"viewport\" content=\"width=device-width, initial-scale=1, user-scalable=no\"/> <style> body { margin: 0; font-family: -apple-system, BlinkMacSystemFont, \"Segoe UI\", \"Rob"
+        },
+        "headers": {
+          "content-type": "text/html; charset=utf-8",
+          "vary": "Accept-Encoding"
+        },
+        "status": 404,
+        "statusText": "Not Found"
+      }
+    },
+    {
+      "name": "raw_dotdot",
+      "request": {
+        "method": "GET",
+        "mode": "fetch",
+        "path": "/../../etc/passwd"
+      },
+      "response": {
+        "body": {
+          "kind": "text",
+          "length": 1641,
+          "sha256": "8c45c679f40c3f81c111fbf2398d568189c3ab34d8a9704ad225cd8efe1b819f",
+          "preview": "<!DOCTYPE html><head> <meta name=\"viewport\" content=\"width=device-width, initial-scale=1, user-scalable=no\"/> <style> body { margin: 0; font-family: -apple-system, BlinkMacSystemFont, \"Segoe UI\", \"Rob"
+        },
+        "headers": {
+          "content-type": "text/html; charset=utf-8",
+          "vary": "Accept-Encoding"
+        },
+        "status": 404,
+        "statusText": "Not Found"
+      }
+    },
+    {
+      "name": "encoded_in_subpath",
+      "request": {
+        "method": "GET",
+        "mode": "fetch",
+        "path": "/sub/%2e%2e/secret.txt"
+      },
+      "response": {
+        "body": {
+          "kind": "text",
+          "length": 7,
+          "sha256": "b37e50cedcd3e3f1ff64f4afc0422084ae694253cf399326868e07a35f4a45fb",
+          "preview": "secret\n"
+        },
+        "headers": {
+          "accept-ranges": "bytes",
+          "content-length": "7",
+          "content-type": "text/plain; charset=utf-8",
+          "etag": "\"54e71639890f7de76efe7e935abeb882b4ec3b49\"",
+          "vary": "Accept-Encoding"
+        },
+        "status": 200,
+        "statusText": "OK"
+      }
+    }
+  ]
+}

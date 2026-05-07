@@ -1,0 +1,62 @@
+{
+  "$schemaVersion": 1,
+  "case": "_smoke",
+  "description": "Sanity probe mirroring the README smoke test: serve a directory containing index.html and confirm GET / returns 200 with body 'hello'. Also confirms the default cleanUrls 301 from /index.html → /index.",
+  "fixture": {
+    "files": {
+      "index.html": "hello\n"
+    }
+  },
+  "serveArgs": [],
+  "volatileHeaders": [
+    "last-modified"
+  ],
+  "volatileBodies": [],
+  "requests": [
+    {
+      "name": "root",
+      "request": {
+        "method": "GET",
+        "mode": "fetch",
+        "path": "/"
+      },
+      "response": {
+        "body": {
+          "kind": "text",
+          "length": 6,
+          "sha256": "5891b5b522d5df086d0ff0b110fbd9d21bb4fc7163af34d08286a2e846f6be03",
+          "preview": "hello\n"
+        },
+        "headers": {
+          "accept-ranges": "bytes",
+          "content-length": "6",
+          "content-type": "text/html; charset=utf-8",
+          "etag": "\"6c5c03ed0f07ed3f858457f8aa602c34af5fbd0e\"",
+          "vary": "Accept-Encoding"
+        },
+        "status": 200,
+        "statusText": "OK"
+      }
+    },
+    {
+      "name": "index_html_redirect",
+      "request": {
+        "method": "GET",
+        "mode": "fetch",
+        "path": "/index.html"
+      },
+      "response": {
+        "body": {
+          "kind": "empty",
+          "length": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        "headers": {
+          "location": "/index"
+        },
+        "status": 301,
+        "statusText": "Moved Permanently"
+      }
+    }
+  ]
+}

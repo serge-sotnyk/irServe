@@ -1,0 +1,45 @@
+{
+  "$schemaVersion": 1,
+  "case": "rendersingle",
+  "description": "renderSingle:true causes a directory containing exactly one non-html file to render that file directly instead of a listing.",
+  "fixture": {
+    "files": {
+      "media/photo.png": {
+        "base64": "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR4nGNgAAIAAAUAAeImBZsAAAAASUVORK5CYII="
+      }
+    },
+    "serveJson": {
+      "renderSingle": true
+    }
+  },
+  "serveArgs": [],
+  "volatileHeaders": [
+    "last-modified"
+  ],
+  "volatileBodies": [],
+  "requests": [
+    {
+      "name": "single_file",
+      "request": {
+        "method": "GET",
+        "mode": "fetch",
+        "path": "/media/"
+      },
+      "response": {
+        "body": {
+          "kind": "binary",
+          "length": 68,
+          "sha256": "1c8170ab1ab003e5a7d3f03e0b34c9cb71a6fd02bd33b3298fb40dd67fcea7b9"
+        },
+        "headers": {
+          "accept-ranges": "bytes",
+          "content-length": "68",
+          "content-type": "image/png",
+          "etag": "\"3a5cbe8616cac2f71749dfc65491529dec6f1414\""
+        },
+        "status": 200,
+        "statusText": "OK"
+      }
+    }
+  ]
+}

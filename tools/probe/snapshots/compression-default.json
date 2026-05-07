@@ -1,0 +1,45 @@
+{
+  "$schemaVersion": 1,
+  "case": "compression-default",
+  "description": "Default compression behavior: serve uses connect/compression middleware. Sends Accept-Encoding: gzip and inspects whether body is decompressed by fetch. The 'vary: Accept-Encoding' is the easy signal.",
+  "fixture": {
+    "files": {
+      "asset.css": "body{color:red}body{color:red}body{color:red}body{color:red}body{color:red}body{color:red}body{color:red}body{color:red}body{color:red}body{color:red}body{color:red}body{color:red}\n"
+    }
+  },
+  "serveArgs": [],
+  "volatileHeaders": [
+    "last-modified"
+  ],
+  "volatileBodies": [],
+  "requests": [
+    {
+      "name": "with_accept_encoding",
+      "request": {
+        "method": "GET",
+        "mode": "fetch",
+        "path": "/asset.css",
+        "headers": {
+          "accept-encoding": "gzip"
+        }
+      },
+      "response": {
+        "body": {
+          "kind": "text",
+          "length": 181,
+          "sha256": "6e27f827616286474cd4fa558599c9cb9aa1e66bd938474104105ec4b7fb18ba",
+          "preview": "body{color:red}body{color:red}body{color:red}body{color:red}body{color:red}body{color:red}body{color:red}body{color:red}body{color:red}body{color:red}body{color:red}body{color:red}\n"
+        },
+        "headers": {
+          "accept-ranges": "bytes",
+          "content-length": "181",
+          "content-type": "text/css; charset=utf-8",
+          "etag": "\"eeafbbff1dbb523260fcf29477e0a3ff125115ba\"",
+          "vary": "Accept-Encoding"
+        },
+        "status": 200,
+        "statusText": "OK"
+      }
+    }
+  ]
+}

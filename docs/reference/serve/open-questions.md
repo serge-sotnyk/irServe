@@ -53,17 +53,17 @@ Resolution: open.
 Affected area: routing (SRV-ROUT-002)
 Suspected behavior: When both `about.html` and `about/index.html` exist, `GET /about` (cleanUrls on) serves `about/index.html`. Probe `prec-cleanurls-default` confirms this for the default config.
 How to verify:
-- Already verified by probe `tools/probe/cases/prec-cleanurls-default.json`.
-- Outstanding: confirm the same precedence under non-default `cleanUrls` array forms.
-Resolution: provisionally answered; remains tracked in case array-form cleanUrls produces a different result.
+- Verified by probe `tools/probe/cases/prec-cleanurls-default.json` (default cleanUrls).
+- Verified by probe `tools/probe/cases/cleanurls-array.json` (array-form cleanUrls): paths inside the configured glob receive 301 to extensionless and 200 on extensionless GET; paths outside the glob serve `.html` directly with no rewrite (200) and 404 on extensionless GET.
+Resolution: closed by snapshots `tools/probe/snapshots/prec-cleanurls-default.json` and `tools/probe/snapshots/cleanurls-array.json`. ORC-013, ORC-021, ORC-022, ORC-023, ORC-024.
 
 ## Q-006: Multi-slash collapse when `trailingSlash` is unset
 
 Affected area: routing (SRV-ROUT-005)
 Suspected behavior: Source line `src/index.js:158-160` triggers slash-collapse only inside the `slashing` branch (`typeof trailingSlash === 'boolean'`). With `trailingSlash` unset, `GET /a//b` may pass through verbatim.
 How to verify:
-- Probe: add a case with default config and `GET /a//b` against a fixture that has `/a/b`.
-Resolution: open.
+- Probe `tools/probe/cases/multislash-collapse.json` issues raw-socket requests with literal `//` segments under default config (no `trailingSlash` set).
+Resolution: closed by snapshot `tools/probe/snapshots/multislash-collapse.json`. Observed: serve normalizes consecutive slashes silently — `GET //` returns 200 (root index), `GET //docs/guide.html` and `GET /docs//guide.html` both 301 to `/docs/guide` (cleanUrls 301 fires after the slash collapse). ORC-025, ORC-026, ORC-027.
 
 ## Q-007: External-URL redirect destinations — relative vs scheme-relative
 
@@ -95,7 +95,7 @@ Affected area: security (SRV-SEC-001)
 Suspected behavior: Source returns 400 (`bad_request`) when the joined path escapes the served root. Node `fetch` in the probe runner normalizes `%2e%2e` and `..` segments client-side, so the request sent over the wire never carries the unnormalized form.
 How to verify:
 - Probe: replace `fetch` with a raw `net.connect` request that sends the exact bytes `GET /%2e%2e/etc/passwd HTTP/1.1\r\n...`. Capture status.
-Resolution: probe added (`tools/probe/cases/traversal-raw-encoded.json`, stage 2). Wire-level findings: literal `..` and `%2e%2e` escapes return 400; `//etc/passwd` returns 404 (double-slash is not, by itself, an escape); malformed `%`-escapes return 400. SRV-SEC-001 is updated with these scenarios. Remaining work: oracle test in stage 3 to assert the four status codes against the reference and promote SRV-SEC-001 to `verified`.
+Resolution: closed by snapshot `tools/probe/snapshots/traversal-raw-encoded.json`. Wire-level findings: literal `..` and `%2e%2e` escapes return 400; `//etc/passwd` returns 404 (double-slash is not, by itself, an escape); malformed `%`-escapes return 400. ORC-038, ORC-039, ORC-040, ORC-041; SRV-SEC-001 promoted to `verified` in Stage 3.
 
 ## Q-011: Windows symlink/junction parity
 

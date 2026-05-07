@@ -1,0 +1,64 @@
+{
+  "$schemaVersion": 1,
+  "case": "notfound-shape",
+  "description": "Shape of a 404 response when no 404.html exists. Tests both the default text/html error page and the application/json branch via Accept header.",
+  "fixture": {
+    "files": {
+      "index.html": "root\n"
+    }
+  },
+  "serveArgs": [],
+  "volatileHeaders": [
+    "last-modified"
+  ],
+  "volatileBodies": [],
+  "requests": [
+    {
+      "name": "missing_html",
+      "request": {
+        "method": "GET",
+        "mode": "fetch",
+        "path": "/does-not-exist"
+      },
+      "response": {
+        "body": {
+          "kind": "text",
+          "length": 1641,
+          "sha256": "8c45c679f40c3f81c111fbf2398d568189c3ab34d8a9704ad225cd8efe1b819f",
+          "preview": "<!DOCTYPE html><head> <meta name=\"viewport\" content=\"width=device-width, initial-scale=1, user-scalable=no\"/> <style> body { margin: 0; font-family: -apple-system, BlinkMacSystemFont, \"Segoe UI\", \"Rob"
+        },
+        "headers": {
+          "content-type": "text/html; charset=utf-8",
+          "vary": "Accept-Encoding"
+        },
+        "status": 404,
+        "statusText": "Not Found"
+      }
+    },
+    {
+      "name": "missing_html_with_accept",
+      "request": {
+        "method": "GET",
+        "mode": "fetch",
+        "path": "/does-not-exist",
+        "headers": {
+          "accept": "application/json"
+        }
+      },
+      "response": {
+        "body": {
+          "kind": "text",
+          "length": 80,
+          "sha256": "d3c0644107ea757e4783a7cdcd683b3a781b6a88f30e0de8c6ed1c69ef4113ee",
+          "preview": "{\"error\":{\"code\":\"not_found\",\"message\":\"The requested path could not be found\"}}"
+        },
+        "headers": {
+          "content-type": "application/json; charset=utf-8",
+          "vary": "Accept-Encoding"
+        },
+        "status": 404,
+        "statusText": "Not Found"
+      }
+    }
+  ]
+}

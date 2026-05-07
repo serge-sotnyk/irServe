@@ -1,0 +1,68 @@
+{
+  "$schemaVersion": 1,
+  "case": "notfound-custom",
+  "description": "Shape of a 404 response when a 404.html file exists in the served root. Validates that the body comes from the file rather than the built-in template.",
+  "fixture": {
+    "files": {
+      "index.html": "root\n",
+      "404.html": "<h1>custom-404-page</h1>\n"
+    }
+  },
+  "serveArgs": [],
+  "volatileHeaders": [
+    "last-modified"
+  ],
+  "volatileBodies": [],
+  "requests": [
+    {
+      "name": "missing_html_custom",
+      "request": {
+        "method": "GET",
+        "mode": "fetch",
+        "path": "/does-not-exist"
+      },
+      "response": {
+        "body": {
+          "kind": "text",
+          "length": 25,
+          "sha256": "2aa062aa8b4de6f34d856a6e647a92d14bf5cb98345a21b2659f1a245c67c1ad",
+          "preview": "<h1>custom-404-page</h1>\n"
+        },
+        "headers": {
+          "accept-ranges": "bytes",
+          "content-length": "25",
+          "content-type": "text/html; charset=utf-8",
+          "etag": "\"c3c5469dc397ce169feda6ff4eaa18a14a203d43\"",
+          "vary": "Accept-Encoding"
+        },
+        "status": 404,
+        "statusText": "Not Found"
+      }
+    },
+    {
+      "name": "missing_html_custom_json_accept",
+      "request": {
+        "method": "GET",
+        "mode": "fetch",
+        "path": "/does-not-exist",
+        "headers": {
+          "accept": "application/json"
+        }
+      },
+      "response": {
+        "body": {
+          "kind": "text",
+          "length": 80,
+          "sha256": "d3c0644107ea757e4783a7cdcd683b3a781b6a88f30e0de8c6ed1c69ef4113ee",
+          "preview": "{\"error\":{\"code\":\"not_found\",\"message\":\"The requested path could not be found\"}}"
+        },
+        "headers": {
+          "content-type": "application/json; charset=utf-8",
+          "vary": "Accept-Encoding"
+        },
+        "status": 404,
+        "statusText": "Not Found"
+      }
+    }
+  ]
+}

@@ -15,7 +15,8 @@ Concretely: take `vercel/serve` (a small but real Node.js static file server), r
 - **Stage 0 — repository scaffolding.** Done.
 - **Stage 1 — reverse inventory of `serve` behavior.** Done.
 - **Stage 2 — capability map refresh.** Done.
-- **Stage 3 — oracle matrix.** Next.
+- **Stage 3 — oracle matrix.** Done.
+- **Stage 4 — OpenSpec bootstrap change.** Next.
 
 No Rust code exists in this repository yet. It is introduced at Stage 5b, after the first implementation proposal (Stage 5a) is reviewed.
 
@@ -26,9 +27,11 @@ irServe/
 ├── AGENTS.md                  # short working rules for AI agents
 ├── CLAUDE.md                  # @AGENTS.md pointer
 ├── README.md                  # this file: methodology + stage map
-├── docs/reference/serve/      # reverse-engineering notes (research)
+├── docs/reference/serve/      # reverse-engineering notes + oracle-matrix.md
 ├── openspec/                  # specifications and proposed changes (contract)
 ├── tools/probe/               # Node.js probe runner against the reference
+│   ├── cases/                 # declarative probe inputs
+│   └── snapshots/             # canonical responses (committed evidence)
 └── third_party/
     ├── serve/                 # vercel/serve, pinned release tag (oracle)
     └── serve-handler/         # vercel/serve-handler, pinned release tag (oracle)
@@ -43,7 +46,7 @@ The methodology runs in nine stages. Status is updated when entering or completi
 | 0 | Init project structure | This scaffold | done |
 | 1 | Reverse inventory | `docs/reference/serve/inventory.md` populated | done |
 | 2 | Capability map | `docs/reference/serve/compatibility-levels.md` refined | done |
-| 3 | Oracle matrix | `docs/reference/serve/oracle-matrix.md` | todo |
+| 3 | Oracle matrix | `docs/reference/serve/oracle-matrix.md` + `tools/probe/snapshots/` | done |
 | 4 | OpenSpec bootstrap change | `openspec/changes/000-establish-serve-compatibility-baseline/` | todo |
 | 5a | First implementation proposal (specs delta + design + tasks, no code) | `openspec/changes/001-port-minimal-static-server/` (proposal/design/tasks/specs only) | todo |
 | 5b | Rust scaffold + first vertical slice | `Cargo.toml` + `tests/oracle/` + first crate code | todo |

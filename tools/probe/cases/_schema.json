@@ -47,6 +47,23 @@
       "description": "Extra command-line arguments passed to `node third_party/serve/build/main.js` after the runner's own --listen / --no-clipboard / --no-port-switching.",
       "items": { "type": "string" }
     },
+    "snapshot": {
+      "type": "object",
+      "description": "Optional snapshot configuration. Used by `tools/probe/run.mjs --snapshot=update|verify` to control how the canonical snapshot is built and compared. See tools/probe/snapshots/_schema.json.",
+      "additionalProperties": false,
+      "properties": {
+        "volatileHeaders": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Lowercase header names whose values vary between runs against the same fixture (e.g., `last-modified` when the fixture is materialized fresh each run). The snapshot records the observed value but `verify` treats the value as a wildcard. Defaults to [\"last-modified\"] when this field is absent."
+        },
+        "volatileBodies": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Names of requests whose response body is volatile across runs (e.g., a directory listing that embeds the absolute fixture path). For those requests the snapshot still records body length / sha256 / preview, but `verify` masks those fields. The body's `kind` is still asserted. Defaults to []."
+        }
+      }
+    },
     "requests": {
       "type": "array",
       "minItems": 1,

@@ -94,7 +94,7 @@ Open questions:
 
 #### SRV-CLI-002: `-l <port>` accepts a bare port number
 
-Status: accepted
+Status: verified
 Area: cli
 Compatibility level: 0
 Priority: P0
@@ -104,7 +104,7 @@ Reference source:
 - serve source: `third_party/serve/source/main.ts` references `parseEndpoint`; numeric branch returns `{ port }`.
 - Existing test: absent (covered transitively by `tools/probe/cases/_smoke.json`).
 - Probe: `tools/probe/cases/_smoke.json` (run with `--listen <port>`).
-- Oracle test: planned.
+- Oracle test: ORC-001 (snapshots in tools/probe/snapshots/).
 
 Requirement (draft):
 The `-l`/`--listen` flag accepts a numeric port. The server then listens on TCP port _N_ on the default interface.
@@ -224,7 +224,7 @@ Open questions:
 
 #### SRV-CLI-007: `<directory>` positional argument selects the directory to serve
 
-Status: accepted
+Status: verified
 Area: cli
 Compatibility level: 0
 Priority: P0
@@ -234,7 +234,7 @@ Reference source:
 - serve source: `third_party/serve/source/main.ts:58-65` — at most one positional, resolved relative to cwd.
 - Existing test: absent.
 - Probe: covered indirectly by every probe (the runner passes a fixture directory).
-- Oracle test: planned.
+- Oracle test: ORC-001 (snapshots in tools/probe/snapshots/).
 
 Requirement (draft):
 A single optional positional argument selects the directory to serve. If omitted, the current working directory is served. Supplying more than one positional argument is a fatal error.
@@ -258,7 +258,7 @@ Open questions:
 
 #### SRV-CLI-008: `-s`/`--single` rewrites all not-found requests to `/index.html`
 
-Status: accepted
+Status: verified
 Area: cli
 Compatibility level: 2
 Priority: P0
@@ -268,7 +268,7 @@ Reference source:
 - serve source: `third_party/serve/source/main.ts:78-90` — prepends a `**` rewrite to `/index.html`.
 - Existing test: absent (the underlying rewrite mechanism is covered by `set 'rewrites' config property to wildcard path` in `test/integration.test.js`).
 - Probe: `tools/probe/cases/rewrites-segment.json` (validates the SPA pattern under serve.json; CLI form is equivalent).
-- Oracle test: planned.
+- Oracle test: ORC-029 (snapshots in tools/probe/snapshots/).
 
 Requirement (draft):
 With `-s`/`--single`, every request whose path does not resolve to a file is served the contents of `/index.html` (status 200, the file's MIME type). It is implemented as a high-priority rewrite and therefore is overridden by an earlier-matching redirect.
@@ -290,7 +290,7 @@ Open questions:
 
 #### SRV-CLI-009: `-c <path>`/`--config` selects a custom configuration file
 
-Status: accepted
+Status: verified
 Area: cli
 Compatibility level: 1
 Priority: P1
@@ -300,7 +300,7 @@ Reference source:
 - serve source: `third_party/serve/source/main.ts` (flag) and `source/utilities/config.ts:31-32` — `--config` is unshifted to the head of the search list.
 - Existing test: absent.
 - Probe: not run.
-- Oracle test: planned.
+- Oracle test: ORC-006 (snapshots in tools/probe/snapshots/).
 
 Requirement (draft):
 With `-c <path>`/`--config <path>`, that file is read first as the configuration source. If it cannot be read, startup fails with an error (i.e. the missing-config-file is fatal in this case, unlike the implicit `serve.json`).
@@ -321,7 +321,7 @@ Open questions:
 
 #### SRV-CLI-010: `-C`/`--cors` enables permissive CORS headers
 
-Status: accepted
+Status: verified
 Area: cli
 Compatibility level: 1
 Priority: P1
@@ -331,7 +331,7 @@ Reference source:
 - serve source (CLI flag enumeration): `source/main.ts` flag list.
 - Existing test: absent.
 - Probe: `tools/probe/cases/cors-applied.json`, `tools/probe/cases/cors-response-surface.json`.
-- Oracle test: planned.
+- Oracle test: ORC-054, ORC-055 (snapshots in tools/probe/snapshots/).
 
 Requirement (draft):
 With `-C`/`--cors`, every response carries `Access-Control-Allow-Origin: *`, plus permissive `Access-Control-Allow-Headers`, `Access-Control-Allow-Credentials: true`, and `Access-Control-Allow-Private-Network: true` headers.
@@ -350,7 +350,7 @@ Open questions:
 
 #### SRV-CLI-011: `-n`/`--no-clipboard` suppresses clipboard side effect
 
-Status: adapted
+Status: verified
 Area: cli
 Compatibility level: 1
 Priority: P2
@@ -360,7 +360,7 @@ Reference source:
 - serve source: `source/main.ts:102-140`.
 - Existing test: absent.
 - Probe: not applicable.
-- Oracle test: not planned (clipboard interaction is intentionally not modeled by IrServe).
+- Oracle test: ORC-001 (transitive — every probe passes `--no-clipboard`; the runner observes no clipboard side effect because the snapshot layer never touches it). Clipboard interaction itself is intentionally not modeled per `D-005`.
 
 Requirement (draft):
 The flag is accepted (silently or with a no-op) so that scripts that pass `--no-clipboard` still work. IrServe does not interact with the clipboard at all by default.
@@ -373,7 +373,7 @@ Open questions:
 
 #### SRV-CLI-012: `-u`/`--no-compression` disables HTTP compression
 
-Status: adapted
+Status: verified
 Area: cli
 Compatibility level: 3
 Priority: P2
@@ -383,7 +383,7 @@ Reference source:
 - serve source: CLI flag enumeration; the gating happens in `source/utilities/server.ts` (compression middleware).
 - Existing test: absent.
 - Probe: `tools/probe/cases/compression-default.json` — with default settings, `vary: Accept-Encoding` is present on text responses, but the probe runner's `fetch` automatically decompresses, so the on-the-wire encoding cannot be observed directly.
-- Oracle test: planned.
+- Oracle test: ORC-058 (snapshots in tools/probe/snapshots/).
 
 Requirement (draft):
 By default the server applies HTTP compression to text-typed responses for clients that send a compatible `Accept-Encoding`. With `--no-compression`, no compression is applied; the response is sent as-is.
@@ -474,7 +474,7 @@ Open questions:
 
 #### SRV-CLI-016: `--no-port-switching` disables fallback to a random port
 
-Status: accepted
+Status: verified
 Area: cli
 Compatibility level: 1
 Priority: P1
@@ -484,7 +484,7 @@ Reference source:
 - serve source: CLI flag enumeration in `source/main.ts`; the fallback logic lives in `source/utilities/server.ts:166-178`.
 - Existing test: absent.
 - Probe: not run; the probe runner already passes `--no-port-switching` to keep behavior deterministic, so it's exercised on every probe by side effect.
-- Oracle test: planned.
+- Oracle test: ORC-001 (snapshots in tools/probe/snapshots/).
 
 Requirement (draft):
 By default, if the requested port is already taken, the server picks a free port instead. With `--no-port-switching`, the server MUST fail to start instead.
@@ -573,7 +573,7 @@ Open questions:
 
 #### SRV-CFG-001: Configuration file lookup, location, and error handling
 
-Status: accepted
+Status: verified
 Area: config
 Compatibility level: 1
 Priority: P0
@@ -583,7 +583,7 @@ Reference source:
 - serve source: `third_party/serve/source/utilities/config.ts:31-108`.
 - Existing test: absent (CLI-level lookup) — the field-level behavior is covered per-area (e.g. `set 'cleanUrls' config property to 'true'`).
 - Probe: indirect — most probes ship a `serve.json`; `_smoke.json` validates startup with no config.
-- Oracle test: planned.
+- Oracle test: ORC-006 (snapshots in tools/probe/snapshots/).
 
 Requirement (draft):
 Configuration is loaded from the served directory. The lookup order is: `--config <path>` (if given) → `serve.json` → `now.json` (deprecated, key `now.static`) → `package.json` (deprecated, key `static`). The first existing file with a usable section wins; the rest are ignored. Missing implicit files are silently skipped; a missing `--config` file is a fatal error. Invalid JSON or non-object content is a fatal error. The `public` field is resolved relative to the served directory.
@@ -651,7 +651,7 @@ Open questions:
 
 #### SRV-FILE-001: Serve regular files for matching paths
 
-Status: accepted
+Status: verified
 Area: static-files
 Compatibility level: 0
 Priority: P0
@@ -661,7 +661,7 @@ Reference source:
 - serve-handler source: `src/index.js:594-768` (file resolution → stream).
 - Existing test: `render dotfile`, `render json file` in `test/integration.test.js`.
 - Probe: `tools/probe/cases/_smoke.json`, `tools/probe/cases/mime-defaults.json`.
-- Oracle test: planned.
+- Oracle test: ORC-001 (snapshots in tools/probe/snapshots/).
 
 Requirement (draft):
 A `GET` request whose URL path resolves (after redirect/rewrite resolution) to a regular file inside the served root returns status 200 with the file's content as the body and a `Content-Length` header equal to the file size.
@@ -679,7 +679,7 @@ Open questions:
 
 #### SRV-FILE-002: 404 for missing paths
 
-Status: accepted
+Status: verified
 Area: static-files
 Compatibility level: 0
 Priority: P0
@@ -689,7 +689,7 @@ Reference source:
 - serve-handler source: `src/index.js:687-694` (the `not_found` branch).
 - Existing test: `receive not found error`, `receive not found error as json` in `test/integration.test.js`.
 - Probe: `tools/probe/cases/notfound-shape.json`.
-- Oracle test: planned.
+- Oracle test: ORC-004, ORC-005, ORC-051, ORC-052, ORC-059 (snapshots in tools/probe/snapshots/).
 
 Requirement (draft):
 When a request cannot be resolved to a file or a directory listing, the server responds with status `404`. When `Accept: application/json` is honored by content negotiation, the body is `{"error":{"code":"not_found","message":"The requested path could not be found"}}` with `Content-Type: application/json; charset=utf-8`. Otherwise, the body is an HTML error page with `Content-Type: text/html; charset=utf-8`.
@@ -711,7 +711,7 @@ Open questions:
 
 #### SRV-FILE-003: Custom error pages via `<status>.html`
 
-Status: accepted
+Status: verified
 Area: static-files
 Compatibility level: 1
 Priority: P1
@@ -721,7 +721,7 @@ Reference source:
 - serve-handler source: `src/index.js:467-524`.
 - Existing test: `receive custom 404.html error page`, `error is still sent back even if reading 404.html failed` in `test/integration.test.js`.
 - Probe: `tools/probe/cases/notfound-custom.json`.
-- Oracle test: planned.
+- Oracle test: ORC-007, ORC-059 (snapshots in tools/probe/snapshots/).
 
 Requirement (draft):
 If a file `<statusCode>.html` exists at the root of the served directory, it is sent as the body of the corresponding error response (preserving the error status code) for HTML-accept clients. JSON-accept clients still receive the JSON envelope from `SRV-FILE-002` regardless of any `<status>.html` file.
@@ -742,7 +742,7 @@ Open questions:
 
 #### SRV-FILE-004: Default MIME types
 
-Status: accepted
+Status: verified
 Area: static-files
 Compatibility level: 0
 Priority: P0
@@ -752,7 +752,7 @@ Reference source:
 - serve-handler source: `src/index.js:238-242`.
 - Existing test: indirect — many tests assert content-types.
 - Probe: `tools/probe/cases/mime-defaults.json`.
-- Oracle test: planned.
+- Oracle test: ORC-003 (snapshots in tools/probe/snapshots/).
 
 Requirement (draft):
 The `Content-Type` header for a file response is determined by the file's extension. Probe-confirmed bindings:
@@ -786,7 +786,7 @@ Open questions:
 
 #### SRV-FILE-005: `index.html` resolution for directory paths
 
-Status: accepted
+Status: verified
 Area: static-files
 Compatibility level: 0
 Priority: P0
@@ -796,7 +796,7 @@ Reference source:
 - serve-handler source: `src/index.js:276-307` (`getPossiblePaths`/`findRelated`) and the directory branch at `src/index.js:644-680`.
 - Existing test: indirect (`render html directory listing` shows the path-with-index disambiguation).
 - Probe: `tools/probe/cases/_smoke.json` (root with `index.html` returns 200 body "hello").
-- Oracle test: planned.
+- Oracle test: ORC-001 (snapshots in tools/probe/snapshots/).
 
 Requirement (draft):
 A request whose path resolves to a directory containing `index.html` returns the contents of that file as a 200 response (subject to `cleanUrls` redirects from `/dir/index` and `/dir/index.html`). When no index file is present, the directory listing or 404 path takes over (see `SRV-DLST-001`).
@@ -819,7 +819,7 @@ Open questions:
 
 #### SRV-ROUT-001: `cleanUrls` strips `.html` and redirects via 301
 
-Status: accepted
+Status: verified
 Area: routing
 Compatibility level: 2
 Priority: P0
@@ -829,7 +829,7 @@ Reference source:
 - serve-handler source: `src/index.js:121-143` (the cleanUrl branch in `shouldRedirect`).
 - Existing test: `set 'cleanUrls' config property to 'true'`, `set 'cleanUrls' config property to array`, `set 'cleanUrls' config property to empty array` in `test/integration.test.js`.
 - Probe: `tools/probe/cases/prec-cleanurls-default.json` and `tools/probe/cases/_smoke.json` (default config redirects `/index.html` → `/index`; for the about fixture redirects `/about.html` → `/about`).
-- Oracle test: planned.
+- Oracle test: ORC-002, ORC-012, ORC-017, ORC-020, ORC-021, ORC-023, ORC-026, ORC-027, ORC-033 (snapshots in tools/probe/snapshots/).
 
 Requirement (draft):
 With `cleanUrls` enabled (the default), a request for `/path.html` or `/path/index` (or `.../index.html`) is redirected with status 301 to the extension-stripped form. The redirect strips the matched HTML suffix and collapses any resulting `//` to `/`.
@@ -853,7 +853,7 @@ Open questions:
 
 #### SRV-ROUT-002: `cleanUrls` resolves extensionless paths to `.html` files
 
-Status: accepted
+Status: verified
 Area: routing
 Compatibility level: 2
 Priority: P0
@@ -863,7 +863,7 @@ Reference source:
 - serve-handler source: `src/index.js:276-307` (`getPossiblePaths('.html')` → `findRelated`) called when `cleanUrl` is on.
 - Existing test: `set 'cleanUrls' config property to 'true' and try with file`, `correctly handle requests to /index if cleanUrls is enabled` in `test/integration.test.js`.
 - Probe: `tools/probe/cases/prec-cleanurls-default.json` (`GET /about` returns the `about/index.html` body).
-- Oracle test: planned.
+- Oracle test: ORC-013, ORC-014, ORC-018, ORC-022, ORC-024 (snapshots in tools/probe/snapshots/).
 
 Requirement (draft):
 With `cleanUrls` enabled, a request `/foo` whose direct path is not a file is resolved by trying `/foo.html` and `/foo/index.html` (in that order). The first that exists is served with status 200.
@@ -882,7 +882,7 @@ Open questions:
 
 #### SRV-ROUT-003: `trailingSlash: true` adds a trailing slash via 301
 
-Status: accepted
+Status: verified
 Area: routing
 Compatibility level: 2
 Priority: P1
@@ -892,7 +892,7 @@ Reference source:
 - serve-handler source: `src/index.js:145-168`.
 - Existing test: `set 'trailingSlash' config property to 'true'` in `test/integration.test.js`.
 - Probe: `tools/probe/cases/prec-cleanurls-trailing.json`.
-- Oracle test: planned.
+- Oracle test: ORC-015, ORC-016 (snapshots in tools/probe/snapshots/).
 
 Requirement (draft):
 With `trailingSlash: true`, a request `/path` (no trailing slash, no extension, not a dotfile) is redirected with 301 to `/path/`.
@@ -911,7 +911,7 @@ Open questions:
 
 #### SRV-ROUT-004: `trailingSlash: false` strips a trailing slash via 301
 
-Status: accepted
+Status: verified
 Area: routing
 Compatibility level: 2
 Priority: P1
@@ -921,7 +921,7 @@ Reference source:
 - serve-handler source: `src/index.js:145-168`.
 - Existing test: `set 'trailingSlash' config property to 'false'` in `test/integration.test.js`.
 - Probe: `tools/probe/cases/prec-cleanurls-trailing-false.json`.
-- Oracle test: planned.
+- Oracle test: ORC-019 (snapshots in tools/probe/snapshots/).
 
 Requirement (draft):
 With `trailingSlash: false`, a request `/path/` (with trailing slash) is redirected with 301 to `/path`.
@@ -939,7 +939,7 @@ Open questions:
 
 #### SRV-ROUT-005: Multi-slash path is normalized via 301
 
-Status: accepted
+Status: verified
 Area: routing
 Compatibility level: 2
 Priority: P1
@@ -949,7 +949,7 @@ Reference source:
 - serve-handler source: `src/index.js:158-160` (when `decodedPath.indexOf('//') > -1`, target is the slash-collapsed path).
 - Existing test: `set 'trailingSlash' config property to any boolean and remove multiple slashes` in `test/integration.test.js`.
 - Probe: not run for this specific case (covered by source + test).
-- Oracle test: planned.
+- Oracle test: ORC-025, ORC-026, ORC-027 (snapshots in tools/probe/snapshots/).
 
 Requirement (draft):
 A request whose path contains consecutive slashes is redirected with 301 to the slash-collapsed form (only when `trailingSlash` is set; per source, this branch is gated by `slashing`).
@@ -967,7 +967,7 @@ Open questions:
 
 #### SRV-ROUT-006: Operation precedence (redirect resolution → rewrites → static files)
 
-Status: candidate
+Status: verified
 Area: routing
 Compatibility level: 2
 Priority: P0
@@ -977,7 +977,7 @@ Reference source:
 - serve-handler source: `src/index.js` request pipeline — `shouldRedirect(...)` is called first (it produces 301/302 for cleanUrls, trailingSlash and config `redirects` in that internal order). The pre-rewrite `lstat` of the original path at `src/index.js:608-616` is gated by `path.extname(relativePath) !== ''`: it short-circuits the rewrite/findRelated branch only for paths with non-empty extensions. `applyRewrites(...)` itself is then called unconditionally at `src/index.js:618`; whether its result is taken depends on `findRelated` in the `!stats && (cleanUrl || rewrittenPath)` branch at `src/index.js:620-632`. As a result, an existing extensionless file can lose to a matching rewrite — see SRV-RWRT-001 for the qualified rule.
 - Existing test: covered indirectly by `set 'rewrites' config property to wildcard path`, `set 'redirects' config property to ...` and the cleanUrl/trailingSlash family.
 - Probe: `tools/probe/cases/prec-rewrites-redirects.json`, `tools/probe/cases/prec-cleanurls-default.json`, `tools/probe/cases/prec-cleanurls-trailing.json`, `tools/probe/cases/prec-cleanurls-trailing-false.json`.
-- Oracle test: planned.
+- Oracle test: ORC-014, ORC-016, ORC-017, ORC-018, ORC-020, ORC-032, ORC-033 (snapshots in tools/probe/snapshots/).
 
 Requirement (draft):
 For a request whose path P does not directly resolve to a regular file inside the served root, the server applies the following stages in order, stopping at the first stage that produces a response:
@@ -1019,7 +1019,7 @@ Open questions:
 
 #### SRV-RDIR-001: `redirects` produce 301 by default
 
-Status: accepted
+Status: verified
 Area: redirects
 Compatibility level: 2
 Priority: P0
@@ -1029,7 +1029,7 @@ Reference source:
 - serve-handler source: `src/index.js:121-185` (`shouldRedirect`).
 - Existing test: `set 'redirects' config property to wildcard path`, `set 'redirects' config property to path segment`, `set 'redirects' config property to one-star wildcard path`, `set 'redirects' config property to extglob wildcard path`, `set 'redirects' config property to a negated wildcard path`, `set 'redirects' config property to wildcard path and do not match` in `test/integration.test.js`.
 - Probe: `tools/probe/cases/redirects-types.json` (path-segment redirect with default 301).
-- Oracle test: planned.
+- Oracle test: ORC-030 (snapshots in tools/probe/snapshots/).
 
 Requirement (draft):
 A `redirects` entry `{source, destination}` matches `source` (minimatch glob or `path-to-regexp` segment pattern) against the request path; on match the server responds with status 301 and `Location: <destination>` (path-to-regexp segments interpolated). The `Location` value is URI-encoded (`encodeURI`).
@@ -1048,7 +1048,7 @@ Open questions:
 
 #### SRV-RDIR-002: `redirects` with explicit `type` use that status code
 
-Status: accepted
+Status: verified
 Area: redirects
 Compatibility level: 2
 Priority: P1
@@ -1058,7 +1058,7 @@ Reference source:
 - serve-handler source: `src/index.js:172-181` (uses `type || defaultType`).
 - Existing test: covered by the redirects test family.
 - Probe: `tools/probe/cases/redirects-types.json` (`/old` → 302).
-- Oracle test: planned.
+- Oracle test: ORC-031 (snapshots in tools/probe/snapshots/).
 
 Requirement (draft):
 When a redirect rule includes a numeric `type` field, that value is used as the response status code in place of the default 301.
@@ -1101,7 +1101,7 @@ Open questions:
 
 #### SRV-RWRT-001: `rewrites` serve a different file with status 200
 
-Status: accepted
+Status: verified
 Area: rewrites
 Compatibility level: 2
 Priority: P0
@@ -1111,7 +1111,7 @@ Reference source:
 - serve-handler source: `src/index.js:91-117` (`applyRewrites`) and `src/index.js:618-622` (apply when no direct stat is available).
 - Existing test: `set 'rewrites' config property to wildcard path`, `set 'rewrites' config property to non-matching path`, `set 'rewrites' config property to one-star wildcard path`, `set 'rewrites' config property to path segment` in `test/integration.test.js`.
 - Probe: `tools/probe/cases/rewrites-segment.json` (segment + SPA wildcard).
-- Oracle test: planned.
+- Oracle test: ORC-028, ORC-029 (snapshots in tools/probe/snapshots/).
 
 Requirement (draft):
 A `rewrites` entry `{source, destination}` matches the request path against `source` (minimatch or `path-to-regexp`). On match, the server responds with status 200 (no redirect) and serves the file at `destination` (with `path-to-regexp` segments interpolated). Whether rewrites are short-circuited by an existing original-path file depends on the path shape:
@@ -1138,7 +1138,7 @@ Open questions:
 
 #### SRV-RWRT-002: Mime type fallback when rewriting
 
-Status: accepted
+Status: verified
 Area: rewrites
 Compatibility level: 3
 Priority: P2
@@ -1148,7 +1148,7 @@ Reference source:
 - serve-handler source: `src/index.js:618-632` — `findRelated` returns the `absolutePath` of the rewritten file, whose extension drives the MIME.
 - Existing test: `return mime type of the 'rewrittenPath' if mime type of 'relativePath' is null` in `test/integration.test.js`.
 - Probe: not run; behavior is asserted by the existing test name.
-- Oracle test: planned.
+- Oracle test: ORC-028 (snapshots in tools/probe/snapshots/).
 
 Requirement (draft):
 When a request is served via a rewrite, the response `Content-Type` is determined by the destination file's extension, not by the request path's extension.
@@ -1163,7 +1163,7 @@ Open questions:
 
 #### SRV-HDR-001: Custom `headers` apply per glob source
 
-Status: accepted
+Status: verified
 Area: headers
 Compatibility level: 3
 Priority: P1
@@ -1173,7 +1173,7 @@ Reference source:
 - serve-handler source: `src/index.js:194-254` (`getHeaders`).
 - Existing test: `set 'headers' to wildcard headers`, `set 'headers' to fixed headers and check default headers`, `error responses get custom headers` in `test/integration.test.js`.
 - Probe: `tools/probe/cases/headers-applied.json` (a `**/*.css` rule applies `Cache-Control` and `X-Custom`).
-- Oracle test: planned.
+- Oracle test: ORC-048, ORC-053 (snapshots in tools/probe/snapshots/).
 
 Requirement (draft):
 A `headers` entry `{source, headers: [{key, value}]}` matches the request path against `source` (minimatch glob). Each matching entry contributes its `headers` to the response, in order. Multiple matching entries accumulate. Custom headers override defaults of the same name (case-insensitive). Custom headers are applied to error responses too.
@@ -1216,7 +1216,7 @@ Open questions:
 
 #### SRV-CORS-001: CORS response header surface under `--cors`
 
-Status: candidate
+Status: verified
 Area: cors
 Compatibility level: 3
 Priority: P1
@@ -1226,7 +1226,7 @@ Reference source:
 - serve source: `source/utilities/server.ts` (the `--cors` branch wires a permissive headers middleware around `serve-handler`).
 - Existing test: absent.
 - Probe: `tools/probe/cases/cors-applied.json`, `tools/probe/cases/cors-response-surface.json`, `tools/probe/cases/cors-preflight.json`.
-- Oracle test: planned.
+- Oracle test: ORC-054, ORC-055, ORC-056, ORC-057 (snapshots in tools/probe/snapshots/).
 
 Requirement (draft):
 With `-C`/`--cors`, every HTTP response (success, redirect, or error) carries the following four response headers in addition to whatever else the response would normally include:
@@ -1264,7 +1264,7 @@ Open questions:
 
 #### SRV-DLST-001: Directory listing on/off via `directoryListing`
 
-Status: accepted
+Status: verified
 Area: directory-listing
 Compatibility level: 1
 Priority: P0
@@ -1274,7 +1274,7 @@ Reference source:
 - serve-handler source: `src/index.js:325-465`, gated at line 336.
 - Existing test: `render html directory listing`, `render json directory listing`, `render html sub directory listing`, `render json sub directory listing`, `disabled directory listing`, `listing the directory failed` in `test/integration.test.js`.
 - Probe: `tools/probe/cases/listing-unlisted.json` (default-on, html and json variants), `tools/probe/cases/listing-disabled.json` (false → 404).
-- Oracle test: planned.
+- Oracle test: ORC-008, ORC-009, ORC-010 (snapshots in tools/probe/snapshots/).
 
 Requirement (draft):
 For a request whose path resolves to a directory containing no usable index file, the server returns a directory listing as 200 when `directoryListing` is `true` (the default) or matches as an array of glob patterns. When `directoryListing` is `false` (or no glob matches), the request falls through to a 404. The listing has `Content-Type: text/html; charset=utf-8` for HTML clients and `application/json; charset=utf-8` for `Accept: application/json` clients.
@@ -1299,7 +1299,7 @@ Open questions:
 
 #### SRV-DLST-002: `unlisted` and the default-excluded set
 
-Status: accepted
+Status: verified
 Area: directory-listing
 Compatibility level: 1
 Priority: P1
@@ -1309,7 +1309,7 @@ Reference source:
 - serve-handler source: `src/index.js:325-334` — `excluded = ['.DS_Store', '.git', ...unlisted]`.
 - Existing test: `set 'unlisted' config property to array` in `test/integration.test.js`.
 - Probe: `tools/probe/cases/listing-unlisted.json`.
-- Oracle test: planned.
+- Oracle test: ORC-009, ORC-010 (snapshots in tools/probe/snapshots/).
 
 Requirement (draft):
 Files whose names match `.DS_Store` or `.git` (or any glob in `unlisted`) are omitted from the directory listing. They remain directly fetchable via their explicit URL (the `unlisted` filter only affects listings, not file resolution).
@@ -1327,7 +1327,7 @@ Open questions:
 
 #### SRV-DLST-003: `renderSingle` serves a lone file in place of a listing
 
-Status: accepted
+Status: verified
 Area: directory-listing
 Compatibility level: 2
 Priority: P2
@@ -1337,7 +1337,7 @@ Reference source:
 - serve-handler source: `src/index.js:336-374`.
 - Existing test: `render file if directory only contains one` in `test/integration.test.js`.
 - Probe: `tools/probe/cases/rendersingle.json`.
-- Oracle test: planned.
+- Oracle test: ORC-011 (snapshots in tools/probe/snapshots/).
 
 Requirement (draft):
 With `renderSingle: true`, when a directory request has exactly one non-html file (and no usable index), the file is served as the response (status 200, the file's MIME type) instead of the directory listing.
@@ -1357,7 +1357,7 @@ Open questions:
 
 #### SRV-CACHE-001: `ETag` is sent by default and supports 304
 
-Status: accepted
+Status: verified
 Area: http-cache
 Compatibility level: 3
 Priority: P0
@@ -1367,7 +1367,7 @@ Reference source:
 - serve-handler source: `src/index.js:227-233` (etag computation), `src/index.js:758-765` (304 short-circuit).
 - Existing test: `automatically handle ETag headers for normal files`, `etag header is set` in `test/integration.test.js`.
 - Probe: `tools/probe/cases/etag-roundtrip.json` (200 then 304 on If-None-Match match).
-- Oracle test: planned.
+- Oracle test: ORC-042, ORC-043 (snapshots in tools/probe/snapshots/).
 
 Requirement (draft):
 By default, file responses carry a strong `ETag` header of the form `"<sha1-hex>"`. When a request includes `If-None-Match` exactly matching the response `ETag`, the server returns status 304 with no body and no `Content-Type`. The 304 short-circuit does not apply to range requests.
@@ -1431,7 +1431,7 @@ Open questions:
 
 #### SRV-CACHE-004: Range requests return 206 / 416
 
-Status: accepted
+Status: verified
 Area: http-cache
 Compatibility level: 3
 Priority: P2
@@ -1441,7 +1441,7 @@ Reference source:
 - serve-handler source: `src/index.js:717-734` and `src/index.js:749-752` (range plumbing).
 - Existing test: `range request`, `range request without size`, `range request not satisfiable` in `test/integration.test.js`.
 - Probe: not run.
-- Oracle test: planned.
+- Oracle test: ORC-044, ORC-045, ORC-046 (snapshots in tools/probe/snapshots/).
 
 Requirement (draft):
 A request with a valid `Range: bytes=...` header for a file of known size returns status 206 with `Content-Range: bytes <start>-<end>/<total>` and `Content-Length: <end-start+1>`. An out-of-range value returns 416 with `Content-Range: bytes */<total>`.
@@ -1454,7 +1454,7 @@ Open questions:
 
 #### SRV-CACHE-005: `Cache-Control` header default and override
 
-Status: candidate
+Status: verified
 Area: http-cache
 Compatibility level: 3
 Priority: P2
@@ -1464,7 +1464,7 @@ Reference source:
 - serve-handler source: `src/index.js` writes `Cache-Control` only when produced by a `headers` configuration entry (see `getHeaders`); there is no global default branch.
 - Existing test: covered transitively by `set 'headers' to fixed headers and check default headers` in `test/integration.test.js`.
 - Probe: `tools/probe/cases/cache-control-default.json`.
-- Oracle test: planned.
+- Oracle test: ORC-047, ORC-048, ORC-049, ORC-050, ORC-051, ORC-052 (snapshots in tools/probe/snapshots/).
 
 Requirement (draft):
 By default, file responses, directory-listing responses, and 4xx error responses do NOT carry a `Cache-Control` header. A `Cache-Control` header appears only when a matching `headers` configuration entry sets it. When set, the value is reproduced verbatim, no defaults are folded in, and IrServe MUST NOT prepend or append any directives.
@@ -1497,7 +1497,7 @@ Open questions:
 
 #### SRV-SEC-001: Path traversal outside the served root is denied
 
-Status: accepted
+Status: verified
 Area: security
 Compatibility level: 2
 Priority: P0
@@ -1507,7 +1507,7 @@ Reference source:
 - serve-handler source: `src/index.js:561-580` — URL is decoded once, then `path.join`ed and verified with `isPathInside`. On failure: 400 with `code: 'bad_request'`. On URI-decode failure: 400.
 - Existing test: `error if trying to traverse path`, `prevent access to parent directory`, `error for request with malformed URI` in `test/integration.test.js`.
 - Probe: `tools/probe/cases/traversal-encoded.json` (fetch-mode; client-side normalization confounds the result), `tools/probe/cases/traversal-raw-encoded.json` (raw-socket mode; sends the unnormalized bytes).
-- Oracle test: planned.
+- Oracle test: ORC-038, ORC-039, ORC-040, ORC-041 (snapshots in tools/probe/snapshots/).
 
 Requirement (draft):
 The server MUST NOT serve files outside the served root. Wire-level behavior, observed via the raw probe:
@@ -1541,7 +1541,7 @@ Open questions:
 
 #### SRV-SEC-002: URL is decoded once
 
-Status: accepted
+Status: verified
 Area: security
 Compatibility level: 2
 Priority: P1
@@ -1551,7 +1551,7 @@ Reference source:
 - serve-handler source: `src/index.js:561` — `decodeURIComponent(url.parse(request.url).pathname)`.
 - Existing test: `error for request with malformed URI` in `test/integration.test.js`.
 - Probe: not run for the negative case.
-- Oracle test: planned.
+- Oracle test: ORC-034, ORC-035, ORC-036, ORC-037 (snapshots in tools/probe/snapshots/).
 
 Requirement (draft):
 The path is URI-decoded exactly once before resolution. Double-decoding (e.g. `%252e` → `%2e` → `.`) MUST NOT occur. Malformed escapes yield 400.

@@ -7,16 +7,17 @@
 // tools/probe/results/<id>.{md,json}.
 //
 // Usage:
-//   node tools/probe/run.mjs <probe-id>
-//   node tools/probe/run.mjs --all
+//   node tools/probe/run.mjs <probe-id> [--snapshot=update|verify|none]
+//   node tools/probe/run.mjs --all       [--snapshot=update|verify|none]
 //   node tools/probe/run.mjs --list
 //
-// Case file schema lives in tools/probe/cases/_schema.json. This runner is
-// intentionally dependency-free: it relies only on Node 18+ built-ins.
+// Case file schema lives in tools/probe/cases/_schema.json. Snapshot schema
+// lives in tools/probe/snapshots/_schema.json. This runner is intentionally
+// dependency-free: it relies only on Node 18+ built-ins.
 
 import { spawn } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises';
+import { access, mkdir, mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, join, relative, resolve } from 'node:path';
 import net from 'node:net';
@@ -26,13 +27,18 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = resolve(__dirname, '..', '..');
 const CASES_DIR = join(__dirname, 'cases');
 const RESULTS_DIR = join(__dirname, 'results');
+const SNAPSHOTS_DIR = join(__dirname, 'snapshots');
 const TMP_DIR = join(__dirname, '.tmp');
 const SERVE_ENTRY = join(REPO_ROOT, 'third_party', 'serve', 'build', 'main.js');
 
+const DEFAULT_VOLATILE_HEADERS = ['last-modified'];
+
 const TRACKED_RESPONSE_HEADERS = [
-  'content-type',
-  'content-length',
+  'accept-ranges',
   'cache-control',
+  'content-length',
+  'content-range',
+  'content-type',
   'etag',
   'last-modified',
   'location',
@@ -347,6 +353,165 @@ function renderMarkdown(probe, runMeta, results) {
   return lines.join('\n');
 }
 
+// ---------------------------------------------------------------------------
+// Snapshot helpers
+// ---------------------------------------------------------------------------
+
+function sortObject(obj) {
+  if (obj === null || typeof obj !== 'object' || Array.isArray(obj)) return obj;
+  const out = {};
+  for (const k of Object.keys(obj).sort()) out[k] = obj[k];
+  return out;
+}
+
+function normalizeRequestEntry(probe, result) {
+  const requestHeaders = sortObject(result.requestHeaders ?? {});
+  const respHeaders = sortObject(result.headers ?? {});
+  const bodyKind =
+    result.body.preview !== null && result.body.preview !== undefined
+      ? 'text'
+      : result.body.length === 0
+        ? 'empty'
+        : 'binary';
+  const body = {
+    kind: bodyKind,
+    length: result.body.length,
+    sha256: result.body.sha256,
+  };
+  if (result.body.preview !== null && result.body.preview !== undefined) {
+    body.preview = result.body.preview;
+  }
+  const entry = {
+    name: result.name,
+    request: {
+      method: result.method,
+      mode: result.mode,
+      path: result.path,
+    },
+  };
+  if (Object.keys(requestHeaders).length) entry.request.headers = requestHeaders;
+  if (result.mode === 'raw' && result.requestLine) {
+    entry.requestLine = result.requestLine;
+  }
+  entry.response = {
+    body,
+    headers: respHeaders,
+    status: result.status,
+  };
+  if (result.statusText) entry.response.statusText = result.statusText;
+  return entry;
+}
+
+function buildSnapshot(probe, results) {
+  const volatileHeaders =
+    probe.snapshot?.volatileHeaders ?? [...DEFAULT_VOLATILE_HEADERS];
+  const volatileBodies = new Set(probe.snapshot?.volatileBodies ?? []);
+  const entries = results.map((r) => normalizeRequestEntry(probe, r));
+  // For requests flagged as volatile-body, redact the body shape on disk
+  // (keep only `kind`). We do this at write time so the committed snapshot
+  // is reproducible across checkouts — otherwise an absolute fixture path
+  // leaking into a directory listing's preview would churn whenever a
+  // contributor regenerates snapshots.
+  for (const e of entries) {
+    if (volatileBodies.has(e.name) && e.response?.body) {
+      e.response.body = { kind: e.response.body.kind };
+    }
+  }
+  const snap = {
+    $schemaVersion: 1,
+    case: probe.id,
+    description: probe.description ?? null,
+    fixture: probe.fixture ?? null,
+    serveArgs: probe.serveArgs ?? [],
+    volatileHeaders: [...volatileHeaders].sort(),
+    volatileBodies: [...volatileBodies].sort(),
+    requests: entries,
+  };
+  return snap;
+}
+
+function maskVolatileForDiff(snap) {
+  const volatileHeaders = new Set(snap.volatileHeaders ?? []);
+  const volatileBodies = new Set(snap.volatileBodies ?? []);
+  const cloned = JSON.parse(JSON.stringify(snap));
+  for (const req of cloned.requests ?? []) {
+    const h = req.response?.headers ?? {};
+    for (const k of Object.keys(h)) {
+      if (volatileHeaders.has(k)) h[k] = '<volatile>';
+    }
+    if (volatileBodies.has(req.name) && req.response?.body) {
+      const b = req.response.body;
+      if ('length' in b) b.length = '<volatile>';
+      if ('sha256' in b) b.sha256 = '<volatile>';
+      if ('preview' in b) b.preview = '<volatile>';
+    }
+  }
+  return cloned;
+}
+
+function canonicalJson(value) {
+  // Stable JSON: sort all object keys recursively.
+  if (value === null || typeof value !== 'object') return JSON.stringify(value);
+  if (Array.isArray(value)) {
+    return '[' + value.map(canonicalJson).join(',') + ']';
+  }
+  const keys = Object.keys(value).sort();
+  return '{' + keys.map((k) => JSON.stringify(k) + ':' + canonicalJson(value[k])).join(',') + '}';
+}
+
+function diffSnapshots(expected, actual) {
+  // Mask volatile headers using the expected snapshot's volatile list (the
+  // committed contract). Then compare canonicalized JSON.
+  const exp = maskVolatileForDiff(expected);
+  const act = maskVolatileForDiff({
+    ...actual,
+    volatileHeaders: expected.volatileHeaders ?? [],
+  });
+  if (canonicalJson(exp) === canonicalJson(act)) return null;
+  // Produce a readable line-based diff of the prettified forms so a reviewer
+  // can locate the divergence quickly.
+  const expS = JSON.stringify(exp, null, 2).split('\n');
+  const actS = JSON.stringify(act, null, 2).split('\n');
+  const max = Math.max(expS.length, actS.length);
+  const out = [];
+  for (let i = 0; i < max; i++) {
+    const e = expS[i] ?? '';
+    const a = actS[i] ?? '';
+    if (e !== a) {
+      out.push(`L${i + 1}:`);
+      out.push(`  expected: ${e}`);
+      out.push(`  actual:   ${a}`);
+    }
+  }
+  return out.join('\n');
+}
+
+async function readSnapshot(probeId) {
+  const path = join(SNAPSHOTS_DIR, `${probeId}.json`);
+  try {
+    const raw = await readFile(path, 'utf8');
+    return JSON.parse(raw);
+  } catch (e) {
+    if (e.code === 'ENOENT') return null;
+    throw e;
+  }
+}
+
+async function writeSnapshot(probeId, snapshot) {
+  await mkdir(SNAPSHOTS_DIR, { recursive: true });
+  const text = JSON.stringify(snapshot, null, 2) + '\n';
+  await writeFile(join(SNAPSHOTS_DIR, `${probeId}.json`), text);
+}
+
+async function snapshotExists(probeId) {
+  try {
+    await access(join(SNAPSHOTS_DIR, `${probeId}.json`));
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 async function readServeVersion() {
   try {
     const pkg = JSON.parse(await readFile(join(REPO_ROOT, 'third_party', 'serve', 'package.json'), 'utf8'));
@@ -356,7 +521,8 @@ async function readServeVersion() {
   }
 }
 
-async function runProbe(probeId) {
+async function runProbe(probeId, options = {}) {
+  const { snapshotMode = 'auto' } = options;
   const probe = await readCase(probeId);
   if (!probe.id) probe.id = probeId;
   await mkdir(RESULTS_DIR, { recursive: true });
@@ -369,11 +535,18 @@ async function runProbe(probeId) {
     generatedAt: new Date().toISOString(),
     serveVersion: await readServeVersion(),
   };
+  // Resolve the effective snapshot mode. `auto` means: verify if a snapshot
+  // exists, else `none`. The other modes (`update`, `verify`, `none`) are
+  // taken as-is.
+  let effectiveMode = snapshotMode;
+  if (effectiveMode === 'auto') {
+    effectiveMode = (await snapshotExists(probeId)) ? 'verify' : 'none';
+  }
   try {
     await materializeFixture(probe.fixture ?? {}, fixtureDir);
     port = await getFreePort();
     runMeta.port = port;
-    logInfo(`probe '${probeId}': serve@${runMeta.serveVersion} on port ${port}, fixture=${relative(REPO_ROOT, fixtureDir)}`);
+    logInfo(`probe '${probeId}': serve@${runMeta.serveVersion} on port ${port}, fixture=${relative(REPO_ROOT, fixtureDir)}, snapshot=${effectiveMode}`);
     serveBundle = spawnServe({ port, fixtureDir, extraArgs: probe.serveArgs ?? [] });
     serveProc = serveBundle.child;
     await waitReady(port);
@@ -391,8 +564,30 @@ async function runProbe(probeId) {
     };
     await writeFile(join(RESULTS_DIR, `${probeId}.md`), md);
     await writeFile(join(RESULTS_DIR, `${probeId}.json`), JSON.stringify(json, null, 2));
-    logInfo(`probe '${probeId}': wrote results/${probeId}.md and .json (${results.length} requests)`);
-    return { probeId, requests: results.length };
+
+    // Snapshot handling.
+    let snapshotStatus = 'skipped';
+    if (effectiveMode === 'update') {
+      const snap = buildSnapshot(probe, results);
+      await writeSnapshot(probeId, snap);
+      snapshotStatus = 'updated';
+    } else if (effectiveMode === 'verify') {
+      const expected = await readSnapshot(probeId);
+      if (!expected) {
+        throw new Error(`--snapshot=verify but no snapshot at snapshots/${probeId}.json (run with --snapshot=update first)`);
+      }
+      const actual = buildSnapshot(probe, results);
+      const diff = diffSnapshots(expected, actual);
+      if (diff) {
+        const err = new Error(`snapshot mismatch for ${probeId}\n${diff}`);
+        err.snapshotMismatch = true;
+        throw err;
+      }
+      snapshotStatus = 'verified';
+    }
+
+    logInfo(`probe '${probeId}': results/${probeId}.{md,json} written (${results.length} requests, snapshot=${snapshotStatus})`);
+    return { probeId, requests: results.length, snapshot: snapshotStatus };
   } finally {
     if (serveProc) await killServe(serveProc);
     if (serveBundle && process.env.PROBE_VERBOSE) {
@@ -403,45 +598,73 @@ async function runProbe(probeId) {
   }
 }
 
+function parseArgs(argv) {
+  const positional = [];
+  let snapshotMode = 'auto';
+  for (const a of argv) {
+    if (a.startsWith('--snapshot=')) {
+      const v = a.slice('--snapshot='.length);
+      if (!['update', 'verify', 'none', 'auto'].includes(v)) {
+        throw new Error(`invalid --snapshot value: ${v} (expected update | verify | none | auto)`);
+      }
+      snapshotMode = v;
+    } else {
+      positional.push(a);
+    }
+  }
+  return { positional, snapshotMode };
+}
+
 async function main() {
-  const args = process.argv.slice(2);
-  if (args.length === 0 || args.includes('--help') || args.includes('-h')) {
+  const rawArgs = process.argv.slice(2);
+  if (rawArgs.length === 0 || rawArgs.includes('--help') || rawArgs.includes('-h')) {
     process.stdout.write([
       'Usage:',
-      '  node tools/probe/run.mjs <probe-id>',
-      '  node tools/probe/run.mjs --all',
+      '  node tools/probe/run.mjs <probe-id> [--snapshot=update|verify|none]',
+      '  node tools/probe/run.mjs --all       [--snapshot=update|verify|none]',
       '  node tools/probe/run.mjs --list',
       '',
       'Case files live in tools/probe/cases/<probe-id>.json.',
-      'Results land in tools/probe/results/<probe-id>.{md,json}.',
+      'Results land in tools/probe/results/<probe-id>.{md,json} (gitignored).',
+      'Snapshots live in tools/probe/snapshots/<probe-id>.json (committed).',
+      '',
+      'Snapshot modes:',
+      '  update  — capture/refresh snapshots/<id>.json from the current run.',
+      '  verify  — diff the current run against snapshots/<id>.json (default',
+      '            when a snapshot exists; non-zero exit on mismatch).',
+      '  none    — skip snapshot handling (legacy, default when no snapshot).',
+      '',
       'Set PROBE_VERBOSE=1 to also print serve stderr after each run.',
       '',
     ].join('\n'));
-    process.exit(args.length === 0 ? 1 : 0);
+    process.exit(rawArgs.length === 0 ? 1 : 0);
   }
-  if (args[0] === '--list') {
+  const { positional, snapshotMode } = parseArgs(rawArgs);
+  if (positional[0] === '--list') {
     const ids = await listCases();
     for (const id of ids) process.stdout.write(`${id}\n`);
     return;
   }
   let ids;
-  if (args[0] === '--all') {
+  if (positional[0] === '--all') {
     ids = await listCases();
   } else {
-    ids = args;
+    ids = positional;
   }
   let failed = 0;
+  let mismatched = 0;
   for (const id of ids) {
     try {
-      await runProbe(id);
+      await runProbe(id, { snapshotMode });
     } catch (e) {
       failed++;
+      if (e.snapshotMismatch) mismatched++;
       logError(`probe '${id}': ${e.message}`);
       if (process.env.PROBE_VERBOSE) logError(e.stack ?? '');
     }
   }
   if (failed > 0) {
-    logError(`${failed} of ${ids.length} probes failed`);
+    logError(`${failed} of ${ids.length} probes failed${mismatched ? ` (${mismatched} snapshot mismatches)` : ''}`);
     process.exit(1);
   }
 }

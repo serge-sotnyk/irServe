@@ -1,0 +1,266 @@
+{
+  "$schemaVersion": 1,
+  "case": "mime-defaults",
+  "description": "Default Content-Type for representative file extensions, plus a no-extension file and an unknown extension. Note: the only-file-in-dir scenario triggers renderSingle? No, renderSingle is opt-in; with multiple files at root the directory listing is rendered, but each file fetched directly returns its own MIME.",
+  "fixture": {
+    "files": {
+      "page.html": "<p>html</p>\n",
+      "app.js": "console.log('js');\n",
+      "data.json": "{\"x\":1}\n",
+      "style.css": "body{}\n",
+      "blob.txt": "hello\n",
+      "module.wasm": {
+        "base64": "AGFzbQEAAAA="
+      },
+      "icon.svg": "<svg xmlns='http://www.w3.org/2000/svg'/>\n",
+      "pixel.png": {
+        "base64": "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR4nGNgAAIAAAUAAeImBZsAAAAASUVORK5CYII="
+      },
+      "noext": "no-extension content\n",
+      "weird.unknownext": "weird content\n"
+    }
+  },
+  "serveArgs": [],
+  "volatileHeaders": [
+    "last-modified"
+  ],
+  "volatileBodies": [],
+  "requests": [
+    {
+      "name": "html",
+      "request": {
+        "method": "GET",
+        "mode": "fetch",
+        "path": "/page.html"
+      },
+      "response": {
+        "body": {
+          "kind": "empty",
+          "length": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        "headers": {
+          "location": "/page"
+        },
+        "status": 301,
+        "statusText": "Moved Permanently"
+      }
+    },
+    {
+      "name": "js",
+      "request": {
+        "method": "GET",
+        "mode": "fetch",
+        "path": "/app.js"
+      },
+      "response": {
+        "body": {
+          "kind": "text",
+          "length": 19,
+          "sha256": "737a4f4b6606ce89aab36350a595ee786fcd7fd82031782c253d65301d0e07df",
+          "preview": "console.log('js');\n"
+        },
+        "headers": {
+          "accept-ranges": "bytes",
+          "content-length": "19",
+          "content-type": "application/javascript; charset=utf-8",
+          "etag": "\"397fccee385a1a117f9c58bee03ea5c438e3212d\"",
+          "vary": "Accept-Encoding"
+        },
+        "status": 200,
+        "statusText": "OK"
+      }
+    },
+    {
+      "name": "json",
+      "request": {
+        "method": "GET",
+        "mode": "fetch",
+        "path": "/data.json"
+      },
+      "response": {
+        "body": {
+          "kind": "text",
+          "length": 8,
+          "sha256": "bb157861a164e35cdde9d726b0af9ce2765a8f530c35d9e45732b94ee65e9557",
+          "preview": "{\"x\":1}\n"
+        },
+        "headers": {
+          "accept-ranges": "bytes",
+          "content-length": "8",
+          "content-type": "application/json; charset=utf-8",
+          "etag": "\"d75650471ddaeba253d44bbc2b7f06527f8f1f18\"",
+          "vary": "Accept-Encoding"
+        },
+        "status": 200,
+        "statusText": "OK"
+      }
+    },
+    {
+      "name": "css",
+      "request": {
+        "method": "GET",
+        "mode": "fetch",
+        "path": "/style.css"
+      },
+      "response": {
+        "body": {
+          "kind": "text",
+          "length": 7,
+          "sha256": "2708d73bf31c36cdfa1aa466551ed101017280fa546caba4473cfef6e92a93b5",
+          "preview": "body{}\n"
+        },
+        "headers": {
+          "accept-ranges": "bytes",
+          "content-length": "7",
+          "content-type": "text/css; charset=utf-8",
+          "etag": "\"3daef43df4ef7acd6f554df47081815e1e7eb8ff\"",
+          "vary": "Accept-Encoding"
+        },
+        "status": 200,
+        "statusText": "OK"
+      }
+    },
+    {
+      "name": "txt",
+      "request": {
+        "method": "GET",
+        "mode": "fetch",
+        "path": "/blob.txt"
+      },
+      "response": {
+        "body": {
+          "kind": "text",
+          "length": 6,
+          "sha256": "5891b5b522d5df086d0ff0b110fbd9d21bb4fc7163af34d08286a2e846f6be03",
+          "preview": "hello\n"
+        },
+        "headers": {
+          "accept-ranges": "bytes",
+          "content-length": "6",
+          "content-type": "text/plain; charset=utf-8",
+          "etag": "\"e988cd88b7c9fbf6eb8c4c7e5859322adcc29595\"",
+          "vary": "Accept-Encoding"
+        },
+        "status": 200,
+        "statusText": "OK"
+      }
+    },
+    {
+      "name": "wasm",
+      "request": {
+        "method": "GET",
+        "mode": "fetch",
+        "path": "/module.wasm"
+      },
+      "response": {
+        "body": {
+          "kind": "binary",
+          "length": 8,
+          "sha256": "93a44bbb96c751218e4c00d479e4c14358122a389acca16205b1e4d0dc5f9476"
+        },
+        "headers": {
+          "accept-ranges": "bytes",
+          "content-length": "8",
+          "content-type": "application/wasm",
+          "etag": "\"db7bf00f8898eac37392b03b9e2d7de9126d7b10\"",
+          "vary": "Accept-Encoding"
+        },
+        "status": 200,
+        "statusText": "OK"
+      }
+    },
+    {
+      "name": "svg",
+      "request": {
+        "method": "GET",
+        "mode": "fetch",
+        "path": "/icon.svg"
+      },
+      "response": {
+        "body": {
+          "kind": "text",
+          "length": 42,
+          "sha256": "f502af1820bfc04f67ff9daac2ae7a392e23c7cb6c3dfa5422db05fd9538be19",
+          "preview": "<svg xmlns='http://www.w3.org/2000/svg'/>\n"
+        },
+        "headers": {
+          "accept-ranges": "bytes",
+          "content-length": "42",
+          "content-type": "image/svg+xml",
+          "etag": "\"8d189da3f59e124560f0b7ba30736fecf510763a\"",
+          "vary": "Accept-Encoding"
+        },
+        "status": 200,
+        "statusText": "OK"
+      }
+    },
+    {
+      "name": "png",
+      "request": {
+        "method": "GET",
+        "mode": "fetch",
+        "path": "/pixel.png"
+      },
+      "response": {
+        "body": {
+          "kind": "binary",
+          "length": 68,
+          "sha256": "1c8170ab1ab003e5a7d3f03e0b34c9cb71a6fd02bd33b3298fb40dd67fcea7b9"
+        },
+        "headers": {
+          "accept-ranges": "bytes",
+          "content-length": "68",
+          "content-type": "image/png",
+          "etag": "\"3a5cbe8616cac2f71749dfc65491529dec6f1414\""
+        },
+        "status": 200,
+        "statusText": "OK"
+      }
+    },
+    {
+      "name": "noext",
+      "request": {
+        "method": "GET",
+        "mode": "fetch",
+        "path": "/noext"
+      },
+      "response": {
+        "body": {
+          "kind": "binary",
+          "length": 21,
+          "sha256": "6ee77fab04a11de80b25d17d8c7707b9fe9970d2fda880e3379b9b4cc7d6d75a"
+        },
+        "headers": {
+          "accept-ranges": "bytes",
+          "content-length": "21",
+          "etag": "\"12ba5e35345e498db2b22a62a3374bd262e1d9ed\""
+        },
+        "status": 200,
+        "statusText": "OK"
+      }
+    },
+    {
+      "name": "unknownext",
+      "request": {
+        "method": "GET",
+        "mode": "fetch",
+        "path": "/weird.unknownext"
+      },
+      "response": {
+        "body": {
+          "kind": "binary",
+          "length": 14,
+          "sha256": "1839562d3701b6ccc30edd408af67acf588c13fe20fca0f7b23ed6a23ea45631"
+        },
+        "headers": {
+          "accept-ranges": "bytes",
+          "content-length": "14",
+          "etag": "\"ee24eccba132711cf8616e74005e5ad1840abfb9\""
+        },
+        "status": 200,
+        "statusText": "OK"
+      }
+    }
+  ]
+}

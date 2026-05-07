@@ -1,0 +1,86 @@
+{
+  "$schemaVersion": 1,
+  "case": "multislash-collapse",
+  "description": "Multi-slash path normalization. fetch normalizes `//` before sending, so this probe uses `mode: \"raw\"` to put the literal duplicated slashes on the wire. Backs SRV-ROUT-005 and addresses Q-006.",
+  "fixture": {
+    "files": {
+      "docs/guide.html": "<p>guide</p>\n",
+      "index.html": "<p>home</p>\n"
+    }
+  },
+  "serveArgs": [],
+  "volatileHeaders": [
+    "last-modified"
+  ],
+  "volatileBodies": [],
+  "requests": [
+    {
+      "name": "double_slash_root",
+      "request": {
+        "method": "GET",
+        "mode": "raw",
+        "path": "//"
+      },
+      "requestLine": "GET // HTTP/1.1",
+      "response": {
+        "body": {
+          "kind": "text",
+          "length": 12,
+          "sha256": "e80696612aa5776cc6a05e376708bc9e5ad173f638c5cda32b25038702ad8ade",
+          "preview": "<p>home</p>\n"
+        },
+        "headers": {
+          "accept-ranges": "bytes",
+          "content-length": "12",
+          "content-type": "text/html; charset=utf-8",
+          "etag": "\"6e8093027e441055f192a654fa226e4a149385f4\"",
+          "vary": "Accept-Encoding"
+        },
+        "status": 200,
+        "statusText": "OK"
+      }
+    },
+    {
+      "name": "double_slash_segment",
+      "request": {
+        "method": "GET",
+        "mode": "raw",
+        "path": "//docs/guide.html"
+      },
+      "requestLine": "GET //docs/guide.html HTTP/1.1",
+      "response": {
+        "body": {
+          "kind": "binary",
+          "length": 5,
+          "sha256": "933b971c6388d594a23fa1559825db5bec8ade2db1240aa8fc9d0c684949e8c9"
+        },
+        "headers": {
+          "location": "/docs/guide"
+        },
+        "status": 301,
+        "statusText": "Moved Permanently"
+      }
+    },
+    {
+      "name": "internal_double_slash",
+      "request": {
+        "method": "GET",
+        "mode": "raw",
+        "path": "/docs//guide.html"
+      },
+      "requestLine": "GET /docs//guide.html HTTP/1.1",
+      "response": {
+        "body": {
+          "kind": "binary",
+          "length": 5,
+          "sha256": "933b971c6388d594a23fa1559825db5bec8ade2db1240aa8fc9d0c684949e8c9"
+        },
+        "headers": {
+          "location": "/docs/guide"
+        },
+        "status": 301,
+        "statusText": "Moved Permanently"
+      }
+    }
+  ]
+}

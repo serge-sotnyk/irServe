@@ -1,0 +1,63 @@
+{
+  "$schemaVersion": 1,
+  "case": "etag-roundtrip",
+  "description": "ETag round-trip: request a non-html file (no cleanUrls redirect), capture its ETag, then re-request with matching If-None-Match. Expect 304 and an empty body.",
+  "fixture": {
+    "files": {
+      "asset.css": "body{color:red}\n"
+    }
+  },
+  "serveArgs": [],
+  "volatileHeaders": [
+    "last-modified"
+  ],
+  "volatileBodies": [],
+  "requests": [
+    {
+      "name": "first_get",
+      "request": {
+        "method": "GET",
+        "mode": "fetch",
+        "path": "/asset.css"
+      },
+      "response": {
+        "body": {
+          "kind": "text",
+          "length": 16,
+          "sha256": "74d94aede163ac74eb42fe7cac4066626820fa15001ddf02c3b2d25df8e6c771",
+          "preview": "body{color:red}\n"
+        },
+        "headers": {
+          "accept-ranges": "bytes",
+          "content-length": "16",
+          "content-type": "text/css; charset=utf-8",
+          "etag": "\"3638b78821a961fcf35969f0bc67cc5944d64a0b\"",
+          "vary": "Accept-Encoding"
+        },
+        "status": 200,
+        "statusText": "OK"
+      }
+    },
+    {
+      "name": "second_with_inm",
+      "request": {
+        "method": "GET",
+        "mode": "fetch",
+        "path": "/asset.css",
+        "headers": {
+          "if-none-match": "\"3638b78821a961fcf35969f0bc67cc5944d64a0b\""
+        }
+      },
+      "response": {
+        "body": {
+          "kind": "empty",
+          "length": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        "headers": {},
+        "status": 304,
+        "statusText": "Not Modified"
+      }
+    }
+  ]
+}

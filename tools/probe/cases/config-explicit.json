@@ -1,0 +1,19 @@
+{
+  "id": "config-explicit",
+  "description": "`--config <path>` loads a non-default JSON file as the routing/headers configuration. Backs SRV-CLI-009 and SRV-CFG-001. The fixture has both a default-named `serve.json` (NOT used because --config takes precedence) and an alternate `routes.json`; the request hits a redirect that only exists in the alternate file.",
+  "fixture": {
+    "files": {
+      "page.html": "<p>page</p>\n",
+      "routes.json": "{\n  \"redirects\": [\n    { \"source\": \"/old\", \"destination\": \"/page.html\" }\n  ]\n}\n"
+    },
+    "serveJson": {
+      "redirects": [
+        { "source": "/old", "destination": "/should-not-be-used" }
+      ]
+    }
+  },
+  "serveArgs": ["--config", "routes.json"],
+  "requests": [
+    { "name": "redirect_from_alternate_config", "method": "GET", "path": "/old" }
+  ]
+}

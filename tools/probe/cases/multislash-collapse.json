@@ -1,0 +1,15 @@
+{
+  "id": "multislash-collapse",
+  "description": "Multi-slash path normalization. fetch normalizes `//` before sending, so this probe uses `mode: \"raw\"` to put the literal duplicated slashes on the wire. Backs SRV-ROUT-005 and addresses Q-006.",
+  "fixture": {
+    "files": {
+      "docs/guide.html": "<p>guide</p>\n",
+      "index.html": "<p>home</p>\n"
+    }
+  },
+  "requests": [
+    { "name": "double_slash_root", "method": "GET", "path": "//", "mode": "raw" },
+    { "name": "double_slash_segment", "method": "GET", "path": "//docs/guide.html", "mode": "raw" },
+    { "name": "internal_double_slash", "method": "GET", "path": "/docs//guide.html", "mode": "raw" }
+  ]
+}

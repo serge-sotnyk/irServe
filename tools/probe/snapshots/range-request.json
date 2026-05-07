@@ -1,0 +1,104 @@
+{
+  "$schemaVersion": 1,
+  "case": "range-request",
+  "description": "Range / 206 / 416 behavior. Confirms that serve honors `Range: bytes=...` for static files (206 with Content-Range and partial body) and rejects an out-of-range request with 416. Backs SRV-CACHE-004.",
+  "fixture": {
+    "files": {
+      "blob.txt": "abcdefghij\n"
+    }
+  },
+  "serveArgs": [],
+  "volatileHeaders": [
+    "last-modified"
+  ],
+  "volatileBodies": [],
+  "requests": [
+    {
+      "name": "in_range_first_4",
+      "request": {
+        "method": "GET",
+        "mode": "fetch",
+        "path": "/blob.txt",
+        "headers": {
+          "range": "bytes=0-3"
+        }
+      },
+      "response": {
+        "body": {
+          "kind": "text",
+          "length": 4,
+          "sha256": "88d4266fd4e6338d13b845fcf289579d209c897823b9217da3e161936f031589",
+          "preview": "abcd"
+        },
+        "headers": {
+          "accept-ranges": "bytes",
+          "content-length": "4",
+          "content-range": "bytes 0-3/11",
+          "content-type": "text/plain; charset=utf-8",
+          "etag": "\"df13ea7b971f3dad54f0deb102c5bc9fa0d052ae\"",
+          "vary": "Accept-Encoding"
+        },
+        "status": 206,
+        "statusText": "Partial Content"
+      }
+    },
+    {
+      "name": "in_range_tail",
+      "request": {
+        "method": "GET",
+        "mode": "fetch",
+        "path": "/blob.txt",
+        "headers": {
+          "range": "bytes=8-"
+        }
+      },
+      "response": {
+        "body": {
+          "kind": "text",
+          "length": 3,
+          "sha256": "3119395a634a5ed58d3ea4a609d9e29e3dff5224bf9d870b348c3d4b14f62ad8",
+          "preview": "ij\n"
+        },
+        "headers": {
+          "accept-ranges": "bytes",
+          "content-length": "3",
+          "content-range": "bytes 8-10/11",
+          "content-type": "text/plain; charset=utf-8",
+          "etag": "\"df13ea7b971f3dad54f0deb102c5bc9fa0d052ae\"",
+          "vary": "Accept-Encoding"
+        },
+        "status": 206,
+        "statusText": "Partial Content"
+      }
+    },
+    {
+      "name": "out_of_range",
+      "request": {
+        "method": "GET",
+        "mode": "fetch",
+        "path": "/blob.txt",
+        "headers": {
+          "range": "bytes=999-1000"
+        }
+      },
+      "response": {
+        "body": {
+          "kind": "text",
+          "length": 11,
+          "sha256": "c4f6fa010fb86ed9f99900dbf654759acd894604192042d5944f7c935ba41f2c",
+          "preview": "abcdefghij\n"
+        },
+        "headers": {
+          "accept-ranges": "bytes",
+          "content-length": "11",
+          "content-range": "bytes */11",
+          "content-type": "text/plain; charset=utf-8",
+          "etag": "\"df13ea7b971f3dad54f0deb102c5bc9fa0d052ae\"",
+          "vary": "Accept-Encoding"
+        },
+        "status": 416,
+        "statusText": "Range Not Satisfiable"
+      }
+    }
+  ]
+}
