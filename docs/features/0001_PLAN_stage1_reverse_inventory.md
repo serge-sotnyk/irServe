@@ -1,5 +1,12 @@
 # Stage 1 — Reverse inventory of `vercel/serve`
 
+> **Note on identifier naming.** The plan below uses `OQ-NNN` for open-question
+> ids and `D-NNN` for decision ids. The repository skeleton authored at Stage 0
+> (`docs/reference/serve/open-questions.md`) had already established `Q-NNN`
+> for open questions; `D-NNN` for decisions matched. Stage 1 honors the
+> pre-existing skeleton, so all in-tree references use `Q-NNN` / `D-NNN`. Any
+> mention of `OQ-NNN` in this plan should be read as `Q-NNN`.
+
 ## Context
 
 `irServe` is an experiment in AI-assisted porting methodology

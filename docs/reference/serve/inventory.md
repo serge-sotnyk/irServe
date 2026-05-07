@@ -11,7 +11,7 @@ Each requirement uses the following template:
 ```
 ## SRV-<AREA>-<NNN>: <short title>
 
-Status: candidate | accepted | verified | adapted | deferred | rejected | unknown
+Status: accepted | accepted | verified | adapted | deferred | rejected | unknown
 Area: cli | config | static-files | routing | redirects | rewrites | headers | directory-listing | http-cache | security | symlinks
 Compatibility level: 0 | 1 | 2 | 3 | 4
 Priority: P0 | P1 | P2
@@ -63,7 +63,7 @@ Open questions:
 
 #### SRV-CLI-001: Listen on default port 3000 on all interfaces
 
-Status: candidate
+Status: accepted
 Area: cli
 Compatibility level: 0
 Priority: P0
@@ -94,7 +94,7 @@ Open questions:
 
 #### SRV-CLI-002: `-l <port>` accepts a bare port number
 
-Status: candidate
+Status: accepted
 Area: cli
 Compatibility level: 0
 Priority: P0
@@ -122,7 +122,7 @@ Open questions:
 
 #### SRV-CLI-003: `-l tcp://host:port` accepts a TCP URI
 
-Status: candidate
+Status: accepted
 Area: cli
 Compatibility level: 1
 Priority: P1
@@ -201,7 +201,7 @@ Open questions:
 
 #### SRV-CLI-006: `-p` is a deprecated alias for `--listen`
 
-Status: candidate
+Status: accepted
 Area: cli
 Compatibility level: 1
 Priority: P2
@@ -224,7 +224,7 @@ Open questions:
 
 #### SRV-CLI-007: `<directory>` positional argument selects the directory to serve
 
-Status: candidate
+Status: accepted
 Area: cli
 Compatibility level: 0
 Priority: P0
@@ -258,7 +258,7 @@ Open questions:
 
 #### SRV-CLI-008: `-s`/`--single` rewrites all not-found requests to `/index.html`
 
-Status: candidate
+Status: accepted
 Area: cli
 Compatibility level: 2
 Priority: P0
@@ -289,7 +289,7 @@ Open questions:
 
 #### SRV-CLI-009: `-c <path>`/`--config` selects a custom configuration file
 
-Status: candidate
+Status: accepted
 Area: cli
 Compatibility level: 1
 Priority: P1
@@ -320,7 +320,7 @@ Open questions:
 
 #### SRV-CLI-010: `-C`/`--cors` enables permissive CORS headers
 
-Status: candidate
+Status: accepted
 Area: cli
 Compatibility level: 1
 Priority: P1
@@ -348,7 +348,7 @@ Open questions:
 
 #### SRV-CLI-011: `-n`/`--no-clipboard` suppresses clipboard side effect
 
-Status: rejected
+Status: adapted
 Area: cli
 Compatibility level: 1
 Priority: P2
@@ -371,7 +371,7 @@ Open questions:
 
 #### SRV-CLI-012: `-u`/`--no-compression` disables HTTP compression
 
-Status: candidate
+Status: adapted
 Area: cli
 Compatibility level: 3
 Priority: P2
@@ -395,7 +395,7 @@ Open questions:
 
 #### SRV-CLI-013: `--no-etag` switches default to `Last-Modified`
 
-Status: candidate
+Status: accepted
 Area: cli
 Compatibility level: 3
 Priority: P1
@@ -426,7 +426,7 @@ Open questions:
 
 #### SRV-CLI-014: `-d`/`--debug` toggles verbose output
 
-Status: rejected
+Status: adapted
 Area: cli
 Compatibility level: 1
 Priority: P2
@@ -449,7 +449,7 @@ Open questions:
 
 #### SRV-CLI-015: `-L`/`--no-request-logging` silences per-request logs
 
-Status: rejected
+Status: adapted
 Area: cli
 Compatibility level: 1
 Priority: P2
@@ -472,7 +472,7 @@ Open questions:
 
 #### SRV-CLI-016: `--no-port-switching` disables fallback to a random port
 
-Status: candidate
+Status: accepted
 Area: cli
 Compatibility level: 1
 Priority: P1
@@ -546,7 +546,7 @@ Open questions:
 
 #### SRV-CLI-019: `--help` and `-v`/`--version` exit cleanly
 
-Status: candidate
+Status: accepted
 Area: cli
 Compatibility level: 0
 Priority: P1
@@ -571,7 +571,7 @@ Open questions:
 
 #### SRV-CFG-001: Configuration file lookup, location, and error handling
 
-Status: candidate
+Status: accepted
 Area: config
 Compatibility level: 1
 Priority: P0
@@ -609,7 +609,7 @@ Open questions:
 
 #### SRV-CFG-002: Configuration schema overview
 
-Status: candidate
+Status: accepted
 Area: config
 Compatibility level: 1
 Priority: P0
@@ -649,7 +649,7 @@ Open questions:
 
 #### SRV-FILE-001: Serve regular files for matching paths
 
-Status: candidate
+Status: accepted
 Area: static-files
 Compatibility level: 0
 Priority: P0
@@ -677,7 +677,7 @@ Open questions:
 
 #### SRV-FILE-002: 404 for missing paths
 
-Status: candidate
+Status: accepted
 Area: static-files
 Compatibility level: 0
 Priority: P0
@@ -709,7 +709,7 @@ Open questions:
 
 #### SRV-FILE-003: Custom error pages via `<status>.html`
 
-Status: candidate
+Status: accepted
 Area: static-files
 Compatibility level: 1
 Priority: P1
@@ -740,7 +740,7 @@ Open questions:
 
 #### SRV-FILE-004: Default MIME types
 
-Status: candidate
+Status: accepted
 Area: static-files
 Compatibility level: 0
 Priority: P0
@@ -784,7 +784,7 @@ Open questions:
 
 #### SRV-FILE-005: `index.html` resolution for directory paths
 
-Status: candidate
+Status: accepted
 Area: static-files
 Compatibility level: 0
 Priority: P0
@@ -817,7 +817,7 @@ Open questions:
 
 #### SRV-ROUT-001: `cleanUrls` strips `.html` and redirects via 301
 
-Status: candidate
+Status: accepted
 Area: routing
 Compatibility level: 2
 Priority: P0
@@ -850,7 +850,7 @@ Open questions:
 
 #### SRV-ROUT-002: `cleanUrls` resolves extensionless paths to `.html` files
 
-Status: candidate
+Status: accepted
 Area: routing
 Compatibility level: 2
 Priority: P0
@@ -878,7 +878,7 @@ Open questions:
 
 #### SRV-ROUT-003: `trailingSlash: true` adds a trailing slash via 301
 
-Status: candidate
+Status: accepted
 Area: routing
 Compatibility level: 2
 Priority: P1
@@ -907,7 +907,7 @@ Open questions:
 
 #### SRV-ROUT-004: `trailingSlash: false` strips a trailing slash via 301
 
-Status: candidate
+Status: accepted
 Area: routing
 Compatibility level: 2
 Priority: P1
@@ -935,7 +935,7 @@ Open questions:
 
 #### SRV-ROUT-005: Multi-slash path is normalized via 301
 
-Status: candidate
+Status: accepted
 Area: routing
 Compatibility level: 2
 Priority: P1
@@ -965,7 +965,7 @@ Open questions:
 
 #### SRV-RDIR-001: `redirects` produce 301 by default
 
-Status: candidate
+Status: accepted
 Area: redirects
 Compatibility level: 2
 Priority: P0
@@ -994,7 +994,7 @@ Open questions:
 
 #### SRV-RDIR-002: `redirects` with explicit `type` use that status code
 
-Status: candidate
+Status: accepted
 Area: redirects
 Compatibility level: 2
 Priority: P1
@@ -1022,7 +1022,7 @@ Open questions:
 
 #### SRV-RDIR-003: External-URL redirect destinations are honored
 
-Status: candidate
+Status: accepted
 Area: redirects
 Compatibility level: 2
 Priority: P2
@@ -1047,7 +1047,7 @@ Open questions:
 
 #### SRV-RWRT-001: `rewrites` serve a different file with status 200
 
-Status: candidate
+Status: accepted
 Area: rewrites
 Compatibility level: 2
 Priority: P0
@@ -1079,7 +1079,7 @@ Open questions:
 
 #### SRV-RWRT-002: Mime type fallback when rewriting
 
-Status: candidate
+Status: accepted
 Area: rewrites
 Compatibility level: 3
 Priority: P2
@@ -1104,7 +1104,7 @@ Open questions:
 
 #### SRV-HDR-001: Custom `headers` apply per glob source
 
-Status: candidate
+Status: accepted
 Area: headers
 Compatibility level: 3
 Priority: P1
@@ -1132,7 +1132,7 @@ Open questions:
 
 #### SRV-HDR-002: A `value: null` removes a previously-set header
 
-Status: candidate
+Status: accepted
 Area: headers
 Compatibility level: 3
 Priority: P2
@@ -1157,7 +1157,7 @@ Open questions:
 
 #### SRV-DLST-001: Directory listing on/off via `directoryListing`
 
-Status: candidate
+Status: accepted
 Area: directory-listing
 Compatibility level: 1
 Priority: P0
@@ -1192,7 +1192,7 @@ Open questions:
 
 #### SRV-DLST-002: `unlisted` and the default-excluded set
 
-Status: candidate
+Status: accepted
 Area: directory-listing
 Compatibility level: 1
 Priority: P1
@@ -1220,7 +1220,7 @@ Open questions:
 
 #### SRV-DLST-003: `renderSingle` serves a lone file in place of a listing
 
-Status: candidate
+Status: accepted
 Area: directory-listing
 Compatibility level: 2
 Priority: P2
@@ -1250,7 +1250,7 @@ Open questions:
 
 #### SRV-CACHE-001: `ETag` is sent by default and supports 304
 
-Status: candidate
+Status: accepted
 Area: http-cache
 Compatibility level: 3
 Priority: P0
@@ -1281,7 +1281,7 @@ Open questions:
 
 #### SRV-CACHE-002: With `--no-etag`, `Last-Modified` is sent instead
 
-Status: candidate
+Status: accepted
 Area: http-cache
 Compatibility level: 3
 Priority: P1
@@ -1324,7 +1324,7 @@ Open questions:
 
 #### SRV-CACHE-004: Range requests return 206 / 416
 
-Status: candidate
+Status: accepted
 Area: http-cache
 Compatibility level: 3
 Priority: P2
@@ -1349,7 +1349,7 @@ Open questions:
 
 #### SRV-SEC-001: Path traversal outside the served root is denied
 
-Status: candidate
+Status: accepted
 Area: security
 Compatibility level: 2
 Priority: P0
@@ -1381,7 +1381,7 @@ Open questions:
 
 #### SRV-SEC-002: URL is decoded once
 
-Status: candidate
+Status: accepted
 Area: security
 Compatibility level: 2
 Priority: P1
