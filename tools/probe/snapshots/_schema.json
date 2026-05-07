@@ -4,7 +4,11 @@
   "title": "Probe snapshot",
   "description": "Normalized canonical response capture from the pinned vercel/serve reference for one probe case. Snapshots are written by `node tools/probe/run.mjs <id> --snapshot=update` and verified by `--snapshot=verify`. They are committed to the repository and serve as the Stage-3 source of truth for what the reference does. See docs/reference/serve/oracle-matrix.md.",
   "type": "object",
-  "required": ["$schemaVersion", "case", "requests"],
+  "required": ["$schemaVersion", "case"],
+  "oneOf": [
+    { "required": ["requests"] },
+    { "required": ["cli"] }
+  ],
   "additionalProperties": false,
   "properties": {
     "$schemaVersion": {
@@ -37,6 +41,23 @@
       "type": "array",
       "items": { "type": "string" },
       "description": "Request names whose response body is volatile across runs (e.g., directory listings that embed the absolute fixture path, or generated error pages that include port-specific content). The runner still records body length / sha256 / preview for audit, but `verify` masks those fields for these request names. The body's `kind` (text|binary|empty) is still asserted. Override per case via `cases/<id>.json#snapshot.volatileBodies`."
+    },
+    "cli": {
+      "type": "array",
+      "minItems": 1,
+      "description": "Per-invocation CLI snapshot entries (alternative to `requests`). Each entry records a `node serve.js <args>` invocation's exit code and stdout/stderr summaries.",
+      "items": {
+        "type": "object",
+        "required": ["name", "args", "exitCode", "stdout", "stderr"],
+        "additionalProperties": false,
+        "properties": {
+          "name": { "type": "string" },
+          "args": { "type": "array", "items": { "type": "string" } },
+          "exitCode": { "type": ["integer", "null"] },
+          "stdout": { "$ref": "#/$defs/streamSummary" },
+          "stderr": { "$ref": "#/$defs/streamSummary" }
+        }
+      }
     },
     "requests": {
       "type": "array",
@@ -81,22 +102,26 @@
                 "description": "Tracked response headers, name → value, all lowercase, sorted alphabetically.",
                 "additionalProperties": { "type": "string" }
               },
-              "body": {
-                "type": "object",
-                "required": ["kind", "length", "sha256"],
-                "additionalProperties": false,
-                "properties": {
-                  "kind": { "enum": ["text", "binary", "empty"] },
-                  "length": { "type": "integer" },
-                  "sha256": { "type": "string" },
-                  "preview": {
-                    "type": "string",
-                    "description": "First 200 bytes of body decoded as UTF-8. Present only when kind is `text`."
-                  }
-                }
-              }
+              "body": { "$ref": "#/$defs/streamSummary" }
             }
           }
+        }
+      }
+    }
+  },
+  "$defs": {
+    "streamSummary": {
+      "type": "object",
+      "required": ["kind", "length", "sha256"],
+      "additionalProperties": false,
+      "description": "Normalized summary of a body or process stream after fixture-path normalization. The runner replaces the absolute fixture directory with `<FIXTURE_ROOT>` (and its basename with `<FIXTURE_BASENAME>`) before computing length / sha256 / preview, so values stay reproducible across machines.",
+      "properties": {
+        "kind": { "enum": ["text", "binary", "empty"] },
+        "length": { "type": "integer" },
+        "sha256": { "type": "string" },
+        "preview": {
+          "type": "string",
+          "description": "First 200 bytes of the stream decoded as UTF-8. Present only when kind is `text`."
         }
       }
     }

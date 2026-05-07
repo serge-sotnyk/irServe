@@ -50,11 +50,24 @@ exits 0.
 
 | ID      | Area          | Request                                | Verifies                                            | Probe                                                | Layer                                                              | Status   |
 |---------|---------------|----------------------------------------|-----------------------------------------------------|------------------------------------------------------|--------------------------------------------------------------------|----------|
-| ORC-001 | static-files  | `GET /` on dir with `index.html`       | SRV-CLI-002, SRV-CLI-007, SRV-CLI-011, SRV-CLI-016, SRV-FILE-001, SRV-FILE-005 | `cases/_smoke.json#root`                              | must-match: status=200, body=`hello\n`, content-type `text/html; charset=utf-8`. may-differ: ETag, Last-Modified. (SRV-CLI-011 / SRV-CLI-016 verified transitively: every probe passes `--no-clipboard --no-port-switching`.) | verified |
+| ORC-001 | static-files  | `GET /` on dir with `index.html`       | SRV-CLI-002, SRV-CLI-007 (scenarios 1-2), SRV-FILE-001, SRV-FILE-005 | `cases/_smoke.json#root`                              | must-match: status=200, body=`hello\n`, content-type `text/html; charset=utf-8`. may-differ: ETag, Last-Modified.                                                  | verified |
 | ORC-002 | routing       | `GET /index.html` (cleanUrls default)  | SRV-ROUT-001                                        | `cases/_smoke.json#index_html_redirect`              | must-match: status=301, `location: /index`, body empty             | verified |
 | ORC-003 | static-files  | `GET /<file>` for 10 typical extensions| SRV-FILE-004                                        | `cases/mime-defaults.json`                            | must-match: status=200, content-type per extension (html, js, json, css, txt, wasm, svg, png) and a 200 with default `application/octet-stream`/text fallback for unknown extensions and extensionless files. may-differ: ETag | verified |
 | ORC-004 | static-files  | `GET /does-not-exist` (no 404 page)    | SRV-FILE-002                                        | `cases/notfound-shape.json#missing_html`             | must-match: status=404, content-type `text/html; charset=utf-8`     | verified |
 | ORC-005 | static-files  | `GET /does-not-exist` with `Accept: application/json` | SRV-FILE-002                          | `cases/notfound-shape.json#missing_html_with_accept` | must-match: status=404, content-type `application/json; charset=utf-8` (serve emits a templated JSON error body when the client prefers JSON) | verified |
+
+### L0 (process-level) — exit-code probes
+
+These ORCs do not exercise HTTP. The runner spawns
+`node third_party/serve/build/main.js <args>` to completion and snapshots
+exit code + stdout + stderr summaries. See `cases/<id>.json` files with a
+top-level `cli` array (alternative to `requests`).
+
+| ID      | Area | Invocation                          | Verifies                                                         | Probe                                                          | Layer                                                                                                              | Status   |
+|---------|------|--------------------------------------|------------------------------------------------------------------|----------------------------------------------------------------|--------------------------------------------------------------------------------------------------------------------|----------|
+| ORC-060 | cli  | `serve --help` and `serve -h`        | SRV-CLI-019                                                      | `cases/cli-help-version.json#help_long`, `#help_short`         | must-match: exit=0, stdout textual and identical between long/short forms; stderr empty                            | verified |
+| ORC-061 | cli  | `serve --version` and `serve -v`     | SRV-CLI-019                                                      | `cases/cli-help-version.json#version_long`, `#version_short`   | must-match: exit=0, stdout textual (length=7 = `14.2.6\n`); stderr empty                                           | verified |
+| ORC-062 | cli  | `serve a b` (two positional args)    | SRV-CLI-007 (scenario 3)                                         | `cases/cli-positional-error.json#two_positionals`              | must-match: exit=1, stdout empty, stderr text starts with `ERROR  Please provide one path argument at maximum`     | verified |
 
 ### L1 — serve-style CLI and configuration
 
@@ -120,8 +133,8 @@ exits 0.
 | ORC-053 | headers       | `headers` glob (`**/*.css`) applies `Cache-Control: public, max-age=600` to a CSS asset | SRV-HDR-001            | `cases/headers-applied.json#css_get`                           | must-match: status=200, `cache-control: public, max-age=600` (`X-Custom: yes` is also set per fixture but is not in the runner's tracked-headers allowlist) | verified |
 | ORC-054 | cors          | `--cors` adds `Access-Control-Allow-Origin: *` on a 200 response   | SRV-CLI-010, SRV-CORS-001                 | `cases/cors-applied.json#css_with_cors`                        | must-match: status=200, `access-control-allow-origin: *`                                  | verified |
 | ORC-055 | cors          | `--cors` flag also applies on a 301                                | SRV-CLI-010, SRV-CORS-001                 | `cases/cors-flag.json#html_with_cors`                          | must-match: status=301, ACAO header present                                               | verified |
-| ORC-056 | cors          | OPTIONS preflight under `--cors`                                   | SRV-CORS-001                              | `cases/cors-preflight.json#preflight_options`                  | must-match: status=200, ACAO + ACAM + ACAH headers per allowlist                          | verified |
-| ORC-057 | cors          | `--cors` — full response surface across 200 / 301 / 404 paths      | SRV-CORS-001                              | `cases/cors-response-surface.json` (3 requests)                | must-match: ACAO header present on all three; ACAM / ACAH per allowlist                   | verified |
+| ORC-056 | cors          | OPTIONS preflight under `--cors`                                   | SRV-CORS-001                              | `cases/cors-preflight.json#preflight_options`                  | must-match: status=200, headers `access-control-allow-origin: *`, `access-control-allow-headers: *`, `access-control-allow-credentials: true`, `access-control-allow-private-network: true`. Note: serve does NOT emit `access-control-allow-methods`. | verified |
+| ORC-057 | cors          | `--cors` — full response surface across 200 / 301 / 404 paths      | SRV-CORS-001                              | `cases/cors-response-surface.json` (3 requests)                | must-match: same four ACA-* headers as ORC-056 are present on the 200, 301, and 404 responses uniformly; ACAM still absent.            | verified |
 | ORC-058 | compression   | Default GET with `Accept-Encoding: gzip, deflate`                  | SRV-CLI-012                               | `cases/compression-default.json#with_accept_encoding`          | must-match: status=200, `Vary: Accept-Encoding` present (compression negotiation hook)    | verified |
 | ORC-059 | static-files  | Custom 404 page (`404.html`) under both Accept variants            | SRV-FILE-002, SRV-FILE-003                | `cases/notfound-custom.json` (2 requests)                      | must-match: HTML accept → status=404 + body=`404.html`; JSON accept → status=404 + content-type `application/json; charset=utf-8` + templated JSON body (the custom `404.html` is HTML-only; JSON clients always get the built-in JSON template). | verified |
 
@@ -143,10 +156,19 @@ in `inventory.md`.
 - **SRV-CLI-005** (Windows named pipe, L4 deferred) — pipe-bind is L4.
 - **SRV-CLI-006** (`-p` deprecated alias) — covered transitively by every
   `-l` probe; no dedicated ORC.
-- **SRV-CLI-007** scenario 3 (two positional args → non-zero exit) —
-  process-level assertion, not HTTP. Probing requires a CLI exit-code
-  mode in the runner; deliberately deferred to Stage 5b. Scenarios 1 and
-  2 (cwd-default and explicit-directory) ARE verified by every probe.
+- **SRV-CLI-011** (`--no-clipboard` suppression) — every probe passes the
+  flag so the startup path is exercised, but the actual contract (no
+  clipboard write) is unobservable via HTTP and the runner does not
+  inspect clipboard state. Stays `accepted`. Per `D-005`, IrServe never
+  modifies the clipboard, so an oracle test is not planned.
+- **SRV-CLI-016** (`--no-port-switching` failure-to-start) — every probe
+  passes the flag with an already-free port, so only the happy path is
+  exercised. The actual contract (refuse to fall back when the port is
+  occupied) requires a probe that occupies the port first; deferred to
+  Stage 5b. Stays `accepted`.
+- ~~**SRV-CLI-007** scenario 3~~ — closed in Stage 3 review round 1 by
+  ORC-062 (`cli-positional-error.json`). The runner gained a CLI-mode
+  branch that snapshots exit code + stdout/stderr.
 - **SRV-CLI-013** (`--no-etag` switches default to `Last-Modified`) —
   no probe exercises `--no-etag` in this stage. Stays `accepted`.
 - **SRV-CLI-014** (`--debug`) — affects logging only; no observable HTTP
@@ -157,8 +179,8 @@ in `inventory.md`.
   fixture creation is platform-specific; deferred to Stage 5b.
 - **SRV-CLI-018** (TLS `--ssl-*`, L4 deferred) — oracle requires fixture
   certificates.
-- **SRV-CLI-019** (`--help`, `--version`) — process-level assertion (exit
-  code, stdout shape). Same blocker as SRV-CLI-007 scenario 3. Deferred.
+- ~~**SRV-CLI-019**~~ — closed in Stage 3 review round 1 by ORC-060 and
+  ORC-061 (`cli-help-version.json`).
 - **SRV-CFG-002** (configuration schema overview) — META requirement; no
   single observable behavior. Verified piecewise via SRV-ROUT-*,
   SRV-RDIR-*, SRV-RWRT-*, SRV-HDR-*, SRV-DLST-* entries. Stays `accepted`.

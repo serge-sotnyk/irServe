@@ -25,10 +25,7 @@
   "volatileHeaders": [
     "last-modified"
   ],
-  "volatileBodies": [
-    "default_listing_html",
-    "default_listing_json"
-  ],
+  "volatileBodies": [],
   "requests": [
     {
       "name": "default_file_no_rule",
@@ -64,7 +61,10 @@
       },
       "response": {
         "body": {
-          "kind": "text"
+          "kind": "text",
+          "length": 4465,
+          "sha256": "8ee9c5cb41a89fb0539dfa7b0d77e52f0ad8976807f7373014616a27af51f658",
+          "preview": "<!DOCTYPE html><html lang=\"en\"> <head> <meta charset=\"utf-8\"> <meta name=\"viewport\" content=\"width=device-width, initial-scale=1\"> <title>Files within <FIXTURE_BASENAME>\\</title> <style>body { margin:"
         },
         "headers": {
           "content-type": "text/html; charset=utf-8",
@@ -86,7 +86,10 @@
       },
       "response": {
         "body": {
-          "kind": "text"
+          "kind": "text",
+          "length": 577,
+          "sha256": "96070a0b23b177c4caa643c28cac03fe80fef2c1a829ba61fc772395634e18a9",
+          "preview": "{\"files\":[{\"root\":\"C:\\\\\",\"dir\":\"<FIXTURE_ROOT>\",\"base\":\"asset.css\",\"ext\":\"css\",\"name\":\"asset\",\"relative\":\"\\\\asset.css\",\"type\":\"file\",\"size\":\"7 B\",\"title\":\"asset.css\"},{\"root\":\"C:\\\\\",\"dir\":\"<FIXTURE_RO"
         },
         "headers": {
           "content-type": "application/json; charset=utf-8",

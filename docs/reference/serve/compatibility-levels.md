@@ -86,7 +86,8 @@ The six Stage-2 follow-ups have evolved as follows:
 
 Stage 3 introduces these residual coverage gaps (full list with rationale in [`oracle-matrix.md`](./oracle-matrix.md#coverage-gaps)):
 
-- Process-level CLI behavior (`--help`, `--version`, two-positional error) — needs an exit-code/stdout assertion mode in the runner; deferred to Stage 5b. Affects SRV-CLI-019 and SRV-CLI-007 scenario 3.
+- ~~Process-level CLI behavior (`--help`, `--version`, two-positional error)~~ — closed in Stage 3 review round 1. The runner now has a CLI-mode branch (`runCliProbe`) that snapshots exit code + stdout/stderr; SRV-CLI-019 promoted to `verified`; SRV-CLI-007 scenario 3 now has an ORC.
+- `--no-clipboard` and `--no-port-switching` happy-path-only — every probe passes both flags, but the runner does not assert clipboard suppression or refuse-to-fall-back-on-occupied-port (would need a probe that occupies the port first). SRV-CLI-011 and SRV-CLI-016 stay `accepted`.
 - Default-port path (no `--listen`, no `PORT`) — every probe passes an explicit `--listen`; SRV-CLI-001 stays `accepted`.
 - `--no-etag` / `Last-Modified` path — no probe in Stage 3. SRV-CLI-013 and SRV-CACHE-002 stay `accepted`; SRV-CACHE-003 stays `unknown` (Q-009 open).
 - `headers` rule with `value: null` removal — the existing `headers-custom` probe is broken (intercepted by cleanUrls 301); SRV-HDR-002 stays `accepted`. Stage-5b cleanup TODO logged in `oracle-matrix.md`.

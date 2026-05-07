@@ -17,9 +17,6 @@
       ]
     }
   },
-  "snapshot": {
-    "volatileBodies": ["default_listing_html", "default_listing_json"]
-  },
   "requests": [
     { "name": "default_file_no_rule", "path": "/asset.css" },
     { "name": "default_listing_html", "path": "/" },

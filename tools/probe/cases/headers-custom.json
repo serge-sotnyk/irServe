@@ -17,6 +17,9 @@
       ]
     }
   },
+  "snapshot": {
+    "extraTrackedHeaders": ["x-custom"]
+  },
   "requests": [
     { "name": "html_get", "method": "GET", "path": "/page.html" }
   ]

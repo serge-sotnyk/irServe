@@ -50,7 +50,8 @@
           "content-length": "7",
           "content-type": "text/css; charset=utf-8",
           "etag": "\"3daef43df4ef7acd6f554df47081815e1e7eb8ff\"",
-          "vary": "Accept-Encoding"
+          "vary": "Accept-Encoding",
+          "x-custom": "yes"
         },
         "status": 200,
         "statusText": "OK"

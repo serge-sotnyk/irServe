@@ -13,9 +13,6 @@
       "unlisted": ["secret.txt"]
     }
   },
-  "snapshot": {
-    "volatileBodies": ["listing_html", "listing_json"]
-  },
   "requests": [
     { "name": "listing_html", "method": "GET", "path": "/" },
     { "name": "listing_json", "method": "GET", "path": "/", "headers": { "accept": "application/json" } }

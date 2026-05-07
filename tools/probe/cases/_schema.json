@@ -2,9 +2,12 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://github.com/serge-sotnyk/irServe/tools/probe/cases/_schema.json",
   "title": "Probe case",
-  "description": "Declarative probe against the pinned vercel/serve reference. Each probe spawns a fresh serve instance against an inline fixture and runs an ordered list of HTTP requests.",
+  "description": "Declarative probe against the pinned vercel/serve reference. Each probe either spawns a serve instance against a fixture and runs an ordered list of HTTP requests (the default) OR runs a process-level CLI invocation to capture exit code + stdout + stderr.",
   "type": "object",
-  "required": ["requests"],
+  "oneOf": [
+    { "required": ["requests"] },
+    { "required": ["cli"] }
+  ],
   "additionalProperties": false,
   "properties": {
     "id": {
@@ -60,7 +63,30 @@
         "volatileBodies": {
           "type": "array",
           "items": { "type": "string" },
-          "description": "Names of requests whose response body is volatile across runs (e.g., a directory listing that embeds the absolute fixture path). For those requests the snapshot still records body length / sha256 / preview, but `verify` masks those fields. The body's `kind` is still asserted. Defaults to []."
+          "description": "Names of requests whose response body is volatile across runs even after the runner's path normalization (the runner replaces the absolute fixture directory with `<FIXTURE_ROOT>` before computing body sha256 / preview, so listings are usually stable; this list is the escape hatch for cases where some other source of nondeterminism remains). For those requests the snapshot still records body length / sha256 / preview, but `verify` masks those fields. The body's `kind` is still asserted. Defaults to []."
+        },
+        "extraTrackedHeaders": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Lowercase response-header names to add to the runner's tracked-header allowlist for this case only. The runner records and asserts these headers in the snapshot. Use when a probe sets a custom header (e.g. `X-Custom`) that is not in the global allowlist."
+        }
+      }
+    },
+    "cli": {
+      "type": "array",
+      "minItems": 1,
+      "description": "Process-level CLI invocations to capture (alternative to `requests` for non-HTTP probes such as `--help`, `--version`, two-positional-arg failure). The runner spawns `node third_party/serve/build/main.js <args>` per entry, captures exit code + stdout + stderr, and produces a CLI snapshot under tools/probe/snapshots/<id>.json. A case must define EITHER `requests` OR `cli`, not both.",
+      "items": {
+        "type": "object",
+        "required": ["name", "args"],
+        "additionalProperties": false,
+        "properties": {
+          "name": { "type": "string" },
+          "args": {
+            "type": "array",
+            "items": { "type": "string" },
+            "description": "Arguments passed verbatim after the serve entry path."
+          }
         }
       }
     },

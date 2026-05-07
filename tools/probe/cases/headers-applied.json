@@ -17,6 +17,9 @@
       ]
     }
   },
+  "snapshot": {
+    "extraTrackedHeaders": ["x-custom"]
+  },
   "requests": [
     { "name": "css_get", "method": "GET", "path": "/asset.css" }
   ]

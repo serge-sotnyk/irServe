@@ -1,0 +1,27 @@
+{
+  "$schemaVersion": 1,
+  "case": "cli-positional-error",
+  "description": "`serve a b` exits with non-zero code and writes an error message to stderr. Backs SRV-CLI-007 scenario 3 (more than one positional path is rejected).",
+  "cli": [
+    {
+      "name": "two_positionals",
+      "args": [
+        "a",
+        "b"
+      ],
+      "exitCode": 1,
+      "stdout": {
+        "kind": "text",
+        "length": 0,
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "preview": ""
+      },
+      "stderr": {
+        "kind": "text",
+        "length": 52,
+        "sha256": "ee7e666bded019310da53fdbffbe6f6e9b56ff5e3a9e64cb1b1d416647063f38",
+        "preview": " ERROR  Please provide one path argument at maximum\n"
+      }
+    }
+  ]
+}

@@ -233,8 +233,8 @@ Reference source:
 - README: yes — `third_party/serve/readme.md` Usage section: `serve folder-name/`.
 - serve source: `third_party/serve/source/main.ts:58-65` — at most one positional, resolved relative to cwd.
 - Existing test: absent.
-- Probe: covered indirectly by every probe (the runner passes a fixture directory).
-- Oracle test: ORC-001 (snapshots in tools/probe/snapshots/).
+- Probe: covered indirectly by every probe (the runner passes a fixture directory). Two-positional-error scenario is exercised by `tools/probe/cases/cli-positional-error.json`.
+- Oracle test: ORC-001 (scenarios 1-2), ORC-062 (scenario 3) (snapshots in tools/probe/snapshots/).
 
 Requirement (draft):
 A single optional positional argument selects the directory to serve. If omitted, the current working directory is served. Supplying more than one positional argument is a fatal error.
@@ -350,7 +350,7 @@ Open questions:
 
 #### SRV-CLI-011: `-n`/`--no-clipboard` suppresses clipboard side effect
 
-Status: verified
+Status: accepted
 Area: cli
 Compatibility level: 1
 Priority: P2
@@ -359,8 +359,8 @@ Reference source:
 - README: yes — help text: `Do not copy the local address to the clipboard`.
 - serve source: `source/main.ts:102-140`.
 - Existing test: absent.
-- Probe: not applicable.
-- Oracle test: ORC-001 (transitive — every probe passes `--no-clipboard`; the runner observes no clipboard side effect because the snapshot layer never touches it). Clipboard interaction itself is intentionally not modeled per `D-005`.
+- Probe: not applicable. The flag is passed by every probe so the runner's startup path is exercised, but the suppression effect (clipboard NOT modified) cannot be observed via HTTP and the runner does not assert clipboard state.
+- Oracle test: not planned (clipboard interaction is intentionally not modeled per `D-005`).
 
 Requirement (draft):
 The flag is accepted (silently or with a no-op) so that scripts that pass `--no-clipboard` still work. IrServe does not interact with the clipboard at all by default.
@@ -474,7 +474,7 @@ Open questions:
 
 #### SRV-CLI-016: `--no-port-switching` disables fallback to a random port
 
-Status: verified
+Status: accepted
 Area: cli
 Compatibility level: 1
 Priority: P1
@@ -483,8 +483,8 @@ Reference source:
 - README: yes — help text: `Do not open a port other than the one specified when it's taken`.
 - serve source: CLI flag enumeration in `source/main.ts`; the fallback logic lives in `source/utilities/server.ts:166-178`.
 - Existing test: absent.
-- Probe: not run; the probe runner already passes `--no-port-switching` to keep behavior deterministic, so it's exercised on every probe by side effect.
-- Oracle test: ORC-001 (snapshots in tools/probe/snapshots/).
+- Probe: not run. Every probe passes `--no-port-switching` and binds a free port, so only the happy path (the flag does not prevent startup) is exercised. The actual contract — failure-to-start when the port is occupied — needs a probe that occupies the port first; deferred to Stage 5b.
+- Oracle test: planned.
 
 Requirement (draft):
 By default, if the requested port is already taken, the server picks a free port instead. With `--no-port-switching`, the server MUST fail to start instead.
@@ -548,7 +548,7 @@ Open questions:
 
 #### SRV-CLI-019: `--help` and `-v`/`--version` exit cleanly
 
-Status: accepted
+Status: verified
 Area: cli
 Compatibility level: 0
 Priority: P1
@@ -557,8 +557,8 @@ Reference source:
 - README: yes — help text top section.
 - serve source: `source/main.ts:45-52`.
 - Existing test: absent.
-- Probe: not applicable.
-- Oracle test: planned.
+- Probe: `tools/probe/cases/cli-help-version.json` (CLI-mode case; runner branches into `runCliProbe` and snapshots exit code + stdout/stderr).
+- Oracle test: ORC-060, ORC-061 (snapshots in tools/probe/snapshots/).
 
 Requirement (draft):
 `--help` prints help text and exits 0. `--version`/`-v` prints the version and exits 0. Each takes precedence over starting the server.

@@ -157,29 +157,67 @@ async function killServe(child) {
   }
 }
 
-function summarizeBody(buffer, contentType = '') {
-  const sha256 = createHash('sha256').update(buffer).digest('hex');
-  const length = buffer.length;
+// Normalize the bytes of a response body so the recorded body sha256 / preview
+// stay reproducible across machines. The pinned reference embeds the absolute
+// fixture directory (e.g. directory listings, JSON listings) which is a
+// per-run mkdtemp path. We replace it with stable tokens.
+//
+// Replacements applied (longest-first, so basename does not eat the full path):
+//   <fixture-dir-json-escaped>   -> "<FIXTURE_ROOT>"
+//   <fixture-dir-verbatim>       -> "<FIXTURE_ROOT>"
+//   <fixture-dir-forward-slash>  -> "<FIXTURE_ROOT>"
+//   <basename(fixture-dir)>      -> "<FIXTURE_BASENAME>"
+function normalizeBodyForSnapshot(buffer, fixtureDir) {
+  if (!fixtureDir) return buffer;
+  const text = buffer.toString('binary');
+  const baseName = fixtureDir.split(/[\\/]/).filter(Boolean).pop() || '';
+  const variants = [
+    fixtureDir.replace(/\\/g, '\\\\'),
+    fixtureDir,
+    fixtureDir.replace(/\\/g, '/'),
+  ].filter((v, i, a) => v && a.indexOf(v) === i);
+  let out = text;
+  for (const v of variants) out = out.split(v).join('<FIXTURE_ROOT>');
+  if (baseName && baseName !== '<FIXTURE_ROOT>') {
+    out = out.split(baseName).join('<FIXTURE_BASENAME>');
+  }
+  return Buffer.from(out, 'binary');
+}
+
+function summarizeBody(buffer, contentType = '', fixtureDir = null) {
+  const normalized = normalizeBodyForSnapshot(buffer, fixtureDir);
+  const sha256 = createHash('sha256').update(normalized).digest('hex');
+  const length = normalized.length;
   const isTextual = /^(text\/|application\/(json|xml|javascript)|.*\+(json|xml))/i.test(contentType);
   let preview = null;
   if (isTextual) {
-    const slice = buffer.slice(0, 200);
+    const slice = normalized.slice(0, 200);
     preview = slice.toString('utf8');
   }
   return { length, sha256, preview };
 }
 
-function pickHeaders(headers) {
+function pickHeaders(headers, extraTracked = []) {
+  // headers may be either a Headers instance (fetch path) or a plain object
+  // (raw-socket path; keys are already lowercased).
+  const allowlist = new Set([...TRACKED_RESPONSE_HEADERS, ...extraTracked.map((n) => n.toLowerCase())]);
   const out = {};
-  for (const name of TRACKED_RESPONSE_HEADERS) {
-    const v = headers.get(name);
-    if (v !== null) out[name] = v;
+  if (headers && typeof headers.get === 'function') {
+    for (const name of allowlist) {
+      const v = headers.get(name);
+      if (v !== null && v !== undefined) out[name] = v;
+    }
+  } else if (headers && typeof headers === 'object') {
+    for (const [k, v] of Object.entries(headers)) {
+      if (allowlist.has(k.toLowerCase())) out[k.toLowerCase()] = v;
+    }
   }
   return out;
 }
 
-async function runRequest(port, req) {
-  if (req.mode === 'raw') return runRequestRaw(port, req);
+async function runRequest(port, req, opts = {}) {
+  const { fixtureDir = null, extraTracked = [] } = opts;
+  if (req.mode === 'raw') return runRequestRaw(port, req, opts);
   const url = `http://127.0.0.1:${port}${req.path}`;
   const init = {
     method: req.method ?? 'GET',
@@ -191,8 +229,8 @@ async function runRequest(port, req) {
   }
   const res = await fetch(url, init);
   const buf = Buffer.from(await res.arrayBuffer());
-  const headers = pickHeaders(res.headers);
-  const body = summarizeBody(buf, headers['content-type']);
+  const headers = pickHeaders(res.headers, extraTracked);
+  const body = summarizeBody(buf, headers['content-type'], fixtureDir);
   return {
     name: req.name,
     mode: 'fetch',
@@ -218,7 +256,8 @@ async function runRequest(port, req) {
 // It does NOT decode `Transfer-Encoding: chunked`. To keep things simple,
 // the runner always injects `Connection: close` so the server closes the
 // socket after the response, giving us a deterministic EOF.
-async function runRequestRaw(port, req) {
+async function runRequestRaw(port, req, opts = {}) {
+  const { fixtureDir = null, extraTracked = [] } = opts;
   const method = req.method ?? 'GET';
   const path = req.path;
   const userHeaders = { ...(req.headers ?? {}) };
@@ -272,11 +311,8 @@ async function runRequestRaw(port, req) {
           const value = line.slice(colon + 1).trim();
           allHeaders[name] = value;
         }
-        const tracked = {};
-        for (const name of TRACKED_RESPONSE_HEADERS) {
-          if (name in allHeaders) tracked[name] = allHeaders[name];
-        }
-        const body = summarizeBody(bodyBuf, tracked['content-type'] ?? '');
+        const tracked = pickHeaders(allHeaders, extraTracked);
+        const body = summarizeBody(bodyBuf, tracked['content-type'] ?? '', fixtureDir);
         resolveFn({
           name: req.name,
           mode: 'raw',
@@ -405,18 +441,8 @@ function normalizeRequestEntry(probe, result) {
 function buildSnapshot(probe, results) {
   const volatileHeaders =
     probe.snapshot?.volatileHeaders ?? [...DEFAULT_VOLATILE_HEADERS];
-  const volatileBodies = new Set(probe.snapshot?.volatileBodies ?? []);
+  const volatileBodies = probe.snapshot?.volatileBodies ?? [];
   const entries = results.map((r) => normalizeRequestEntry(probe, r));
-  // For requests flagged as volatile-body, redact the body shape on disk
-  // (keep only `kind`). We do this at write time so the committed snapshot
-  // is reproducible across checkouts — otherwise an absolute fixture path
-  // leaking into a directory listing's preview would churn whenever a
-  // contributor regenerates snapshots.
-  for (const e of entries) {
-    if (volatileBodies.has(e.name) && e.response?.body) {
-      e.response.body = { kind: e.response.body.kind };
-    }
-  }
   const snap = {
     $schemaVersion: 1,
     case: probe.id,
@@ -428,6 +454,21 @@ function buildSnapshot(probe, results) {
     requests: entries,
   };
   return snap;
+}
+
+function buildCliSnapshot(probe, cliResults) {
+  return {
+    $schemaVersion: 1,
+    case: probe.id,
+    description: probe.description ?? null,
+    cli: cliResults.map((r) => ({
+      name: r.name,
+      args: r.args,
+      exitCode: r.exitCode,
+      stdout: r.stdout,
+      stderr: r.stderr,
+    })),
+  };
 }
 
 function maskVolatileForDiff(snap) {
@@ -461,12 +502,17 @@ function canonicalJson(value) {
 
 function diffSnapshots(expected, actual) {
   // Mask volatile headers using the expected snapshot's volatile list (the
-  // committed contract). Then compare canonicalized JSON.
-  const exp = maskVolatileForDiff(expected);
-  const act = maskVolatileForDiff({
-    ...actual,
-    volatileHeaders: expected.volatileHeaders ?? [],
-  });
+  // committed contract). Then compare canonicalized JSON. CLI snapshots
+  // don't have volatile-header/body fields and bypass the masking entirely.
+  const isHttp = Array.isArray(expected.requests);
+  const exp = isHttp ? maskVolatileForDiff(expected) : expected;
+  const act = isHttp
+    ? maskVolatileForDiff({
+        ...actual,
+        volatileHeaders: expected.volatileHeaders ?? [],
+        volatileBodies: expected.volatileBodies ?? [],
+      })
+    : actual;
   if (canonicalJson(exp) === canonicalJson(act)) return null;
   // Produce a readable line-based diff of the prettified forms so a reviewer
   // can locate the divergence quickly.
@@ -521,10 +567,101 @@ async function readServeVersion() {
   }
 }
 
+// Run a CLI probe: spawn `node serve.js <args>` to completion (no port, no
+// HTTP). Capture exitCode + stdout + stderr (each summarized as
+// {kind, length, sha256, preview}). Used for cases asserting --help,
+// --version, two-positional-arg failure, etc.
+async function runCliInvocation(name, args, fixtureDir) {
+  return new Promise((resolveFn, rejectFn) => {
+    const child = spawn(process.execPath, [SERVE_ENTRY, ...args], {
+      cwd: fixtureDir,
+      stdio: ['ignore', 'pipe', 'pipe'],
+      env: { ...process.env, NO_UPDATE_NOTIFIER: '1', FORCE_COLOR: '0' },
+    });
+    const stdoutChunks = [];
+    const stderrChunks = [];
+    child.stdout.on('data', (d) => stdoutChunks.push(d));
+    child.stderr.on('data', (d) => stderrChunks.push(d));
+    const timer = setTimeout(() => {
+      try { child.kill('SIGKILL'); } catch { /* ignore */ }
+      rejectFn(new Error(`CLI invocation '${name}' timed out`));
+    }, 15000);
+    child.on('error', (e) => { clearTimeout(timer); rejectFn(e); });
+    child.on('close', (exitCode) => {
+      clearTimeout(timer);
+      const stdoutBuf = Buffer.concat(stdoutChunks);
+      const stderrBuf = Buffer.concat(stderrChunks);
+      const stdout = summarizeBody(stdoutBuf, 'text/plain', fixtureDir);
+      const stderr = summarizeBody(stderrBuf, 'text/plain', fixtureDir);
+      resolveFn({
+        name,
+        args,
+        exitCode,
+        stdout: {
+          kind: stdout.preview !== null ? 'text' : (stdout.length === 0 ? 'empty' : 'binary'),
+          length: stdout.length,
+          sha256: stdout.sha256,
+          ...(stdout.preview !== null ? { preview: stdout.preview } : {}),
+        },
+        stderr: {
+          kind: stderr.preview !== null ? 'text' : (stderr.length === 0 ? 'empty' : 'binary'),
+          length: stderr.length,
+          sha256: stderr.sha256,
+          ...(stderr.preview !== null ? { preview: stderr.preview } : {}),
+        },
+      });
+    });
+  });
+}
+
+async function runCliProbe(probeId, probe, snapshotMode) {
+  await mkdir(TMP_DIR, { recursive: true });
+  const fixtureDir = await mkdtemp(join(TMP_DIR, `${probeId}-`));
+  try {
+    await materializeFixture(probe.fixture ?? {}, fixtureDir);
+    let effectiveMode = snapshotMode;
+    if (effectiveMode === 'auto') {
+      effectiveMode = (await snapshotExists(probeId)) ? 'verify' : 'none';
+    }
+    logInfo(`probe '${probeId}': serve@${await readServeVersion()} cli mode (${probe.cli.length} invocation(s)), snapshot=${effectiveMode}`);
+    const cliResults = [];
+    for (const inv of probe.cli) {
+      cliResults.push(await runCliInvocation(inv.name, inv.args ?? [], fixtureDir));
+    }
+
+    let snapshotStatus = 'skipped';
+    if (effectiveMode === 'update') {
+      await writeSnapshot(probeId, buildCliSnapshot(probe, cliResults));
+      snapshotStatus = 'updated';
+    } else if (effectiveMode === 'verify') {
+      const expected = await readSnapshot(probeId);
+      if (!expected) {
+        throw new Error(`--snapshot=verify but no snapshot at snapshots/${probeId}.json (run with --snapshot=update first)`);
+      }
+      const actual = buildCliSnapshot(probe, cliResults);
+      const diff = diffSnapshots(expected, actual);
+      if (diff) {
+        const err = new Error(`snapshot mismatch for ${probeId}\n${diff}`);
+        err.snapshotMismatch = true;
+        throw err;
+      }
+      snapshotStatus = 'verified';
+    }
+    logInfo(`probe '${probeId}': cli mode (${cliResults.length} invocation(s), snapshot=${snapshotStatus})`);
+    return { probeId, requests: cliResults.length, snapshot: snapshotStatus };
+  } finally {
+    await rm(fixtureDir, { recursive: true, force: true });
+  }
+}
+
 async function runProbe(probeId, options = {}) {
   const { snapshotMode = 'auto' } = options;
   const probe = await readCase(probeId);
   if (!probe.id) probe.id = probeId;
+  // CLI mode: case has a `cli` array instead of `requests`.
+  if (Array.isArray(probe.cli) && probe.cli.length > 0) {
+    return runCliProbe(probeId, probe, snapshotMode);
+  }
   await mkdir(RESULTS_DIR, { recursive: true });
   await mkdir(TMP_DIR, { recursive: true });
   const fixtureDir = await mkdtemp(join(TMP_DIR, `${probeId}-`));
@@ -550,9 +687,11 @@ async function runProbe(probeId, options = {}) {
     serveBundle = spawnServe({ port, fixtureDir, extraArgs: probe.serveArgs ?? [] });
     serveProc = serveBundle.child;
     await waitReady(port);
+    const extraTracked = probe.snapshot?.extraTrackedHeaders ?? [];
+    const requestOpts = { fixtureDir, extraTracked };
     const results = [];
     for (const req of probe.requests ?? []) {
-      results.push(await runRequest(port, req));
+      results.push(await runRequest(port, req, requestOpts));
     }
     const md = renderMarkdown(probe, runMeta, results);
     const json = {

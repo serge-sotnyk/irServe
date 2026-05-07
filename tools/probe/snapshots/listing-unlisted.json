@@ -20,10 +20,7 @@
   "volatileHeaders": [
     "last-modified"
   ],
-  "volatileBodies": [
-    "listing_html",
-    "listing_json"
-  ],
+  "volatileBodies": [],
   "requests": [
     {
       "name": "listing_html",
@@ -34,7 +31,10 @@
       },
       "response": {
         "body": {
-          "kind": "text"
+          "kind": "text",
+          "length": 4438,
+          "sha256": "962f8c9e25a45772b0c524d69a83ba0a69f811227946c7a32ad045af204d0aca",
+          "preview": "<!DOCTYPE html><html lang=\"en\"> <head> <meta charset=\"utf-8\"> <meta name=\"viewport\" content=\"width=device-width, initial-scale=1\"> <title>Files within <FIXTURE_BASENAME>\\</title> <style>body { margin:"
         },
         "headers": {
           "content-type": "text/html; charset=utf-8",
@@ -56,7 +56,10 @@
       },
       "response": {
         "body": {
-          "kind": "text"
+          "kind": "text",
+          "length": 540,
+          "sha256": "8a87967f98d9c83e1bbe59fcf63f2d467c0249b08d5ce0a1770ac7624a6f6003",
+          "preview": "{\"files\":[{\"root\":\"C:\\\\\",\"dir\":\"<FIXTURE_ROOT>\",\"base\":\"a.txt\",\"ext\":\"txt\",\"name\":\"a\",\"relative\":\"\\\\a.txt\",\"type\":\"file\",\"size\":\"2 B\",\"title\":\"a.txt\"},{\"root\":\"C:\\\\\",\"dir\":\"<FIXTURE_ROOT>\",\"base\":\"b.t"
         },
         "headers": {
           "content-type": "application/json; charset=utf-8",
