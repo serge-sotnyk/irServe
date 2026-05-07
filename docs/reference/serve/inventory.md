@@ -989,7 +989,12 @@ For a request whose path P does not directly resolve to a regular file inside th
 5. **`cleanUrls` resolution** — if cleanUrls is on, attempt `<P>.html` and `<P>/index.html` (SRV-ROUT-002).
 6. **Static file** — final attempt to resolve P (or its index.html) under the served root (SRV-FILE-001, SRV-FILE-005). Failure here yields a 404 (SRV-FILE-002).
 
-Stage 0 — direct file match — short-circuits stages 3 and 4: if the original path P resolves to an existing regular file, redirects and rewrites are NOT consulted, but the cleanUrl/trailingSlash redirects in stages 1–2 still apply because they trigger on the *URL form* (e.g. `/about.html` → 301 `/about`), not on file existence.
+Stage 0 — direct file pre-stat — short-circuits the rewrite/findRelated branch only when the request path **has a non-empty extension** (`path.extname(relativePath) !== ''`, per `src/index.js:608-616`). Concretely:
+
+- If P has an extension (`/asset.css`, `/page.html`) and the file exists, `findRelated` is skipped and the existing file is served. Rewrites and the cleanUrls-resolution at stage 5 do not run.
+- If P has no extension (`/about`, `/api`), there is **no** pre-stat. `applyRewrites` runs (stage 4 logic), and if it returns a `rewrittenPath`, `findRelated` is called against the rewrite destination. An extensionless file at the original path that *would* have resolved at stage 6 can therefore be displaced by a matching rewrite. The original path is only attempted at stage 6 (the final `lstat` at `src/index.js:634-642`) when no rewrite matched.
+
+The cleanUrl / trailingSlash redirects in stages 1–2 are unaffected by this — they trigger on the *URL form* (e.g. `/about.html` → 301 `/about`), not on file existence.
 
 Scenarios:
 - GIVEN config has both a redirect `/old → /new` and a rewrite `/old → /alt.html`.
@@ -1121,8 +1126,7 @@ Scenarios:
 
 Compatibility notes:
 - The URL bar does not change (rewrites are silent).
-- Per source, when a stat for the original path succeeds, rewrites do not apply (i.e. existing files take precedence over rewrites).
-- See SRV-ROUT-006 for how rewrites interact with redirects, cleanUrls, and trailingSlash.
+- The "existing files take precedence over rewrites" intuition is **only true for paths with non-empty extensions** (`/page.html`, `/asset.css`). Per `src/index.js:608-616`, the pre-rewrite `lstat` is gated by `path.extname(relativePath) !== ''`. For extensionless request paths (e.g. `/about`), no pre-stat happens; `applyRewrites` runs unconditionally, and a matching rewrite displaces the original-path file even if it exists. See SRV-ROUT-006 for the full pipeline.
 
 Open questions:
 - None.
@@ -1464,6 +1468,15 @@ Scenarios:
 - GIVEN default config and `/asset.css`.
   WHEN `GET /asset.css`.
   THEN the response does NOT include a `Cache-Control` header (per probe `cache-control-default`, request `default_file_no_rule`).
+- GIVEN default config and an empty-of-index directory.
+  WHEN `GET /` (HTML listing).
+  THEN the response does NOT include a `Cache-Control` header (per probe `cache-control-default`, request `default_listing_html`).
+- GIVEN default config and an empty-of-index directory and `Accept: application/json`.
+  WHEN `GET /` (JSON listing).
+  THEN the response does NOT include a `Cache-Control` header (per probe `cache-control-default`, request `default_listing_json`).
+- GIVEN default config and a missing path.
+  WHEN `GET /missing` (HTML or JSON 404).
+  THEN the 404 response does NOT include a `Cache-Control` header (per probe `cache-control-default`, requests `default_404_html` and `default_404_json`).
 - GIVEN a `headers` rule `{ "source": "**/tagged.css", "headers": [{ "key": "Cache-Control", "value": "public, max-age=600" }] }` and `/tagged.css`.
   WHEN `GET /tagged.css`.
   THEN the response includes exactly `Cache-Control: public, max-age=600` (per probe `cache-control-default`, request `rule_applies_cache_control`).

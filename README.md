@@ -14,9 +14,10 @@ Concretely: take `vercel/serve` (a small but real Node.js static file server), r
 
 - **Stage 0 — repository scaffolding.** Done.
 - **Stage 1 — reverse inventory of `serve` behavior.** Done.
-- **Stage 2 — capability map refresh.** Next.
+- **Stage 2 — capability map refresh.** Done.
+- **Stage 3 — oracle matrix.** Next.
 
-No Rust code exists in this repository yet. It is introduced at Stage 5, alongside the first implementation proposal.
+No Rust code exists in this repository yet. It is introduced at Stage 5b, after the first implementation proposal (Stage 5a) is reviewed.
 
 ## Repository layout
 
@@ -41,7 +42,7 @@ The methodology runs in nine stages. Status is updated when entering or completi
 |---|---|---|---|
 | 0 | Init project structure | This scaffold | done |
 | 1 | Reverse inventory | `docs/reference/serve/inventory.md` populated | done |
-| 2 | Capability map | `docs/reference/serve/compatibility-levels.md` refined | todo (annotated, gaps logged) |
+| 2 | Capability map | `docs/reference/serve/compatibility-levels.md` refined | done |
 | 3 | Oracle matrix | `docs/reference/serve/oracle-matrix.md` | todo |
 | 4 | OpenSpec bootstrap change | `openspec/changes/000-establish-serve-compatibility-baseline/` | todo |
 | 5a | First implementation proposal (specs delta + design + tasks, no code) | `openspec/changes/001-port-minimal-static-server/` (proposal/design/tasks/specs only) | todo |
