@@ -974,7 +974,7 @@ Priority: P0
 
 Reference source:
 - README: partial — serve-handler README documents each rule type independently; the order in which they apply is implicit.
-- serve-handler source: `src/index.js` request pipeline — `shouldRedirect(...)` is called first (it produces 301/302 for cleanUrls, trailingSlash and config `redirects` in that internal order), then `applyRewrites(...)` is consulted only when no direct file matches the request path.
+- serve-handler source: `src/index.js` request pipeline — `shouldRedirect(...)` is called first (it produces 301/302 for cleanUrls, trailingSlash and config `redirects` in that internal order). The pre-rewrite `lstat` of the original path at `src/index.js:608-616` is gated by `path.extname(relativePath) !== ''`: it short-circuits the rewrite/findRelated branch only for paths with non-empty extensions. `applyRewrites(...)` itself is then called unconditionally at `src/index.js:618`; whether its result is taken depends on `findRelated` in the `!stats && (cleanUrl || rewrittenPath)` branch at `src/index.js:620-632`. As a result, an existing extensionless file can lose to a matching rewrite — see SRV-RWRT-001 for the qualified rule.
 - Existing test: covered indirectly by `set 'rewrites' config property to wildcard path`, `set 'redirects' config property to ...` and the cleanUrl/trailingSlash family.
 - Probe: `tools/probe/cases/prec-rewrites-redirects.json`, `tools/probe/cases/prec-cleanurls-default.json`, `tools/probe/cases/prec-cleanurls-trailing.json`, `tools/probe/cases/prec-cleanurls-trailing-false.json`.
 - Oracle test: planned.

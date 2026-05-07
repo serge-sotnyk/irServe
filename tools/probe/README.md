@@ -45,4 +45,4 @@ This is not a full oracle harness. It does not:
 - diff against a recorded snapshot,
 - run in CI.
 
-Those are Stage 5 concerns. The probe runner is intentionally one-sided: it documents what `serve` does, not whether `irServe` matches.
+Those are Stage 5b concerns (the Rust scaffold + first vertical slice; Stage 5a delivers the implementation proposal only). The probe runner is intentionally one-sided: it documents what `serve` does, not whether `irServe` matches.
