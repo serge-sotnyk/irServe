@@ -35,7 +35,7 @@ irServe/
 
 ## Stage map
 
-The methodology runs in eight stages. Status is updated when entering or completing a stage.
+The methodology runs in nine stages. Status is updated when entering or completing a stage.
 
 | # | Stage | Output | Status |
 |---|---|---|---|
@@ -44,11 +44,12 @@ The methodology runs in eight stages. Status is updated when entering or complet
 | 2 | Capability map | `docs/reference/serve/compatibility-levels.md` refined | todo (annotated, gaps logged) |
 | 3 | Oracle matrix | `docs/reference/serve/oracle-matrix.md` | todo |
 | 4 | OpenSpec bootstrap change | `openspec/changes/000-establish-serve-compatibility-baseline/` | todo |
-| 5 | First implementation proposal + Rust scaffold | `openspec/changes/001-port-minimal-static-server/` + `Cargo.toml` + `tests/oracle/` | todo |
+| 5a | First implementation proposal (specs delta + design + tasks, no code) | `openspec/changes/001-port-minimal-static-server/` (proposal/design/tasks/specs only) | todo |
+| 5b | Rust scaffold + first vertical slice | `Cargo.toml` + `tests/oracle/` + first crate code | todo |
 | 6 | Implementation proposals (vertical slices, in dependency order) | `openspec/changes/002...010` | todo |
 | 7 | Polish: terminal output, Windows quirks, edge cases | `openspec/changes/011...` | todo |
 
-The first concrete Rust crate appears at Stage 5, not earlier. Stages 1–4 produce only research notes and OpenSpec specs.
+The first concrete Rust crate appears at Stage 5b, not earlier. Stages 1–5a produce only research notes and OpenSpec specs.
 
 ## Anti-hallucination rules
 

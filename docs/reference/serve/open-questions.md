@@ -79,7 +79,7 @@ Affected area: directory-listing (SRV-DLST-001)
 Suspected behavior: The probe `listing-unlisted` shows the JSON listing leaks absolute filesystem paths in its `dir` field. README does not specify the shape; the only documentation is the existence of HTML/JSON content negotiation.
 How to verify:
 - User decision required. Options: (a) match the JSON shape including the `dir` leak (bug-for-bug); (b) define a minimal IrServe JSON listing schema that omits absolute paths; (c) drop JSON listings entirely from MVP.
-Resolution: open. Default plan unless told otherwise: option (b), recorded as `adapted` here.
+Resolution: closed (option b) by `D-007`. IrServe preserves the JSON-listing shape and content-negotiation behavior but renders `dir` relative to the served root.
 
 ## Q-009: `If-Modified-Since` handling under `--no-etag`
 
@@ -95,7 +95,7 @@ Affected area: security (SRV-SEC-001)
 Suspected behavior: Source returns 400 (`bad_request`) when the joined path escapes the served root. Node `fetch` in the probe runner normalizes `%2e%2e` and `..` segments client-side, so the request sent over the wire never carries the unnormalized form.
 How to verify:
 - Probe: replace `fetch` with a raw `net.connect` request that sends the exact bytes `GET /%2e%2e/etc/passwd HTTP/1.1\r\n...`. Capture status.
-Resolution: open. Tracked but low-priority: the requirement (no escape) is settled by source; exact status code (400 vs 404) is cosmetic.
+Resolution: probe added (`tools/probe/cases/traversal-raw-encoded.json`, stage 2). Wire-level findings: literal `..` and `%2e%2e` escapes return 400; `//etc/passwd` returns 404 (double-slash is not, by itself, an escape); malformed `%`-escapes return 400. SRV-SEC-001 is updated with these scenarios. Remaining work: oracle test in stage 3 to assert the four status codes against the reference and promote SRV-SEC-001 to `verified`.
 
 ## Q-011: Windows symlink/junction parity
 

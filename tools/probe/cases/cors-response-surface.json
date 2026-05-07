@@ -1,0 +1,16 @@
+{
+  "id": "cors-response-surface",
+  "description": "Enumerate the CORS response-header surface under --cors across response types: 200 file, 301 cleanUrls redirect, 404 missing path. Backs SRV-CORS-001.",
+  "fixture": {
+    "files": {
+      "index.html": "<!doctype html><title>home</title>\n",
+      "asset.css": "body{}\n"
+    }
+  },
+  "serveArgs": ["--cors"],
+  "requests": [
+    { "name": "file_200", "path": "/asset.css" },
+    { "name": "cleanurls_301", "path": "/index.html" },
+    { "name": "missing_404", "path": "/nope" }
+  ]
+}

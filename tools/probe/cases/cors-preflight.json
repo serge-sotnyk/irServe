@@ -1,0 +1,22 @@
+{
+  "id": "cors-preflight",
+  "description": "Send a CORS preflight (OPTIONS with Origin and Access-Control-Request-* headers) under --cors and capture the response surface. Backs SRV-CORS-001.",
+  "fixture": {
+    "files": {
+      "asset.css": "body{}\n"
+    }
+  },
+  "serveArgs": ["--cors"],
+  "requests": [
+    {
+      "name": "preflight_options",
+      "method": "OPTIONS",
+      "path": "/asset.css",
+      "headers": {
+        "Origin": "https://example.com",
+        "Access-Control-Request-Method": "GET",
+        "Access-Control-Request-Headers": "x-custom-header"
+      }
+    }
+  ]
+}

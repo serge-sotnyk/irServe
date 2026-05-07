@@ -12,7 +12,7 @@ Each requirement uses the following template:
 ## SRV-<AREA>-<NNN>: <short title>
 
 Status: accepted | accepted | verified | adapted | deferred | rejected | unknown
-Area: cli | config | static-files | routing | redirects | rewrites | headers | directory-listing | http-cache | security | symlinks
+Area: cli | config | static-files | routing | redirects | rewrites | headers | directory-listing | http-cache | security | symlinks | cors | windows
 Compatibility level: 0 | 1 | 2 | 3 | 4
 Priority: P0 | P1 | P2
 
@@ -283,6 +283,7 @@ Scenarios:
 
 Compatibility notes:
 - Not a redirect — rewrites are silent; the URL bar does not change.
+- See SRV-ROUT-006 for how the SPA rewrite interacts with redirects, cleanUrls, trailingSlash, and existing static files in the request pipeline.
 
 Open questions:
 - None.
@@ -329,7 +330,7 @@ Reference source:
 - README: yes — help text: `Enable CORS, sets 'Access-Control-Allow-Origin' to '*'`.
 - serve source (CLI flag enumeration): `source/main.ts` flag list.
 - Existing test: absent.
-- Probe: `tools/probe/cases/cors-applied.json` (the runner only tracks a fixed list of headers, so the access-control-* headers are not visible in the captured report; presence is asserted via the source citation rather than the probe alone).
+- Probe: `tools/probe/cases/cors-applied.json`, `tools/probe/cases/cors-response-surface.json`.
 - Oracle test: planned.
 
 Requirement (draft):
@@ -341,7 +342,8 @@ Scenarios:
   THEN the response includes `access-control-allow-origin: *`.
 
 Compatibility notes:
-- The full set of headers (incl. `Access-Control-Allow-Private-Network`) is required for L1 parity with `serve`. Probe runner output omits the headers because of its fixed allowlist; this is a known limitation, not a behavioral signal.
+- This SRV captures *flag presence* at L1 — i.e. the user-visible promise that `--cors` "turns CORS on". The full response-header surface is enumerated in SRV-CORS-001 at L3.
+- The runner's response-header allowlist now includes `access-control-allow-*` (extended in stage 2), so probe outputs surface the full set directly.
 
 Open questions:
 - None.
@@ -844,6 +846,7 @@ Compatibility notes:
 - Per probe, `Location` is unencoded and starts with `/`.
 - When `cleanUrls` is an array of globs, only matching paths receive the redirect (per `set 'cleanUrls' config property to array`).
 - Open-redirect prevention via cleanUrls is documented as an existing test (`set 'cleanUrls' config property should prevent open redirects`).
+- For full pipeline ordering see SRV-ROUT-006.
 
 Open questions:
 - None.
@@ -872,6 +875,7 @@ Scenarios:
 
 Compatibility notes:
 - The probe shows that, with both candidates present, `/about/index.html` wins. This is observed runtime behavior; the source comment indicates `getPossiblePaths` orders `index<ext>` first.
+- For full pipeline ordering see SRV-ROUT-006.
 
 Open questions:
 - Q-005 (precedence between `<dir>/index.html` and `<dir>.html` is the observed default; if a future configuration combination flips this we will document it here).
@@ -961,6 +965,51 @@ Compatibility notes:
 Open questions:
 - Q-006 (does multi-slash collapse fire when `trailingSlash` is unset?).
 
+#### SRV-ROUT-006: Operation precedence (redirect resolution → rewrites → static files)
+
+Status: candidate
+Area: routing
+Compatibility level: 2
+Priority: P0
+
+Reference source:
+- README: partial — serve-handler README documents each rule type independently; the order in which they apply is implicit.
+- serve-handler source: `src/index.js` request pipeline — `shouldRedirect(...)` is called first (it produces 301/302 for cleanUrls, trailingSlash and config `redirects` in that internal order), then `applyRewrites(...)` is consulted only when no direct file matches the request path.
+- Existing test: covered indirectly by `set 'rewrites' config property to wildcard path`, `set 'redirects' config property to ...` and the cleanUrl/trailingSlash family.
+- Probe: `tools/probe/cases/prec-rewrites-redirects.json`, `tools/probe/cases/prec-cleanurls-default.json`, `tools/probe/cases/prec-cleanurls-trailing.json`, `tools/probe/cases/prec-cleanurls-trailing-false.json`.
+- Oracle test: planned.
+
+Requirement (draft):
+For a request whose path P does not directly resolve to a regular file inside the served root, the server applies the following stages in order, stopping at the first stage that produces a response:
+
+1. **`cleanUrls` redirect** — if `cleanUrls` is on and P ends with `.html` (or with `/index` / `/index.html`), respond 301 to the extension-stripped form (SRV-ROUT-001).
+2. **`trailingSlash` redirect** — if `trailingSlash` is `true` and P lacks a trailing slash (and is not a dotfile / has no extension), respond 301 to `P + "/"`. If `false` and P ends with `/`, respond 301 to the stripped form (SRV-ROUT-003, SRV-ROUT-004). Multi-slash collapse runs in the same gate (SRV-ROUT-005).
+3. **Config `redirects`** — first matching `redirects` entry produces a 301 (or its `type`-overridden status) (SRV-RDIR-001, SRV-RDIR-002).
+4. **`rewrites`** — first matching `rewrites` entry serves the destination file with status 200 (SRV-RWRT-001). Implicit `--single` rewrites participate at this stage (SRV-CLI-008).
+5. **`cleanUrls` resolution** — if cleanUrls is on, attempt `<P>.html` and `<P>/index.html` (SRV-ROUT-002).
+6. **Static file** — final attempt to resolve P (or its index.html) under the served root (SRV-FILE-001, SRV-FILE-005). Failure here yields a 404 (SRV-FILE-002).
+
+Stage 0 — direct file match — short-circuits stages 3 and 4: if the original path P resolves to an existing regular file, redirects and rewrites are NOT consulted, but the cleanUrl/trailingSlash redirects in stages 1–2 still apply because they trigger on the *URL form* (e.g. `/about.html` → 301 `/about`), not on file existence.
+
+Scenarios:
+- GIVEN config has both a redirect `/old → /new` and a rewrite `/old → /alt.html`.
+  WHEN `GET /old`.
+  THEN status is 301 with `Location: /new` (redirects beat rewrites; per probe `prec-rewrites-redirects`).
+- GIVEN default config and fixture root has `index.html`.
+  WHEN `GET /index.html`.
+  THEN status is 301 with `Location: /index` (cleanUrl redirect from stage 1 wins over the existing-file short-circuit; per probe `prec-cleanurls-default`).
+- GIVEN `--single` and a redirect `/old → /new`.
+  WHEN `GET /old`.
+  THEN status is 301 (the SPA rewrite is at stage 4, the redirect is at stage 3; per SRV-CLI-008 scenario 2).
+
+Compatibility notes:
+- This SRV consolidates pipeline ordering rules that are currently restated piecemeal across SRV-RDIR-001, SRV-ROUT-001, SRV-ROUT-002, SRV-RWRT-001 and SRV-CLI-008.
+- The relative order of `cleanUrls`-redirect vs `trailingSlash`-redirect within the same `shouldRedirect` call is observable via the multi-step probes `prec-cleanurls-trailing` and `prec-cleanurls-trailing-false`: both effects do not collapse, the client receives sequential 301s.
+- This requirement starts as `candidate` because no single oracle test currently exercises stages 1–6 end-to-end; promotion to `verified` requires a dedicated oracle case in stage 3.
+
+Open questions:
+- None directly; the per-stage open questions (Q-005, Q-006) belong to the individual SRVs.
+
 ### RDIR
 
 #### SRV-RDIR-001: `redirects` produce 301 by default
@@ -987,7 +1036,7 @@ Scenarios:
 
 Compatibility notes:
 - Negated patterns (`!`-prefixed glob) and extglobs are supported by minimatch (per existing tests).
-- Redirects fire AFTER the cleanUrl/trailingSlash redirect path (per `shouldRedirect` order).
+- Redirects fire AFTER the cleanUrl/trailingSlash redirect path (per `shouldRedirect` order). See SRV-ROUT-006 for the full pipeline.
 
 Open questions:
 - None.
@@ -1073,6 +1122,7 @@ Scenarios:
 Compatibility notes:
 - The URL bar does not change (rewrites are silent).
 - Per source, when a stat for the original path succeeds, rewrites do not apply (i.e. existing files take precedence over rewrites).
+- See SRV-ROUT-006 for how rewrites interact with redirects, cleanUrls, and trailingSlash.
 
 Open questions:
 - None.
@@ -1153,6 +1203,54 @@ Compatibility notes:
 Open questions:
 - None.
 
+### CORS
+
+#### SRV-CORS-001: CORS response header surface under `--cors`
+
+Status: candidate
+Area: cors
+Compatibility level: 3
+Priority: P1
+
+Reference source:
+- README: yes — `serve` help text: `Enable CORS, sets 'Access-Control-Allow-Origin' to '*'`. The full header surface beyond `Allow-Origin` is not documented in the README.
+- serve source: `source/utilities/server.ts` (the `--cors` branch wires a permissive headers middleware around `serve-handler`).
+- Existing test: absent.
+- Probe: `tools/probe/cases/cors-applied.json`, `tools/probe/cases/cors-response-surface.json`, `tools/probe/cases/cors-preflight.json`.
+- Oracle test: planned.
+
+Requirement (draft):
+With `-C`/`--cors`, every HTTP response (success, redirect, or error) carries the following four response headers in addition to whatever else the response would normally include:
+
+- `Access-Control-Allow-Origin: *`
+- `Access-Control-Allow-Headers: *`
+- `Access-Control-Allow-Credentials: true`
+- `Access-Control-Allow-Private-Network: true`
+
+`serve` does NOT additionally emit `Access-Control-Allow-Methods`, `Access-Control-Expose-Headers`, or `Access-Control-Max-Age`. Probe-confirmed: the `--cors` middleware does not implement preflight short-circuiting either; an `OPTIONS` request is processed by the static-file pipeline like a `GET` and the four headers are appended to whatever response the pipeline produces.
+
+Scenarios:
+- GIVEN `serve --cors` and a file `/asset.css`.
+  WHEN `GET /asset.css`.
+  THEN the response is 200 and the four CORS headers above are present (per probe `cors-response-surface`, request `file_200`).
+- GIVEN `serve --cors` and `/index.html` exists (cleanUrls default).
+  WHEN `GET /index.html`.
+  THEN the response is 301 to `/index` and the four CORS headers are still present on the redirect response (per probe `cors-response-surface`, request `cleanurls_301`).
+- GIVEN `serve --cors` and no file `/nope`.
+  WHEN `GET /nope`.
+  THEN the response is 404 and the four CORS headers are still present (per probe `cors-response-surface`, request `missing_404`).
+- GIVEN `serve --cors`.
+  WHEN `OPTIONS /asset.css` with `Origin` and `Access-Control-Request-*`.
+  THEN the response is 200 with the file body (no preflight short-circuit) and the four CORS headers are present (per probe `cors-preflight`).
+
+Compatibility notes:
+- The presence of `Access-Control-Allow-Private-Network: true` is the surprising bit: it's a relatively recent CORS extension and not universally supported by clients.
+- IrServe MUST emit at minimum `Access-Control-Allow-Origin: *` for L1 parity with SRV-CLI-010 (the flag-presence requirement). The full four-header surface is L3 polish (this SRV).
+- The lack of preflight short-circuit means `OPTIONS` requests against non-existent paths still 404. IrServe MAY choose to return 204 to preflight requests instead — this would be tracked as an `adapted` decision.
+
+Open questions:
+- None for the headers themselves. Whether IrServe should adopt or diverge from the no-preflight-short-circuit behavior is an open design call to be settled when this SRV is promoted past `candidate`.
+
 ### DLST
 
 #### SRV-DLST-001: Directory listing on/off via `directoryListing`
@@ -1185,10 +1283,10 @@ Scenarios:
 
 Compatibility notes:
 - Exact HTML markup is excluded by `D-003`. The JSON shape (per probe `listing-unlisted`) is at least `{"files":[...], "directory":..., "paths":...}` and is in scope at L1.
-- The JSON listing currently leaks absolute filesystem paths in its `dir` field (per probe). See Q-008.
+- The JSON listing in serve leaks absolute filesystem paths in its `dir` field. IrServe diverges here per `D-007`: the `dir` field is rendered relative to the served root.
 
 Open questions:
-- Q-008 (whether the JSON listing format — including absolute `dir` field — is part of the contract or an implementation accident).
+- Q-008 closed by `D-007` (sanitized JSON listing).
 
 #### SRV-DLST-002: `unlisted` and the default-excluded set
 
@@ -1345,6 +1443,38 @@ Compatibility notes:
 Open questions:
 - None.
 
+#### SRV-CACHE-005: `Cache-Control` header default and override
+
+Status: candidate
+Area: http-cache
+Compatibility level: 3
+Priority: P2
+
+Reference source:
+- README: absent (the serve README does not promise any default).
+- serve-handler source: `src/index.js` writes `Cache-Control` only when produced by a `headers` configuration entry (see `getHeaders`); there is no global default branch.
+- Existing test: covered transitively by `set 'headers' to fixed headers and check default headers` in `test/integration.test.js`.
+- Probe: `tools/probe/cases/cache-control-default.json`.
+- Oracle test: planned.
+
+Requirement (draft):
+By default, file responses, directory-listing responses, and 4xx error responses do NOT carry a `Cache-Control` header. A `Cache-Control` header appears only when a matching `headers` configuration entry sets it. When set, the value is reproduced verbatim, no defaults are folded in, and IrServe MUST NOT prepend or append any directives.
+
+Scenarios:
+- GIVEN default config and `/asset.css`.
+  WHEN `GET /asset.css`.
+  THEN the response does NOT include a `Cache-Control` header (per probe `cache-control-default`, request `default_file_no_rule`).
+- GIVEN a `headers` rule `{ "source": "**/tagged.css", "headers": [{ "key": "Cache-Control", "value": "public, max-age=600" }] }` and `/tagged.css`.
+  WHEN `GET /tagged.css`.
+  THEN the response includes exactly `Cache-Control: public, max-age=600` (per probe `cache-control-default`, request `rule_applies_cache_control`).
+
+Compatibility notes:
+- This is the absence-of-default contract. Browser caches will still apply heuristic caching to responses that have only `ETag`/`Last-Modified` — that is the user's choice, not the server's.
+- Custom `headers` rules layered on top behave per SRV-HDR-001 and SRV-HDR-002 (including `null`-removal).
+
+Open questions:
+- None.
+
 ### SEC
 
 #### SRV-SEC-001: Path traversal outside the served root is denied
@@ -1358,26 +1488,38 @@ Reference source:
 - README: absent (security-by-default).
 - serve-handler source: `src/index.js:561-580` — URL is decoded once, then `path.join`ed and verified with `isPathInside`. On failure: 400 with `code: 'bad_request'`. On URI-decode failure: 400.
 - Existing test: `error if trying to traverse path`, `prevent access to parent directory`, `error for request with malformed URI` in `test/integration.test.js`.
-- Probe: `tools/probe/cases/traversal-encoded.json` — note: Node's `fetch` normalizes `%2e%2e` and `..` in URLs before sending, so the probe primarily exercises the post-normalization input. All four cases returned 404 or 200-on-resolved-target rather than 400.
+- Probe: `tools/probe/cases/traversal-encoded.json` (fetch-mode; client-side normalization confounds the result), `tools/probe/cases/traversal-raw-encoded.json` (raw-socket mode; sends the unnormalized bytes).
 - Oracle test: planned.
 
 Requirement (draft):
-The server MUST NOT serve files outside the served root. A request whose joined absolute path falls outside the root MUST return either 400 (`bad_request` code per source) or 404 (per real-world client normalization). A request whose URL fails to URI-decode MUST return 400.
+The server MUST NOT serve files outside the served root. Wire-level behavior, observed via the raw probe:
+
+- A request whose path decodes to a sequence containing `..` segments that escape the served root returns status 400 with body shape consistent with the `bad_request` template.
+- A request whose path is percent-encoded `..` (e.g. `/%2e%2e/...`) follows the same path: single-decode, then containment check, then 400.
+- A request with a leading `//` (e.g. `//etc/passwd`) is treated as an in-root path that simply does not resolve, yielding 404 (not 400). The `//` is not, by itself, an escape.
+- A request whose URL contains a malformed `%`-escape (e.g. `/%zz`) returns 400.
 
 Scenarios:
-- GIVEN a fixture root and a request whose normalized path escapes the root.
-  WHEN the request is processed.
-  THEN no file outside the root is read or returned.
-- GIVEN a request with a malformed `%`-escape.
-  WHEN the request is processed.
-  THEN status is 400.
+- GIVEN any fixture root.
+  WHEN a raw `GET /../package.json HTTP/1.1` is sent.
+  THEN status is 400 (per probe `traversal-raw-encoded`, request `raw_dotdot_literal`).
+- GIVEN any fixture root.
+  WHEN a raw `GET /%2e%2e/package.json HTTP/1.1` is sent.
+  THEN status is 400 (per probe `traversal-raw-encoded`, request `raw_dotdot_percent_encoded`).
+- GIVEN any fixture root.
+  WHEN a raw `GET //etc/passwd HTTP/1.1` is sent.
+  THEN status is 404 (per probe `traversal-raw-encoded`, request `raw_double_slash`).
+- GIVEN any fixture root.
+  WHEN a raw `GET /%zz HTTP/1.1` is sent.
+  THEN status is 400 (per probe `traversal-raw-encoded`, request `raw_malformed_percent`).
 
 Compatibility notes:
-- Probe results are confounded by client-side URL normalization in Node `fetch`. The contract is specified by source, not by the probe alone.
-- Single-decode, then `path.join`, then `isPathInside` is the canonical pipeline. IrServe MAY use a different pipeline as long as the root-escape invariant holds.
+- The fetch-mode probe `traversal-encoded.json` cannot exercise the wire-level escape because Node's URL parser collapses `..` and decodes `%2e%2e` before the request leaves the client. The raw probe runs against `net.Socket` directly to bypass that normalization. Both probes are kept: the fetch one as evidence of *post-normalization* behavior, the raw one as evidence of *wire-level* behavior.
+- Single-decode, then `path.join`, then `isPathInside` is the canonical pipeline. IrServe MAY use a different pipeline as long as the root-escape invariant holds and the four scenarios above are preserved.
+- Status code 400 vs 404 is now distinguishable by probe and is part of the contract for the four scenarios listed above.
 
 Open questions:
-- Q-010 (exact wire-level behavior of `%2e%2e` against a non-normalizing HTTP client).
+- Q-010 (now annotated with raw-probe evidence; the SRV remains `accepted` and will be promoted to `verified` in stage 3 once an oracle case asserts the four status codes against the reference).
 
 #### SRV-SEC-002: URL is decoded once
 
@@ -1426,3 +1568,36 @@ Compatibility notes:
 
 Open questions:
 - Q-011 (Windows symlink/junction parity).
+
+### WIN
+
+#### SRV-WIN-001: Windows path quirks (placeholder)
+
+Status: deferred
+Area: windows
+Compatibility level: 4
+Priority: P2
+
+Reference source:
+- README: absent.
+- serve-handler source: not yet inspected for Windows-specific handling.
+- Existing test: absent (the upstream test suite runs on Linux/macOS in CI).
+- Probe: not run; would require Windows-only fixture and likely raw-mode probes for separator handling.
+- Oracle test: not planned for MVP.
+
+Requirement (draft):
+This entry exists to make the Windows-path coverage gap auditable; it does NOT define behavior. Scenarios will be added when this SRV is promoted past `deferred`. Sub-areas under this umbrella (each will become its own SRV-WIN-NNN when probed):
+
+- Case-insensitive filename matching: NTFS filenames compare case-insensitively at the OS level; how the served-root containment check (SRV-SEC-001) interacts with case-only differences is unspecified.
+- Path separator handling: `/` vs `\` in the request path; mixed forms; whether `serve-handler` normalizes them before `path.join`.
+- Drive letters and UNC roots in served-directory arguments (`serve C:\public`, `serve \\server\share`).
+- Long-path syntax (`\\?\C:\very\long\...`) and the 260-character `MAX_PATH` legacy limit.
+- Reserved names (`con`, `nul`, `aux`, etc.) — fetching `/con` on Windows can deadlock processes that don't filter.
+- Trailing-dot/space stripping on Windows file open (`foo.` is opened as `foo`).
+
+Compatibility notes:
+- L4. Out of MVP scope per `compatibility-levels.md` and the README stage map.
+- The placeholder is intentional; per anti-hallucination rule #3, scenarios MUST NOT be invented before probes exist.
+
+Open questions:
+- None recorded yet; will be opened (Q-NNN) when probes start running.

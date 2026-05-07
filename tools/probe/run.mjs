@@ -38,6 +38,13 @@ const TRACKED_RESPONSE_HEADERS = [
   'location',
   'vary',
   'x-content-type-options',
+  'access-control-allow-origin',
+  'access-control-allow-methods',
+  'access-control-allow-headers',
+  'access-control-allow-credentials',
+  'access-control-expose-headers',
+  'access-control-max-age',
+  'access-control-allow-private-network',
 ];
 
 function logInfo(msg) {
@@ -166,6 +173,7 @@ function pickHeaders(headers) {
 }
 
 async function runRequest(port, req) {
+  if (req.mode === 'raw') return runRequestRaw(port, req);
   const url = `http://127.0.0.1:${port}${req.path}`;
   const init = {
     method: req.method ?? 'GET',
@@ -181,6 +189,7 @@ async function runRequest(port, req) {
   const body = summarizeBody(buf, headers['content-type']);
   return {
     name: req.name,
+    mode: 'fetch',
     method: init.method,
     path: req.path,
     requestHeaders: req.headers ?? {},
@@ -189,6 +198,96 @@ async function runRequest(port, req) {
     headers,
     body,
   };
+}
+
+// Raw-socket request mode. Sends the literal `path` bytes in the request line
+// without any client-side normalization (no `..` collapsing, no `%2e%2e`
+// decoding, no `//` collapsing). Used for wire-level probes such as
+// path-traversal verification — `fetch` and `http.request` both pre-normalize
+// paths, which masks the on-the-wire behavior of the reference implementation.
+//
+// Limitations: this minimal parser handles the response shape serve actually
+// emits for small static-file responses (status line, header block, body
+// terminated by `Content-Length` or by EOF after `Connection: close`).
+// It does NOT decode `Transfer-Encoding: chunked`. To keep things simple,
+// the runner always injects `Connection: close` so the server closes the
+// socket after the response, giving us a deterministic EOF.
+async function runRequestRaw(port, req) {
+  const method = req.method ?? 'GET';
+  const path = req.path;
+  const userHeaders = { ...(req.headers ?? {}) };
+  // Inject Host and Connection: close unless caller already provided them.
+  const lowerKeys = Object.fromEntries(Object.keys(userHeaders).map((k) => [k.toLowerCase(), k]));
+  if (!('host' in lowerKeys)) userHeaders.Host = `127.0.0.1:${port}`;
+  if (!('connection' in lowerKeys)) userHeaders.Connection = 'close';
+  const bodyText = req.body ?? '';
+  if (bodyText && !('content-length' in lowerKeys)) {
+    userHeaders['Content-Length'] = String(Buffer.byteLength(bodyText, 'utf8'));
+  }
+  const headerBlock = Object.entries(userHeaders).map(([k, v]) => `${k}: ${v}`).join('\r\n');
+  const requestText = `${method} ${path} HTTP/1.1\r\n${headerBlock}\r\n\r\n${bodyText}`;
+  const requestLineCapture = `${method} ${path} HTTP/1.1`;
+
+  return new Promise((resolveFn, rejectFn) => {
+    const socket = net.connect(port, '127.0.0.1');
+    let raw = Buffer.alloc(0);
+    let settled = false;
+    const fail = (err) => {
+      if (settled) return;
+      settled = true;
+      try { socket.destroy(); } catch { /* ignore */ }
+      rejectFn(err);
+    };
+    socket.setTimeout(10000, () => fail(new Error('raw request timed out')));
+    socket.on('error', fail);
+    socket.once('connect', () => {
+      socket.write(requestText, 'utf8');
+    });
+    socket.on('data', (chunk) => { raw = Buffer.concat([raw, chunk]); });
+    socket.on('end', () => {
+      if (settled) return;
+      settled = true;
+      try {
+        const sep = raw.indexOf('\r\n\r\n');
+        if (sep < 0) throw new Error('raw response missing header terminator');
+        const headBytes = raw.slice(0, sep).toString('utf8');
+        const bodyBuf = raw.slice(sep + 4);
+        const lines = headBytes.split('\r\n');
+        const statusLine = lines[0] ?? '';
+        const m = /^HTTP\/\d\.\d\s+(\d+)\s+(.*)$/.exec(statusLine);
+        if (!m) throw new Error(`raw response bad status line: ${JSON.stringify(statusLine)}`);
+        const status = parseInt(m[1], 10);
+        const statusText = m[2];
+        const allHeaders = {};
+        for (const line of lines.slice(1)) {
+          const colon = line.indexOf(':');
+          if (colon < 0) continue;
+          const name = line.slice(0, colon).trim().toLowerCase();
+          const value = line.slice(colon + 1).trim();
+          allHeaders[name] = value;
+        }
+        const tracked = {};
+        for (const name of TRACKED_RESPONSE_HEADERS) {
+          if (name in allHeaders) tracked[name] = allHeaders[name];
+        }
+        const body = summarizeBody(bodyBuf, tracked['content-type'] ?? '');
+        resolveFn({
+          name: req.name,
+          mode: 'raw',
+          method,
+          path,
+          requestHeaders: req.headers ?? {},
+          requestLine: requestLineCapture,
+          status,
+          statusText,
+          headers: tracked,
+          body,
+        });
+      } catch (e) {
+        rejectFn(e);
+      }
+    });
+  });
 }
 
 function renderMarkdown(probe, runMeta, results) {
@@ -217,6 +316,10 @@ function renderMarkdown(probe, runMeta, results) {
     lines.push(`### \`${r.name}\``);
     lines.push('');
     lines.push(`- Request: \`${r.method} ${r.path}\``);
+    if (r.mode === 'raw' && r.requestLine) {
+      lines.push(`- Mode: \`raw\` (literal HTTP request line over net.Socket)`);
+      lines.push(`- Wire request line: \`${r.requestLine}\``);
+    }
     if (Object.keys(r.requestHeaders).length) {
       lines.push(`- Request headers:`);
       for (const [k, v] of Object.entries(r.requestHeaders)) {

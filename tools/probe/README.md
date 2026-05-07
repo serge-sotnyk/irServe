@@ -10,6 +10,11 @@ A probe is a declarative JSON case under `cases/<id>.json`. It describes:
 
 The runner picks a free port, materializes the fixture into a temp directory, spawns the pinned `node third_party/serve/build/main.js`, executes each request with `redirect: manual`, captures status + selected headers + body summary (length, sha256, ≤200-byte UTF-8 preview when textual), and writes a deterministic Markdown + JSON report to `results/<id>.{md,json}`.
 
+Two request transports are available, selected per-request via the `mode` field:
+
+- `mode: "fetch"` (default) — uses Node's built-in `fetch`. Handy and high-level, but the URL parser normalizes `..`, decodes `%2e%2e`, and collapses `//` before the request reaches the wire. Most behavior probes use this.
+- `mode: "raw"` — opens a `net.Socket` and writes the literal HTTP request line and headers bytes verbatim. The runner injects `Host` and `Connection: close` only if the case did not. Use this for wire-level probes (path traversal, malformed paths). The result file's `requestLine` field shows exactly what was sent. Limitations: the parser handles `Content-Length`-framed or connection-close-framed responses only; `Transfer-Encoding: chunked` is not decoded.
+
 ## Usage
 
 ```bash

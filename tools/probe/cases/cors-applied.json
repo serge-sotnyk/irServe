@@ -1,6 +1,6 @@
 {
   "id": "cors-applied",
-  "description": "Apply --cors and fetch a non-redirected resource so the CORS headers are visible. Note the runner only tracks a fixed list of response headers, so we have to inspect via custom test.",
+  "description": "Apply --cors and fetch a non-redirected resource so the CORS headers are visible. Captures the access-control-allow-* allowlist now tracked by the runner.",
   "fixture": {
     "files": {
       "asset.css": "body{}\n"

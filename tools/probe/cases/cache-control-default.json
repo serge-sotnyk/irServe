@@ -1,0 +1,26 @@
+{
+  "id": "cache-control-default",
+  "description": "Document the Cache-Control header behavior under default config. Backs SRV-CACHE-005. Compares (a) plain file response, (b) file response with a custom headers rule, (c) directory listing.",
+  "fixture": {
+    "files": {
+      "index.html": "<!doctype html><title>home</title>\n",
+      "asset.css": "body{}\n",
+      "tagged.css": "h1{}\n"
+    },
+    "serveJson": {
+      "headers": [
+        {
+          "source": "**/tagged.css",
+          "headers": [
+            { "key": "Cache-Control", "value": "public, max-age=600" }
+          ]
+        }
+      ]
+    }
+  },
+  "requests": [
+    { "name": "default_file_no_rule", "path": "/asset.css" },
+    { "name": "default_html_response", "path": "/" },
+    { "name": "rule_applies_cache_control", "path": "/tagged.css" }
+  ]
+}

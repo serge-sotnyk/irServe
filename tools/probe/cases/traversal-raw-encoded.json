@@ -1,0 +1,31 @@
+{
+  "id": "traversal-raw-encoded",
+  "description": "Wire-level path-traversal probe using the raw-socket mode so that '..', '%2e%2e' and '//' are sent verbatim — fetch and Node's URL parser would normalize all three before the request reached the network. Backs SRV-SEC-001 and addresses the verification gap recorded in Q-010.",
+  "fixture": {
+    "files": {
+      "public/index.html": "<!doctype html><title>safe</title>\n"
+    }
+  },
+  "requests": [
+    {
+      "name": "raw_dotdot_literal",
+      "mode": "raw",
+      "path": "/../package.json"
+    },
+    {
+      "name": "raw_dotdot_percent_encoded",
+      "mode": "raw",
+      "path": "/%2e%2e/package.json"
+    },
+    {
+      "name": "raw_double_slash",
+      "mode": "raw",
+      "path": "//etc/passwd"
+    },
+    {
+      "name": "raw_malformed_percent",
+      "mode": "raw",
+      "path": "/%zz"
+    }
+  ]
+}

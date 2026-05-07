@@ -80,7 +80,12 @@
           "redirect": {
             "type": "string",
             "enum": ["manual", "follow"],
-            "description": "How fetch handles redirects. Default 'manual' (so the runner records the 301/302 itself rather than chasing it)."
+            "description": "How fetch handles redirects. Default 'manual' (so the runner records the 301/302 itself rather than chasing it). Ignored when mode is 'raw'."
+          },
+          "mode": {
+            "type": "string",
+            "enum": ["fetch", "raw"],
+            "description": "Request transport. 'fetch' (default) uses Node's fetch and may normalize the URL path (collapsing '..', decoding '%2e%2e', collapsing '//'). 'raw' opens a net.Socket and sends the literal request line bytes; use it for wire-level probes such as path-traversal verification. The runner injects Host and Connection: close in raw mode unless the case provides them."
           }
         }
       }

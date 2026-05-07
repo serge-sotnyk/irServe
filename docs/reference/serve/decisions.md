@@ -63,3 +63,11 @@ Affected requirements: SRV-CLI-012 (`-u`/`--no-compression`)
 Status: adapted
 Reason: `serve` uses the `compression` connect/express middleware with default settings. Implementing equivalent behavior in Rust adds dependencies (`flate2`, content-type sniffing, threshold logic) that are not justified for an L0–L2 MVP. The `--no-compression` flag stays in the CLI.
 Impact: Until L3 work begins, IrServe MAY ignore `--no-compression` and serve responses uncompressed regardless. The `Vary: Accept-Encoding` header MAY still be omitted in this early phase; oracle tests for compression are deferred until the implementation lands.
+
+## D-007: Sanitized JSON directory listing
+
+Date: 2026-05-07
+Affected requirements: SRV-DLST-001
+Status: adapted
+Reason: `serve`'s JSON directory listing exposes a `dir` field that contains the absolute filesystem path of the listed directory on the host machine (verified by probe `listing-unlisted`; tracked as Q-008). That value leaks deployment topology — username, deployment root, container layout — to any client that requests `Accept: application/json` against a directory URL. The README does not specify the field, so this is an implementation accident upstream rather than a contractual surface; `D-004` (no bug-for-bug parity) authorizes the divergence.
+Impact: IrServe SHALL preserve the JSON-listing content-negotiation behavior (`Accept: application/json` returns `application/json; charset=utf-8` with the `{"files":[...], "directory":..., "paths":...}` shape) but the `dir` field — and any other field carrying a host-absolute path — MUST be rendered relative to the served root (e.g. `"."` for the root itself, `"sub"` for a `sub/` subdirectory). Closes Q-008.
