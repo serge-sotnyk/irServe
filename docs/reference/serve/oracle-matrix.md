@@ -65,9 +65,9 @@ top-level `cli` array (alternative to `requests`).
 
 | ID      | Area | Invocation                          | Verifies                                                         | Probe                                                          | Layer                                                                                                              | Status   |
 |---------|------|--------------------------------------|------------------------------------------------------------------|----------------------------------------------------------------|--------------------------------------------------------------------------------------------------------------------|----------|
-| ORC-060 | cli  | `serve --help` and `serve -h`        | SRV-CLI-019                                                      | `cases/cli-help-version.json#help_long`, `#help_short`         | must-match: exit=0, stdout textual and identical between long/short forms; stderr empty                            | verified |
-| ORC-061 | cli  | `serve --version` and `serve -v`     | SRV-CLI-019                                                      | `cases/cli-help-version.json#version_long`, `#version_short`   | must-match: exit=0, stdout textual (length=7 = `14.2.6\n`); stderr empty                                           | verified |
-| ORC-062 | cli  | `serve a b` (two positional args)    | SRV-CLI-007 (scenario 3)                                         | `cases/cli-positional-error.json#two_positionals`              | must-match: exit=1, stdout empty, stderr text starts with `ERROR  Please provide one path argument at maximum`     | verified |
+| ORC-060 | cli  | `serve --help` and `serve -h`        | SRV-CLI-019                                                      | `cases/cli-help-version.json#help_long`, `#help_short`         | must-match: exit=0, stdout `kind: text` (non-empty), stderr `kind: empty`. may-differ: exact help text and length (excluded by `D-002`; recorded on disk but masked at verify). | verified |
+| ORC-061 | cli  | `serve --version` and `serve -v`     | SRV-CLI-019                                                      | `cases/cli-help-version.json#version_long`, `#version_short`   | must-match: exit=0, stdout `kind: text`, stderr `kind: empty`. may-differ: exact version string (`14.2.6\n` for the pinned reference; `D-002`). | verified |
+| ORC-062 | cli  | `serve a b` (two positional args)    | SRV-CLI-007 (scenario 3)                                         | `cases/cli-positional-error.json#two_positionals`              | must-match: exit=1, stdout `kind: empty`, stderr `kind: text` (non-empty). may-differ: exact stderr text (`D-002`).                                                              | verified |
 
 ### L1 — serve-style CLI and configuration
 
@@ -130,7 +130,7 @@ top-level `cli` array (alternative to `requests`).
 | ORC-050 | caching       | `GET /` JSON listing has no default `Cache-Control`                | SRV-CACHE-005                             | `cases/cache-control-default.json#default_listing_json`        | must-match: status=200, content-type `application/json`, `cache-control` absent             | verified |
 | ORC-051 | caching       | 404 (HTML) — no default `Cache-Control`                            | SRV-CACHE-005, SRV-FILE-002               | `cases/cache-control-default.json#default_404_html`            | must-match: status=404, `cache-control` absent                                            | verified |
 | ORC-052 | caching       | 404 (JSON) — no default `Cache-Control`                            | SRV-CACHE-005, SRV-FILE-002               | `cases/cache-control-default.json#default_404_json`            | must-match: status=404, content-type `application/json`, `cache-control` absent             | verified |
-| ORC-053 | headers       | `headers` glob (`**/*.css`) applies `Cache-Control: public, max-age=600` to a CSS asset | SRV-HDR-001            | `cases/headers-applied.json#css_get`                           | must-match: status=200, `cache-control: public, max-age=600` (`X-Custom: yes` is also set per fixture but is not in the runner's tracked-headers allowlist) | verified |
+| ORC-053 | headers       | `headers` glob (`**/*.css`) applies `Cache-Control` and `X-Custom` to a CSS asset | SRV-HDR-001                                  | `cases/headers-applied.json#css_get`                           | must-match: status=200, `cache-control: public, max-age=600`, `x-custom: yes` (the case opts in via `snapshot.extraTrackedHeaders: ["x-custom"]`) | verified |
 | ORC-054 | cors          | `--cors` adds `Access-Control-Allow-Origin: *` on a 200 response   | SRV-CLI-010, SRV-CORS-001                 | `cases/cors-applied.json#css_with_cors`                        | must-match: status=200, `access-control-allow-origin: *`                                  | verified |
 | ORC-055 | cors          | `--cors` flag also applies on a 301                                | SRV-CLI-010, SRV-CORS-001                 | `cases/cors-flag.json#html_with_cors`                          | must-match: status=301, ACAO header present                                               | verified |
 | ORC-056 | cors          | OPTIONS preflight under `--cors`                                   | SRV-CORS-001                              | `cases/cors-preflight.json#preflight_options`                  | must-match: status=200, headers `access-control-allow-origin: *`, `access-control-allow-headers: *`, `access-control-allow-credentials: true`, `access-control-allow-private-network: true`. Note: serve does NOT emit `access-control-allow-methods`. | verified |
@@ -196,6 +196,26 @@ in `inventory.md`.
   to Q-009) — `etag-conditional` does not exercise the `--no-etag` +
   `If-Modified-Since` path. Q-009 remains `open`. Stays `unknown`.
 - **SRV-WIN-001** (Windows path quirks, placeholder, deferred).
+
+### Cross-platform note
+
+Snapshots in this repository were captured on Windows. Two probes are
+currently OS-specific:
+
+- `cases/listing-unlisted.json` (ORC-009 / ORC-010) — serve-handler's
+  HTML and JSON directory listing embeds the OS root marker (`C:\\` vs
+  `/`) and path separator (`\` vs `/`) directly in the response body.
+  The runner's body normalization replaces the absolute fixture
+  directory with `<FIXTURE_ROOT>` but does not collapse drive prefixes
+  or path separators. Re-running `--snapshot=verify` on POSIX will
+  diff on `body.sha256` / `body.preview` of these two requests.
+- `cases/cache-control-default.json` (ORC-049 / ORC-050) — same listing
+  body issue.
+
+Stage 5b (Rust harness) is the right place to harmonize this either by
+running the oracle in a Linux container (matching CI) or by
+re-recording the listing snapshots cross-platform. Stage 3 deliberately
+keeps the runner simple and accepts the Windows-host limitation.
 
 Probe-design notes the matrix records but does not act on:
 

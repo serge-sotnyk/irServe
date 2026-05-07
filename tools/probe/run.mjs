@@ -487,6 +487,19 @@ function maskVolatileForDiff(snap) {
       if ('preview' in b) b.preview = '<volatile>';
     }
   }
+  // CLI snapshots: mask stdout/stderr length/sha256/preview by default.
+  // The exact terminal output is excluded by `D-002` (decisions.md), so
+  // verify asserts only exitCode + stream `kind` (text/empty/binary). The
+  // full byte-level data is still recorded on disk for audit.
+  for (const inv of cloned.cli ?? []) {
+    for (const stream of ['stdout', 'stderr']) {
+      const s = inv[stream];
+      if (!s) continue;
+      if ('length' in s) s.length = '<volatile>';
+      if ('sha256' in s) s.sha256 = '<volatile>';
+      if ('preview' in s) s.preview = '<volatile>';
+    }
+  }
   return cloned;
 }
 
@@ -501,18 +514,14 @@ function canonicalJson(value) {
 }
 
 function diffSnapshots(expected, actual) {
-  // Mask volatile headers using the expected snapshot's volatile list (the
-  // committed contract). Then compare canonicalized JSON. CLI snapshots
-  // don't have volatile-header/body fields and bypass the masking entirely.
-  const isHttp = Array.isArray(expected.requests);
-  const exp = isHttp ? maskVolatileForDiff(expected) : expected;
-  const act = isHttp
-    ? maskVolatileForDiff({
-        ...actual,
-        volatileHeaders: expected.volatileHeaders ?? [],
-        volatileBodies: expected.volatileBodies ?? [],
-      })
-    : actual;
+  // Mask volatile headers/bodies using the expected snapshot's volatile
+  // lists (the committed contract). CLI streams are masked unconditionally
+  // — see maskVolatileForDiff for rationale. Compare canonicalized JSON.
+  const exp = maskVolatileForDiff(expected);
+  const overlay = {};
+  if ('volatileHeaders' in expected) overlay.volatileHeaders = expected.volatileHeaders;
+  if ('volatileBodies' in expected) overlay.volatileBodies = expected.volatileBodies;
+  const act = maskVolatileForDiff({ ...actual, ...overlay });
   if (canonicalJson(exp) === canonicalJson(act)) return null;
   // Produce a readable line-based diff of the prettified forms so a reviewer
   // can locate the divergence quickly.

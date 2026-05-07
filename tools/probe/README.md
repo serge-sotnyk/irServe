@@ -65,6 +65,23 @@ Snapshots are intentionally hand-edit-hostile: if a diff looks wrong, the
 fix is upstream of the snapshot — adjust the case, the runner, or the
 fixture, then re-run with `--snapshot=update`.
 
+### Cross-platform note
+
+Snapshots were captured on Windows. The runner normalizes the absolute
+fixture directory to `<FIXTURE_ROOT>` in body content, but it does NOT
+collapse OS-specific path separators (`\` vs `/`) or drive-letter
+prefixes (`C:\` vs `/`) inside response bodies. Two cases —
+`listing-unlisted` and `cache-control-default` — embed listing JSON/HTML
+that contains those OS markers, so `--snapshot=verify` will diff their
+body fields on POSIX. See `docs/reference/serve/oracle-matrix.md`
+"Cross-platform note" for the policy.
+
+CLI snapshots (`stdout` / `stderr` summaries) record full
+length/sha256/preview on disk for audit, but `verify` masks those fields
+— only `exitCode` and stream `kind` (text/empty/binary) are asserted.
+This keeps the contract aligned with `D-002` (exact terminal output is
+not part of compatibility).
+
 ## Conventions
 
 - Probe ids prefixed with `_` (e.g. `_smoke`) are infrastructure, not behavior evidence.
