@@ -16,10 +16,9 @@
         "preview": "\n  serve - Static file serving and directory listing\n\n  USAGE\n\n    $ serve --help\n    $ serve --version\n    $ serve folder_name\n    $ serve [-l listen_uri [-l ...]] [directory]\n\n    By default, serve "
       },
       "stderr": {
-        "kind": "text",
+        "kind": "empty",
         "length": 0,
-        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
-        "preview": ""
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
       }
     },
     {
@@ -35,10 +34,9 @@
         "preview": "\n  serve - Static file serving and directory listing\n\n  USAGE\n\n    $ serve --help\n    $ serve --version\n    $ serve folder_name\n    $ serve [-l listen_uri [-l ...]] [directory]\n\n    By default, serve "
       },
       "stderr": {
-        "kind": "text",
+        "kind": "empty",
         "length": 0,
-        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
-        "preview": ""
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
       }
     },
     {
@@ -54,10 +52,9 @@
         "preview": "14.2.6\n"
       },
       "stderr": {
-        "kind": "text",
+        "kind": "empty",
         "length": 0,
-        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
-        "preview": ""
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
       }
     },
     {
@@ -73,10 +70,9 @@
         "preview": "14.2.6\n"
       },
       "stderr": {
-        "kind": "text",
+        "kind": "empty",
         "length": 0,
-        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
-        "preview": ""
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
       }
     }
   ]

@@ -184,10 +184,24 @@ function normalizeBodyForSnapshot(buffer, fixtureDir) {
   return Buffer.from(out, 'binary');
 }
 
+// Derive a stream/body's `kind` from its summary. Length wins: a zero-byte
+// stream is always `empty`, regardless of the declared content-type. This
+// is the assertion CLI verify relies on (with length/sha/preview masked,
+// kind is the only thing that distinguishes empty stderr from non-empty).
+function deriveKind({ length, preview }) {
+  if (length === 0) return 'empty';
+  if (preview !== null && preview !== undefined) return 'text';
+  return 'binary';
+}
+
 function summarizeBody(buffer, contentType = '', fixtureDir = null) {
   const normalized = normalizeBodyForSnapshot(buffer, fixtureDir);
   const sha256 = createHash('sha256').update(normalized).digest('hex');
   const length = normalized.length;
+  // An empty buffer never has a preview, even if the declared content-type
+  // is textual. This is what callers downstream rely on to derive a
+  // `kind: "empty"` body shape (vs `text` or `binary`).
+  if (length === 0) return { length, sha256, preview: null };
   const isTextual = /^(text\/|application\/(json|xml|javascript)|.*\+(json|xml))/i.test(contentType);
   let preview = null;
   if (isTextual) {
@@ -403,14 +417,8 @@ function sortObject(obj) {
 function normalizeRequestEntry(probe, result) {
   const requestHeaders = sortObject(result.requestHeaders ?? {});
   const respHeaders = sortObject(result.headers ?? {});
-  const bodyKind =
-    result.body.preview !== null && result.body.preview !== undefined
-      ? 'text'
-      : result.body.length === 0
-        ? 'empty'
-        : 'binary';
   const body = {
-    kind: bodyKind,
+    kind: deriveKind(result.body),
     length: result.body.length,
     sha256: result.body.sha256,
   };
@@ -602,22 +610,18 @@ async function runCliInvocation(name, args, fixtureDir) {
       const stderrBuf = Buffer.concat(stderrChunks);
       const stdout = summarizeBody(stdoutBuf, 'text/plain', fixtureDir);
       const stderr = summarizeBody(stderrBuf, 'text/plain', fixtureDir);
+      const wrap = (s) => ({
+        kind: deriveKind(s),
+        length: s.length,
+        sha256: s.sha256,
+        ...(s.preview !== null ? { preview: s.preview } : {}),
+      });
       resolveFn({
         name,
         args,
         exitCode,
-        stdout: {
-          kind: stdout.preview !== null ? 'text' : (stdout.length === 0 ? 'empty' : 'binary'),
-          length: stdout.length,
-          sha256: stdout.sha256,
-          ...(stdout.preview !== null ? { preview: stdout.preview } : {}),
-        },
-        stderr: {
-          kind: stderr.preview !== null ? 'text' : (stderr.length === 0 ? 'empty' : 'binary'),
-          length: stderr.length,
-          sha256: stderr.sha256,
-          ...(stderr.preview !== null ? { preview: stderr.preview } : {}),
-        },
+        stdout: wrap(stdout),
+        stderr: wrap(stderr),
       });
     });
   });

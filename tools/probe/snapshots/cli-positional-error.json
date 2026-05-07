@@ -11,10 +11,9 @@
       ],
       "exitCode": 1,
       "stdout": {
-        "kind": "text",
+        "kind": "empty",
         "length": 0,
-        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
-        "preview": ""
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
       },
       "stderr": {
         "kind": "text",
