@@ -1,0 +1,16 @@
+{
+  "id": "traversal-encoded",
+  "description": "Path traversal probes: percent-encoded, multi-slash, plain dot-dot. Records the actual response codes. Note: clients may normalize //... so observe carefully.",
+  "fixture": {
+    "files": {
+      "index.html": "root\n",
+      "secret.txt": "secret\n"
+    }
+  },
+  "requests": [
+    { "name": "encoded_dotdot", "method": "GET", "path": "/%2e%2e/etc/passwd" },
+    { "name": "double_slash_passwd", "method": "GET", "path": "//etc/passwd" },
+    { "name": "raw_dotdot", "method": "GET", "path": "/../../etc/passwd" },
+    { "name": "encoded_in_subpath", "method": "GET", "path": "/sub/%2e%2e/secret.txt" }
+  ]
+}

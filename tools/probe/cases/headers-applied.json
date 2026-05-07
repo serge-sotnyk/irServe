@@ -1,0 +1,23 @@
+{
+  "id": "headers-applied",
+  "description": "Custom headers actually applied to a fetched (non-redirected) file. Uses .css to avoid cleanUrls redirect on .html.",
+  "fixture": {
+    "files": {
+      "asset.css": "body{}\n"
+    },
+    "serveJson": {
+      "headers": [
+        {
+          "source": "**/*.css",
+          "headers": [
+            { "key": "Cache-Control", "value": "public, max-age=600" },
+            { "key": "X-Custom", "value": "yes" }
+          ]
+        }
+      ]
+    }
+  },
+  "requests": [
+    { "name": "css_get", "method": "GET", "path": "/asset.css" }
+  ]
+}

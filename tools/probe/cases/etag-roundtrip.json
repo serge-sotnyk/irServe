@@ -1,0 +1,13 @@
+{
+  "id": "etag-roundtrip",
+  "description": "ETag round-trip: request a non-html file (no cleanUrls redirect), capture its ETag, then re-request with matching If-None-Match. Expect 304 and an empty body.",
+  "fixture": {
+    "files": {
+      "asset.css": "body{color:red}\n"
+    }
+  },
+  "requests": [
+    { "name": "first_get", "method": "GET", "path": "/asset.css" },
+    { "name": "second_with_inm", "method": "GET", "path": "/asset.css", "headers": { "if-none-match": "\"3638b78821a961fcf35969f0bc67cc5944d64a0b\"" } }
+  ]
+}

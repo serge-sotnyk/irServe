@@ -1,0 +1,21 @@
+{
+  "id": "_smoke",
+  "description": "Sanity probe mirroring the README smoke test: serve a directory containing index.html and confirm GET / returns 200 with body 'hello'. Also confirms the default cleanUrls 301 from /index.html → /index.",
+  "fixture": {
+    "files": {
+      "index.html": "hello\n"
+    }
+  },
+  "requests": [
+    {
+      "name": "root",
+      "method": "GET",
+      "path": "/"
+    },
+    {
+      "name": "index_html_redirect",
+      "method": "GET",
+      "path": "/index.html"
+    }
+  ]
+}

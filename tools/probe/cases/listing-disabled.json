@@ -1,0 +1,15 @@
+{
+  "id": "listing-disabled",
+  "description": "Directory listing disabled via directoryListing:false should yield 404 when a directory has no index.",
+  "fixture": {
+    "files": {
+      "a.txt": "a\n"
+    },
+    "serveJson": {
+      "directoryListing": false
+    }
+  },
+  "requests": [
+    { "name": "root_no_listing", "method": "GET", "path": "/" }
+  ]
+}

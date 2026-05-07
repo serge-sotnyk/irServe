@@ -13,8 +13,7 @@ Concretely: take `vercel/serve` (a small but real Node.js static file server), r
 ## Status
 
 - **Stage 0 — repository scaffolding.** Done.
-- **Stage 1 — reverse inventory of `serve` behavior.** Next.
-- Full stage map: see [`AGENTS.md`](./AGENTS.md).
+- **Stage 1 — reverse inventory of `serve` behavior.** In progress.
 
 No Rust code exists in this repository yet. It is introduced at Stage 5, alongside the first implementation proposal.
 
@@ -22,25 +21,89 @@ No Rust code exists in this repository yet. It is introduced at Stage 5, alongsi
 
 ```
 irServe/
-├── AGENTS.md                  # methodology + working rules for AI agents
-├── CLAUDE.md                  # pointer to AGENTS.md
+├── AGENTS.md                  # short working rules for AI agents
+├── CLAUDE.md                  # @AGENTS.md pointer
+├── README.md                  # this file: methodology + stage map
 ├── docs/reference/serve/      # reverse-engineering notes (research)
 ├── openspec/                  # specifications and proposed changes (contract)
+├── tools/probe/               # Node.js probe runner against the reference
 └── third_party/
     ├── serve/                 # vercel/serve, pinned release tag (oracle)
     └── serve-handler/         # vercel/serve-handler, pinned release tag (oracle)
 ```
 
+## Stage map
+
+The methodology runs in eight stages. Status is updated when entering or completing a stage.
+
+| # | Stage | Output | Status |
+|---|---|---|---|
+| 0 | Init project structure | This scaffold | done |
+| 1 | Reverse inventory | `docs/reference/serve/inventory.md` populated | in progress |
+| 2 | Capability map | `docs/reference/serve/compatibility-levels.md` refined | todo (skeleton seeded) |
+| 3 | Oracle matrix | `docs/reference/serve/oracle-matrix.md` | todo |
+| 4 | OpenSpec bootstrap change | `openspec/changes/000-establish-serve-compatibility-baseline/` | todo |
+| 5 | First implementation proposal + Rust scaffold | `openspec/changes/001-port-minimal-static-server/` + `Cargo.toml` + `tests/oracle/` | todo |
+| 6 | Implementation proposals (vertical slices, in dependency order) | `openspec/changes/002...010` | todo |
+| 7 | Polish: terminal output, Windows quirks, edge cases | `openspec/changes/011...` | todo |
+
+The first concrete Rust crate appears at Stage 5, not earlier. Stages 1–4 produce only research notes and OpenSpec specs.
+
+## Anti-hallucination rules
+
+These rules are the methodology core. Violations undermine the entire experiment.
+
+1. **Evidence is mandatory.** Every candidate requirement extracted from `serve` MUST cite at least one of: README documentation, source file path, test name, or oracle probe ID.
+2. **Status-based promotion.** Use the taxonomy: `candidate` / `accepted` / `verified` / `adapted` / `deferred` / `rejected` / `unknown`. A `candidate` does not automatically become a requirement.
+3. **Do not invent behavior.** If `serve` does not document, test, or visibly implement a behavior, mark it `unknown` and add to `docs/reference/serve/open-questions.md`. Do not write plausible-sounding scenarios as fact.
+4. **README < tests < source < oracle.** When evidence sources conflict, runtime behavior of the pinned `third_party/serve` is the arbiter, not LLM inference.
+5. **Out of scope for MVP** (do not propose specs for these without explicit user approval):
+   - Node.js middleware API compatibility (`serve-handler` as an embeddable library).
+   - Exact terminal output / stdout formatting.
+   - Exact HTML/CSS of the directory listing.
+   - Bug-for-bug parity with `serve`.
+6. **Reverse-engineering before Stage 5.** Until the Rust oracle harness exists at Stage 5, behavior verification uses ad-hoc probes against the pinned reference (see [`tools/probe/`](./tools/probe/)). Probe results are recorded in `docs/reference/serve/inventory.md` entries.
+7. **Order of artifacts.** `inventory.md` (Stage 1) is research, not contract. OpenSpec specs (Stage 4) are the contract. Implementation proposals (Stage 5+) are change requests. Never skip stages by writing implementation proposals against unverified behavior.
+
+## Compatibility levels
+
+`irServe` does not aim for bug-for-bug parity. Behavior is grouped into levels and the project commits to a target level per release. Detail in [`docs/reference/serve/compatibility-levels.md`](./docs/reference/serve/compatibility-levels.md).
+
+- **L0** — Minimal useful server: serve a directory, bind host/port, static files, 404, basic MIME.
+- **L1** — Serve-style CLI and `serve.json` loading: `public`, `cleanUrls`, `trailingSlash`, directory listing on/off, `unlisted`.
+- **L2** — Routing behavior: `cleanUrls`, `redirects`, `rewrites`, headers, SPA fallback equivalent.
+- **L3** — HTTP polish: `ETag`, `Last-Modified`, conditional requests, cache behavior.
+- **L4** — Edge compatibility: symlinks, path-traversal corner cases, Windows path quirks.
+
+The MVP target is L2; reaching L3 is a stretch goal. L4 is explicitly out of scope unless prioritized later.
+
 ## Getting started
 
 ```bash
 git clone --recurse-submodules git@github.com:serge-sotnyk/irServe.git
-cd irServe/third_party/serve
-corepack pnpm install
-corepack pnpm compile
+# If already cloned without --recurse-submodules:
+git submodule update --init --recursive
+
+# Install reference-implementation dependencies and build the runnable bundle.
+# vercel/serve uses pnpm; corepack ships with Node 16+, no global install needed.
+cd third_party/serve
+corepack pnpm install        # the prepare script may print a non-fatal warning about pnpm not on PATH; ignore it
+corepack pnpm compile        # produces build/main.js (the runnable entry point)
+cd ../..
 ```
 
-`vercel/serve` uses pnpm; `corepack` ships with Node 16+ so no global install is needed. After this, `node third_party/serve/build/main.js -l 3010 <dir>` runs the reference oracle. See [`AGENTS.md`](./AGENTS.md) for a smoke probe.
+Smoke-test that the reference oracle is operational:
+
+```bash
+mkdir -p _tmp && echo hello > _tmp/index.html
+node third_party/serve/build/main.js -l 3010 --no-clipboard _tmp &
+sleep 2
+curl -i http://127.0.0.1:3010/
+# expect: 200 OK, body "hello"
+# (note: GET /index.html returns 301 → /index because cleanUrls is on by default in serve)
+```
+
+There is no Rust toolchain requirement yet; it appears at Stage 5.
 
 ## References
 

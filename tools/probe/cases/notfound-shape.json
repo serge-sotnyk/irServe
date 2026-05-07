@@ -1,0 +1,13 @@
+{
+  "id": "notfound-shape",
+  "description": "Shape of a 404 response when no 404.html exists. Tests both the default text/html error page and the application/json branch via Accept header.",
+  "fixture": {
+    "files": {
+      "index.html": "root\n"
+    }
+  },
+  "requests": [
+    { "name": "missing_html", "method": "GET", "path": "/does-not-exist" },
+    { "name": "missing_html_with_accept", "method": "GET", "path": "/does-not-exist", "headers": { "accept": "application/json" } }
+  ]
+}

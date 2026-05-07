@@ -1,0 +1,19 @@
+{
+  "id": "redirects-types",
+  "description": "Redirect with default 301 and explicit 302 type, plus a path-segment redirect that interpolates :id.",
+  "fixture": {
+    "files": {
+      "new.html": "<p>new</p>\n"
+    },
+    "serveJson": {
+      "redirects": [
+        { "source": "/old", "destination": "/new", "type": 302 },
+        { "source": "/old-docs/:id", "destination": "/new-docs/:id" }
+      ]
+    }
+  },
+  "requests": [
+    { "name": "explicit_302", "method": "GET", "path": "/old" },
+    { "name": "default_301_segment", "method": "GET", "path": "/old-docs/12" }
+  ]
+}

@@ -1,0 +1,18 @@
+{
+  "id": "prec-cleanurls-trailing-false",
+  "description": "Companion to prec-cleanurls-trailing. trailingSlash:false explicitly.",
+  "fixture": {
+    "files": {
+      "about.html": "<p>about-html-flat</p>\n",
+      "about/index.html": "<p>about-index</p>\n"
+    },
+    "serveJson": {
+      "trailingSlash": false
+    }
+  },
+  "requests": [
+    { "name": "about_no_slash", "method": "GET", "path": "/about" },
+    { "name": "about_html", "method": "GET", "path": "/about.html" },
+    { "name": "about_with_slash", "method": "GET", "path": "/about/" }
+  ]
+}

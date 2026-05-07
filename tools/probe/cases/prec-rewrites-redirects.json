@@ -1,0 +1,23 @@
+{
+  "id": "prec-rewrites-redirects",
+  "description": "When both rewrites and redirects match the same path, which one fires? Fixture: redirect /go -> /target, rewrite /go -> /alt.html. Both /target.html and /alt.html exist. Also tests precedence with cleanUrls redirect on /page.html.",
+  "fixture": {
+    "files": {
+      "target.html": "<p>target</p>\n",
+      "alt.html": "<p>alt</p>\n",
+      "page.html": "<p>page</p>\n"
+    },
+    "serveJson": {
+      "redirects": [
+        { "source": "/go", "destination": "/target" }
+      ],
+      "rewrites": [
+        { "source": "/go", "destination": "/alt.html" }
+      ]
+    }
+  },
+  "requests": [
+    { "name": "go_root", "method": "GET", "path": "/go" },
+    { "name": "page_html_cleanurl_default", "method": "GET", "path": "/page.html" }
+  ]
+}

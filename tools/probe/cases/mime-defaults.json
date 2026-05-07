@@ -1,0 +1,30 @@
+{
+  "id": "mime-defaults",
+  "description": "Default Content-Type for representative file extensions, plus a no-extension file and an unknown extension. Note: the only-file-in-dir scenario triggers renderSingle? No, renderSingle is opt-in; with multiple files at root the directory listing is rendered, but each file fetched directly returns its own MIME.",
+  "fixture": {
+    "files": {
+      "page.html": "<p>html</p>\n",
+      "app.js": "console.log('js');\n",
+      "data.json": "{\"x\":1}\n",
+      "style.css": "body{}\n",
+      "blob.txt": "hello\n",
+      "module.wasm": { "base64": "AGFzbQEAAAA=" },
+      "icon.svg": "<svg xmlns='http://www.w3.org/2000/svg'/>\n",
+      "pixel.png": { "base64": "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR4nGNgAAIAAAUAAeImBZsAAAAASUVORK5CYII=" },
+      "noext": "no-extension content\n",
+      "weird.unknownext": "weird content\n"
+    }
+  },
+  "requests": [
+    { "name": "html", "method": "GET", "path": "/page.html" },
+    { "name": "js", "method": "GET", "path": "/app.js" },
+    { "name": "json", "method": "GET", "path": "/data.json" },
+    { "name": "css", "method": "GET", "path": "/style.css" },
+    { "name": "txt", "method": "GET", "path": "/blob.txt" },
+    { "name": "wasm", "method": "GET", "path": "/module.wasm" },
+    { "name": "svg", "method": "GET", "path": "/icon.svg" },
+    { "name": "png", "method": "GET", "path": "/pixel.png" },
+    { "name": "noext", "method": "GET", "path": "/noext" },
+    { "name": "unknownext", "method": "GET", "path": "/weird.unknownext" }
+  ]
+}

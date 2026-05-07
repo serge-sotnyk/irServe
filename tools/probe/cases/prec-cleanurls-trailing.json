@@ -1,0 +1,18 @@
+{
+  "id": "prec-cleanurls-trailing",
+  "description": "Probe interaction of cleanUrls and trailingSlash. Fixture has both about.html and about/index.html. Tests /about, /about.html, /about/ under (a) defaults, (b) trailingSlash:true, (c) trailingSlash:false. Goal: identify which file is served and which redirects fire.",
+  "fixture": {
+    "files": {
+      "about.html": "<p>about-html-flat</p>\n",
+      "about/index.html": "<p>about-index</p>\n"
+    },
+    "serveJson": {
+      "trailingSlash": true
+    }
+  },
+  "requests": [
+    { "name": "about_no_slash", "method": "GET", "path": "/about" },
+    { "name": "about_html", "method": "GET", "path": "/about.html" },
+    { "name": "about_with_slash", "method": "GET", "path": "/about/" }
+  ]
+}

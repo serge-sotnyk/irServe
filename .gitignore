@@ -36,3 +36,7 @@ desktop.ini
 # Logs and runtime scratch
 *.log
 _tmp/
+
+# Probe runner artifacts (results are reproducible from cases/)
+tools/probe/results/
+tools/probe/.tmp/

@@ -1,0 +1,15 @@
+{
+  "id": "rendersingle",
+  "description": "renderSingle:true causes a directory containing exactly one non-html file to render that file directly instead of a listing.",
+  "fixture": {
+    "files": {
+      "media/photo.png": { "base64": "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR4nGNgAAIAAAUAAeImBZsAAAAASUVORK5CYII=" }
+    },
+    "serveJson": {
+      "renderSingle": true
+    }
+  },
+  "requests": [
+    { "name": "single_file", "method": "GET", "path": "/media/" }
+  ]
+}

@@ -1,0 +1,23 @@
+{
+  "id": "headers-custom",
+  "description": "Custom headers via serve.json applied to a specific path; null value removes a default header.",
+  "fixture": {
+    "files": {
+      "page.html": "<p>hi</p>\n"
+    },
+    "serveJson": {
+      "headers": [
+        {
+          "source": "**/*.html",
+          "headers": [
+            { "key": "Cache-Control", "value": "public, max-age=600" },
+            { "key": "X-Custom", "value": "yes" }
+          ]
+        }
+      ]
+    }
+  },
+  "requests": [
+    { "name": "html_get", "method": "GET", "path": "/page.html" }
+  ]
+}

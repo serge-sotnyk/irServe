@@ -1,0 +1,20 @@
+{
+  "id": "listing-unlisted",
+  "description": "Directory listing with default unlisted (.DS_Store, .git) plus user-supplied unlisted entries; also confirms html vs json content-type from accept header.",
+  "fixture": {
+    "files": {
+      "a.txt": "a\n",
+      "b.txt": "b\n",
+      "secret.txt": "shh\n",
+      ".DS_Store": "ds\n",
+      ".git/HEAD": "ref\n"
+    },
+    "serveJson": {
+      "unlisted": ["secret.txt"]
+    }
+  },
+  "requests": [
+    { "name": "listing_html", "method": "GET", "path": "/" },
+    { "name": "listing_json", "method": "GET", "path": "/", "headers": { "accept": "application/json" } }
+  ]
+}

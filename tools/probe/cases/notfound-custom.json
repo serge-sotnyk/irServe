@@ -1,0 +1,14 @@
+{
+  "id": "notfound-custom",
+  "description": "Shape of a 404 response when a 404.html file exists in the served root. Validates that the body comes from the file rather than the built-in template.",
+  "fixture": {
+    "files": {
+      "index.html": "root\n",
+      "404.html": "<h1>custom-404-page</h1>\n"
+    }
+  },
+  "requests": [
+    { "name": "missing_html_custom", "method": "GET", "path": "/does-not-exist" },
+    { "name": "missing_html_custom_json_accept", "method": "GET", "path": "/does-not-exist", "headers": { "accept": "application/json" } }
+  ]
+}

@@ -1,0 +1,13 @@
+{
+  "id": "etag-conditional",
+  "description": "ETag header presence and conditional-request 304 behavior. By default `serve` enables etag (CLI sets config.etag = !args[--no-etag]) but serve-handler defaults to Last-Modified. Probes the actual default and conditional handling.",
+  "fixture": {
+    "files": {
+      "page.html": "<p>etag</p>\n"
+    }
+  },
+  "requests": [
+    { "name": "first_get", "method": "GET", "path": "/page.html" },
+    { "name": "if_none_match_bogus", "method": "GET", "path": "/page.html", "headers": { "if-none-match": "\"deadbeef\"" } }
+  ]
+}

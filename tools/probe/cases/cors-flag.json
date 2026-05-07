@@ -1,0 +1,13 @@
+{
+  "id": "cors-flag",
+  "description": "CLI --cors flag adds Access-Control-Allow-* headers. Confirms presence/absence relative to default.",
+  "fixture": {
+    "files": {
+      "page.html": "<p>x</p>\n"
+    }
+  },
+  "serveArgs": ["--cors"],
+  "requests": [
+    { "name": "html_with_cors", "method": "GET", "path": "/page.html" }
+  ]
+}
