@@ -59,8 +59,11 @@ the same eight SRVs and add Rust artifacts.
 - CLI surface for the L0 flags (positional dir, `-l`/`--listen`
   numeric, `-h`/`--help`, `-v`/`--version`, plus `-n`/`--no-clipboard`
   accepted as a no-op per the D-005 invariant).
-- Mapping of each in-scope SRV to existing probe cases under
-  `tools/probe/cases/` so Stage-5b's oracle harness can run unmodified.
+- Anchor-level mapping of each in-scope SRV to existing probe cases
+  under `tools/probe/cases/`, partitioned into L0-clean and
+  L1-divergent. Stage-5b's harness adapts the runner (does not run
+  unmodified — see `design.md` § 6 and `tasks.md` § 6.2 for the
+  explicit adapter requirements).
 - D-008 entry in `docs/reference/serve/decisions.md` (release-scoping).
 - One traceability-only MODIFIED delta in `specs/cli/spec.md` that adds
   an `Implementation:` line to SRV-CLI-001's Requirement; observable
@@ -86,9 +89,12 @@ stage):
   SRV-DLST-002, SRV-DLST-003.
 - CLI flags beyond strict L0 — SRV-CLI-003 (`tcp://` URI), SRV-CLI-006
   (`-p` alias), SRV-CLI-008 (`--single`), SRV-CLI-009 (`--config`),
-  SRV-CLI-010 (`--cors`), SRV-CLI-011 (`--no-clipboard`), SRV-CLI-014
-  (`--debug`), SRV-CLI-015 (`--no-request-logging`), SRV-CLI-016
-  (`--no-port-switching`).
+  SRV-CLI-010 (`--cors`), SRV-CLI-014 (`--debug`), SRV-CLI-015
+  (`--no-request-logging`), SRV-CLI-016 (`--no-port-switching`).
+  *Exception:* SRV-CLI-011 (`--no-clipboard`) is **accepted as a
+  no-op** at L0 because the D-005 invariant ("IrServe MUST accept the
+  flag without error") is unconditional — see `design.md` § 5
+  "D-005 exception". Probe coverage of SRV-CLI-011 stays deferred.
 - All L3 SRVs (custom `headers`, `http-cache`/ETag/Last-Modified/Range,
   CORS response surface, compression, MIME fallback for rewrites). Already
   excluded from the bootstrap and stay excluded.

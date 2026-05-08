@@ -80,24 +80,40 @@ future change (`002-implement-strict-l0-runtime`) opened at Stage 5b.
 These items are out-of-scope for this change but flagged here so the
 Stage-5b implementer does not have to re-derive them:
 
-- [ ] 6.1 Add `tools/probe/cases/default-port-l0.json` (fixture has
-  `serve.json` with `{"cleanUrls": false}` and the case omits `--listen`)
-  to promote SRV-CLI-001 from `accepted` to `verified` and to record
-  an L0-clean baseline that strict-L0 IrServe can match byte-for-byte
-- [ ] 6.2 Adapt `tools/probe/run.mjs` to launch `irserve` in addition to
-  `node third_party/serve/build/main.js`, selectable via env var, and
-  add an L0-mode anchor-level filter (consults the L0-clean / L1-divergent
-  partition from `design.md` § 6) so cleanUrls-divergent anchors are
-  recorded as informational rather than asserted against `irserve`
+- [ ] 6.1 (depends on 6.2) Add `tools/probe/cases/default-port-l0.json`
+  (fixture has `serve.json` with `{"cleanUrls": false}`; the case sets
+  a runner flag that disables auto-`--listen` injection so the default
+  port path is actually exercised) to promote SRV-CLI-001 from
+  `accepted` to `verified` and to record an L0-clean baseline that
+  strict-L0 IrServe can match against the ORC must-match layer
+- [ ] 6.2 Adapt `tools/probe/run.mjs` to support running `irserve` as
+  the target binary (env var or flag selectable). Specifically:
+    - 6.2.a Currently `spawnServe` (`run.mjs:111`) hardcodes
+      `--listen <free-port>`, `--no-clipboard`, and
+      `--no-port-switching`. Strict-L0 IrServe rejects
+      `--no-port-switching` (deferred by D-008). The runner adapter
+      MUST strip every flag whose SRV is deferred by D-008 when the
+      target is `irserve`. `--no-clipboard` is exempt and stays per
+      D-005 (see `design.md` § 5).
+    - 6.2.b Add a per-case opt-out for the auto-`--listen` injection
+      so default-port probes (6.1) can exercise SRV-CLI-001 without
+      the runner pre-empting it. The default port (3000) MUST then be
+      free for the probe duration; runner allocates a different free
+      port for HTTP request resolution.
+    - 6.2.c Add an anchor-level filter that consults the L0-clean /
+      L1-divergent partition from `design.md` § 6 and only asserts the
+      must-match layer of the backing ORC (also per `design.md` § 6).
+      L1-divergent anchors are recorded as informational; may-differ
+      headers (ETag, Last-Modified, Vary, Accept-Ranges) are skipped.
 - [ ] 6.3 Author Stage-5b change `002-implement-strict-l0-runtime` with
   the actual Rust module structure, `Cargo.toml`, and `tests/oracle/`
   scaffolding
 - [ ] 6.4 Pin Cargo dependencies to current-stable versions at 5b
   authoring time (re-verify the working pins in `design.md` § 2)
-- [ ] 6.5 Add L0-mode replacements for the L1-divergent anchors flagged
-  in `design.md` § 6 (e.g. `mime-defaults-l0.json` with a `serve.json`
-  fixture disabling cleanUrls so the `/page.html` anchor produces a 200
-  with `text/html` MIME instead of a 301)
+- [ ] 6.5 (depends on 6.2) Add L0-mode replacements for the L1-divergent
+  anchors flagged in `design.md` § 6 (e.g. `mime-defaults-l0.json` with
+  a `serve.json` fixture disabling cleanUrls so the `/page.html` anchor
+  produces a 200 with `text/html` MIME instead of a 301)
 
 ## 7. Stage map update
 

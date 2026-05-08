@@ -78,9 +78,11 @@ the dispatcher needs (`http::Request`, `http::Response`, `axum::body::Body`).
 ### `irserve` (bin) direct dependencies
 
 - `clap` 4.x with feature `derive` — argument parsing. Confirmed via the
-  user's Stage-5a interview. Supports the four L0 flags (positional dir,
-  `-l/--listen <PORT>`, `-h/--help`, `-V/--version`) with strict
-  rejection of unknown flags.
+  user's Stage-5a interview. Supports the L0 flags (positional dir,
+  `-l/--listen <PORT>`, `-h/--help`, `-v/--version`, plus
+  `-n/--no-clipboard` accepted as a no-op per D-005); rejects all other
+  deferred flags. Note `short = 'v'` requires an explicit override of
+  clap's default (`-V`) — see § 5.
 - `irserve-core` — workspace member, default features.
 - `tokio` 1.x with features `["macros", "rt-multi-thread"]` — for
   `#[tokio::main]`.
@@ -229,10 +231,10 @@ case's `requests`/`cli` array and writes one result per anchor. Stage
 5b's oracle harness can therefore filter at the anchor level when
 running against `irserve`. The table below partitions every relevant
 existing anchor into **L0-clean** (strict-L0 IrServe must match the
-existing snapshot byte-for-byte, up to D-002/D-003 exclusions) and
-**L1-divergent** (existing snapshot encodes cleanUrls behavior; strict-
-L0 IrServe legitimately diverges and the harness MUST NOT compare
-against it).
+backing ORC's _must-match_ layer in `docs/reference/serve/oracle-matrix.md`)
+and **L1-divergent** (existing snapshot encodes cleanUrls behavior;
+strict-L0 IrServe legitimately diverges and the harness MUST NOT
+compare against it).
 
 | Case | Anchor | Status | Coverage |
 |---|---|---|---|
@@ -244,10 +246,41 @@ against it).
 | `cli-help-version.json` | `help_long`, `help_short`, `version_long`, `version_short` | L0-clean (CLI mode) | CLI-019 → ORC-060 (help), ORC-061 (version) |
 | `cli-positional-error.json` | `two_positionals` | L0-clean (CLI mode) | CLI-007 sc.3 → ORC-062 |
 
-The harness comparison rules already exclude D-002 (exact stdout text)
-and D-003 (HTML body markup of error pages). Status code,
-`Content-Type`, header set (per `extraTrackedHeaders`), and body bytes
-for fixed-shape JSON envelopes are asserted on each L0-clean anchor.
+### Assertion granularity (must-match vs may-differ)
+
+The Stage-5b harness asserts the **must-match** layer of each backing
+ORC, not the full snapshot header set. Concretely, for the L0-clean
+anchors above:
+
+- `ORC-001` (`_smoke.json#root`) — must-match: `status=200`,
+  `body=hello\n`, `content-type: text/html; charset=utf-8`. _May-differ
+  (skip):_ `etag` (snapshot has one; L0 IrServe does not emit ETag at
+  L0 per D-006-adjacent scoping), `vary: Accept-Encoding` (snapshot
+  has it from `serve`'s `compression` middleware; L0 IrServe emits no
+  `Vary` per D-006 and § 7), `accept-ranges: bytes` (Range responses
+  are L3 per SRV-CACHE-004; L0 IrServe MAY omit), `last-modified`.
+- `ORC-002` is **L1-divergent** (cleanUrls 301) and is **not**
+  asserted against L0 IrServe.
+- `ORC-003` (`mime-defaults.json` non-html anchors) — must-match:
+  `status=200`, `content-type` per the FILE-004 binding for the
+  extension, body bytes match. _May-differ:_ ETag, Last-Modified,
+  Accept-Ranges, Vary.
+- `ORC-004` / `ORC-005` (`notfound-shape.json`) — must-match:
+  `status=404` and `content-type` per the variant. JSON envelope shape
+  is also must-match for the `application/json` variant per D-007.
+  _May-differ:_ ETag, Last-Modified.
+- `ORC-060` / `ORC-061` (`cli-help-version.json`) — must-match: exit
+  code 0, stdout non-empty, server not started. _May-differ:_ exact
+  stdout text (D-002).
+- `ORC-062` (`cli-positional-error.json`) — must-match: non-zero exit
+  code. _May-differ:_ exact stderr text (D-002).
+
+The harness adapter (5b-prep `tasks.md` § 6.2) consults the ORC
+must-match layer and the L0-clean / L1-divergent partition above
+together. Snapshot fields outside the must-match layer are recorded
+but not compared. This keeps Stage 5b's first green run dependent on
+behavior the contract actually mandates, not on incidental headers
+that `serve` happens to emit.
 
 ### What Stage 5b must do
 
