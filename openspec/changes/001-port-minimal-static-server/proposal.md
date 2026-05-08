@@ -126,9 +126,10 @@ stage):
    passes `--listen <port>` explicitly, so the default-port code path is
    not exercised by the oracle harness. `cli/spec.md` notes this gap.
    *Mitigation:* Stage 5b adds a probe case (working name
-   `default-port.json`) that omits `--listen` to promote SRV-CLI-001 from
-   `accepted` to `verified`. Recorded as a `tasks.md` § 5b-prep follow-up;
-   not blocking for change 001 acceptance.
+   `default-port-l0.json`) that exercises the default-port code path to
+   promote SRV-CLI-001 from `accepted` to `verified`. Recorded as a
+   `tasks.md` § 6.1 follow-up (depends on the runner adapter work in
+   § 6.2); not blocking for change 001 acceptance.
 
 ## Open assumptions
 

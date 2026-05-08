@@ -97,9 +97,18 @@ Stage-5b implementer does not have to re-derive them:
       D-005 (see `design.md` § 5).
     - 6.2.b Add a per-case opt-out for the auto-`--listen` injection
       so default-port probes (6.1) can exercise SRV-CLI-001 without
-      the runner pre-empting it. The default port (3000) MUST then be
-      free for the probe duration; runner allocates a different free
-      port for HTTP request resolution.
+      the runner pre-empting it. Pick **one** of the two scenario
+      shapes (the probe case declares which; cf. SRV-CLI-001's two
+      scenarios in `cli/spec.md`):
+        - *no-flag-no-env*: assert the server listens on **3000**.
+          Runner verifies port 3000 is free before launch and aborts
+          with a clear error otherwise; HTTP probe requests target
+          3000 directly.
+        - *env-var*: runner allocates a free port `P`, exports
+          `PORT=P` in the spawned process environment, omits
+          `--listen`, and HTTP probe requests target `P`. This
+          exercises the `PORT`-environment branch of SRV-CLI-001 and
+          does not depend on 3000 being free.
     - 6.2.c Add an anchor-level filter that consults the L0-clean /
       L1-divergent partition from `design.md` § 6 and only asserts the
       must-match layer of the backing ORC (also per `design.md` § 6).
