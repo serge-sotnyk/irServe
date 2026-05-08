@@ -1,0 +1,14 @@
+[package]
+name = "irserve-core"
+version = "0.0.1"
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+description = "Static-file server core for irserve"
+
+[dependencies]
+axum = { workspace = true }
+tokio = { workspace = true, features = ["rt-multi-thread", "net", "fs", "macros", "signal"] }
+mime_guess = { workspace = true }
+bytes = { workspace = true }
+thiserror = { workspace = true }

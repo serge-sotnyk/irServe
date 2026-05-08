@@ -1,0 +1,16 @@
+[workspace]
+members = ["crates/irserve", "crates/irserve-core"]
+resolver = "2"
+
+[workspace.package]
+edition = "2021"
+license = "MIT"
+rust-version = "1.81"
+
+[workspace.dependencies]
+axum = "0.8"
+tokio = "1"
+clap = { version = "4", features = ["derive"] }
+mime_guess = "2"
+bytes = "1"
+thiserror = "2"

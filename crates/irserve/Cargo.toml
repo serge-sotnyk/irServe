@@ -1,0 +1,12 @@
+[package]
+name = "irserve"
+version = "0.0.1"
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+description = "Strict-L0 Rust port of vercel/serve"
+
+[dependencies]
+irserve-core = { path = "../irserve-core" }
+clap = { workspace = true }
+tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
