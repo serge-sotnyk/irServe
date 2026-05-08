@@ -36,7 +36,9 @@ fn accepts_json(headers: &HeaderMap) -> bool {
     let Ok(value) = accept.to_str() else {
         return false;
     };
-    value
-        .split(',')
-        .any(|part| part.trim().to_ascii_lowercase().starts_with("application/json"))
+    value.split(',').any(|part| {
+        part.trim()
+            .to_ascii_lowercase()
+            .starts_with("application/json")
+    })
 }

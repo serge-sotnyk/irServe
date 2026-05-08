@@ -24,19 +24,14 @@ pub async fn dispatch(req: Request<Body>, root: &Path) -> Response<Body> {
             Ok(bytes) => file_response(&p, bytes),
             Err(_) => not_found_response(req.headers()),
         },
-        ResolveOutcome::NotFound | ResolveOutcome::EscapedRoot => {
-            not_found_response(req.headers())
-        }
+        ResolveOutcome::NotFound | ResolveOutcome::EscapedRoot => not_found_response(req.headers()),
     }
 }
 
 fn file_response(path: &Path, bytes: Vec<u8>) -> Response<Body> {
     let mut builder = Response::builder().status(StatusCode::OK);
     if let Some(mime) = mime_for(path) {
-        builder = builder.header(
-            CONTENT_TYPE,
-            HeaderValue::from_static(mime),
-        );
+        builder = builder.header(CONTENT_TYPE, HeaderValue::from_static(mime));
     }
     builder
         .body(Body::from(bytes))

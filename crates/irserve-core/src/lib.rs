@@ -11,7 +11,7 @@ use std::path::PathBuf;
 
 pub struct ServerConfig {
     pub root: PathBuf,
-    pub listen: SocketAddr,
+    pub listens: Vec<SocketAddr>,
 }
 
 #[derive(Debug, thiserror::Error)]

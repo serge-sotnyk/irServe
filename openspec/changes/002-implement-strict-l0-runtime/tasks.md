@@ -115,27 +115,27 @@
 
 ## 6. Research-track edits (not OpenSpec deltas)
 
-- [ ] 6.1 `docs/reference/serve/oracle-matrix.md` — add ORC-063 row
+- [x] 6.1 `docs/reference/serve/oracle-matrix.md` — add ORC-063 row
   for `default-port-l0.json#root` backing SRV-CLI-001 (env-var
   scenario)
-- [ ] 6.2 `docs/reference/serve/oracle-matrix.md` — relax ORC-062
+- [x] 6.2 `docs/reference/serve/oracle-matrix.md` — relax ORC-062
   must-match from `exit=1` to `exit=non-zero` (matches spec text
   SRV-CLI-007 sc.3)
-- [ ] 6.3 `docs/reference/serve/inventory.md` — promote SRV-CLI-001
+- [x] 6.3 `docs/reference/serve/inventory.md` — promote SRV-CLI-001
   status `accepted` → `verified`
 
 ## 7. Stage map update
 
-- [ ] 7.1 `README.md` Status block: mark `Stage 5b` as `Done.`
-- [ ] 7.2 `README.md` Stage map: row 5b status `todo` → `done`
+- [x] 7.1 `README.md` Status block: mark `Stage 5b` as `Done.`
+- [x] 7.2 `README.md` Stage map: row 5b status `todo` → `done`
 
 ## 8. Validate
 
-- [ ] 8.1 `npx -y @fission-ai/openspec@latest validate --all --strict
+- [x] 8.1 `npx -y @fission-ai/openspec@latest validate --all --strict
   --concurrency 12` exit 0 (with both 001 and 002 in flight)
-- [ ] 8.2 `cargo build --release` clean
-- [ ] 8.3 `cargo test --test oracle` green (final)
-- [ ] 8.4 `git diff --stat` confirms zero lines under `third_party/`;
+- [x] 8.2 `cargo build --release` clean
+- [x] 8.3 `cargo test --test oracle` green (final)
+- [x] 8.4 `git diff --stat` confirms zero lines under `third_party/`;
   no edits to existing `tools/probe/snapshots/*.json` (only adds);
   no edits to existing `tools/probe/cases/*.json` beyond `runner.l0`
   blocks

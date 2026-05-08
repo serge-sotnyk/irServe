@@ -20,7 +20,7 @@ Concretely: take `vercel/serve` (a small but real Node.js static file server), r
 - **Stage 5a — first implementation proposal.** Done.
 - **Stage 5b — Rust scaffold + first vertical slice.** Done.
 
-No Rust code exists in this repository yet. It is introduced at Stage 5b, after the first implementation proposal (Stage 5a) is reviewed.
+Rust code lives under `crates/irserve` (the bin) and `crates/irserve-core` (the lib). The first slice is strict-L0: eight SRVs (`SRV-CLI-001/002/007/019`, `SRV-FILE-001/002/004/005`); every other capability is deferred per `D-008`.
 
 ## Repository layout
 
@@ -111,7 +111,7 @@ curl -i http://127.0.0.1:3010/
 # (note: GET /index.html returns 301 → /index because cleanUrls is on by default in serve)
 ```
 
-There is no Rust toolchain requirement yet; it appears at Stage 5b.
+Rust toolchain (1.81+) is required to build and test `irserve`. `cargo build` produces the bin under `target/debug/irserve(.exe)`. `cargo test --test oracle` builds the bin and shells out to `node tools/probe/run.mjs --all --target=irserve --snapshot=verify`; Node 18+ on PATH is a prerequisite (already needed for the reference oracle bundle above).
 
 ## References
 

@@ -634,12 +634,18 @@ function canonicalJson(value) {
 function applyL0Filter(snap, l0) {
   if (!l0) return snap;
   const cloned = JSON.parse(JSON.stringify(snap));
+  const clean = new Set(l0.clean ?? []);
   const divergent = new Set(l0.divergent ?? []);
   const bodyMayDiffer = new Set(l0.bodyMayDiffer ?? []);
   const contentLengthMayDiffer = new Set(l0.contentLengthMayDiffer ?? []);
   const exitCodeMayDiffer = new Set(l0.exitCodeMayDiffer ?? []);
+  // The L0 partition is an explicit allow-list: only `clean` anchors are
+  // compared. `divergent` is informational. Anchors absent from both lists
+  // are treated as informational too (stripped from the diff). This makes
+  // case files self-documenting about what's contractually asserted.
+  const inClean = (name) => clean.size === 0 || clean.has(name);
   if (Array.isArray(cloned.requests)) {
-    cloned.requests = cloned.requests.filter((r) => !divergent.has(r.name));
+    cloned.requests = cloned.requests.filter((r) => !divergent.has(r.name) && inClean(r.name));
     for (const r of cloned.requests) {
       // Strip L0 extra-volatile headers entirely from both sides. We can't
       // use the existing `<volatile>` masking because if a header is present
@@ -667,7 +673,7 @@ function applyL0Filter(snap, l0) {
     }
   }
   if (Array.isArray(cloned.cli)) {
-    cloned.cli = cloned.cli.filter((e) => !divergent.has(e.name));
+    cloned.cli = cloned.cli.filter((e) => !divergent.has(e.name) && inClean(e.name));
     for (const e of cloned.cli) {
       if (exitCodeMayDiffer.has(e.name)) {
         // Per ORC-062 must-match the exit code is "non-zero", not a specific

@@ -145,10 +145,11 @@ SRVs and scenarios intentionally NOT promoted to `verified` in Stage 3,
 with one-line rationale each. These remain at their pre-existing status
 in `inventory.md`.
 
-- **SRV-CLI-001** (default port 3000 / `PORT` env) — every probe passes
-  an explicit `--listen <port>` so the default-port code path is not
-  exercised. Source-level evidence is in `serve/source/main.ts`. Stays
-  `accepted`.
+- **SRV-CLI-001** (default port 3000 / `PORT` env) — promoted to
+  `verified` in Stage-5b change 002 via ORC-063 (`default-port-l0.json`,
+  env-var scenario). The no-flag-no-env scenario remains source-evidence
+  only because port 3000 cannot be reliably reserved on developer
+  machines.
 - **SRV-CLI-003** (`-l tcp://host:port`) — single TCP-URI parse, no
   observable HTTP-level divergence vs. SRV-CLI-002. Treated as transitive;
   no dedicated probe. Status stays `accepted`.

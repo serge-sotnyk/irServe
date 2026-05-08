@@ -50,6 +50,54 @@
       "description": "Extra command-line arguments passed to `node third_party/serve/build/main.js` after the runner's own --listen / --no-clipboard / --no-port-switching.",
       "items": { "type": "string" }
     },
+    "runner": {
+      "type": "object",
+      "description": "Runner-level options governing how the case is spawned and how its results are filtered against `target=irserve`. Added in change 002 (Stage 5b).",
+      "additionalProperties": false,
+      "properties": {
+        "skipAutoListen": {
+          "type": "boolean",
+          "description": "When true the runner does NOT inject `--listen <port>` into the spawned process. Used by SRV-CLI-001 default-port probes. Requires `defaultPortScenario`."
+        },
+        "defaultPortScenario": {
+          "type": "string",
+          "enum": ["no-flag-no-env", "env-var"],
+          "description": "Required when `skipAutoListen` is true. `no-flag-no-env`: runner reserves port 3000 (aborts if occupied) and HTTP-probes 3000. `env-var`: runner allocates a free port P, exports `PORT=P` into the spawned process env, and HTTP-probes P."
+        },
+        "l0": {
+          "type": "object",
+          "description": "Per-anchor partition applied when running against `target=irserve`. Cases without an `l0` block are skipped under `target=irserve`.",
+          "additionalProperties": false,
+          "properties": {
+            "clean": {
+              "type": "array",
+              "items": { "type": "string" },
+              "description": "Anchor names that must match the reference snapshot (subject to volatile-header masking and the may-differ overlays below). Anchors not in `clean` and not in `divergent` are stripped from the diff (treated as informational)."
+            },
+            "divergent": {
+              "type": "array",
+              "items": { "type": "string" },
+              "description": "Anchor names recorded as informational only. Their request still executes against irserve, but the result is removed from BOTH sides of the diff."
+            },
+            "bodyMayDiffer": {
+              "type": "array",
+              "items": { "type": "string" },
+              "description": "Anchor names whose response body is may-differ (e.g. HTML 404 body per D-003). Strips body.length / body.sha256 / body.preview AND `content-length` for those anchors."
+            },
+            "contentLengthMayDiffer": {
+              "type": "array",
+              "items": { "type": "string" },
+              "description": "Anchor names whose `content-length` header is may-differ but whose body bytes are must-match (e.g. JSON 404 envelope where serve uses chunked transfer-encoding)."
+            },
+            "exitCodeMayDiffer": {
+              "type": "array",
+              "items": { "type": "string" },
+              "description": "CLI-mode anchor names where exit code is may-differ but must be non-zero (per ORC-062 must-match: `exit=non-zero`). The runner asserts both sides are non-zero then strips `exitCode`."
+            }
+          }
+        }
+      }
+    },
     "snapshot": {
       "type": "object",
       "description": "Optional snapshot configuration. Used by `tools/probe/run.mjs --snapshot=update|verify` to control how the canonical snapshot is built and compared. See tools/probe/snapshots/_schema.json.",
