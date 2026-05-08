@@ -23,7 +23,15 @@ openspec/
 
 ## Lifecycle
 
-`propose → apply → sync → archive`. The first change is `000-establish-serve-compatibility-baseline`, created in Stage 4. Until then both `specs/` and `changes/` are intentionally empty.
+`propose → apply → sync → archive`. The first change is `000-establish-serve-compatibility-baseline`, created in Stage 4. The bootstrap is intentionally not archived in Stage 4: `specs/` stays empty until the change is archived in a separate user-initiated step.
+
+## Validating changes
+
+OpenSpec is not committed as a project dependency. To run `openspec validate` on the bootstrap change (or any future change):
+
+```bash
+npx @fission-ai/openspec validate --all --strict --concurrency 12
+```
 
 ## Authoring rules (must read)
 
@@ -40,12 +48,12 @@ The following capability namespaces are reserved by `compatibility-levels.md` an
 - `cli`
 - `config`
 - `static-files`
-- `path-resolution`
 - `routing`
 - `redirects`
 - `rewrites`
 - `headers`
 - `directory-listing`
 - `http-cache`
+- `cors`
 - `security`
 - `symlinks`

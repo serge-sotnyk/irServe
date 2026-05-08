@@ -16,7 +16,8 @@ Concretely: take `vercel/serve` (a small but real Node.js static file server), r
 - **Stage 1 — reverse inventory of `serve` behavior.** Done.
 - **Stage 2 — capability map refresh.** Done.
 - **Stage 3 — oracle matrix.** Done.
-- **Stage 4 — OpenSpec bootstrap change.** Next.
+- **Stage 4 — OpenSpec bootstrap change.** Done.
+- **Stage 5a — first implementation proposal.** Next.
 
 No Rust code exists in this repository yet. It is introduced at Stage 5b, after the first implementation proposal (Stage 5a) is reviewed.
 
@@ -47,7 +48,7 @@ The methodology runs in nine stages. Status is updated when entering or completi
 | 1 | Reverse inventory | `docs/reference/serve/inventory.md` populated | done |
 | 2 | Capability map | `docs/reference/serve/compatibility-levels.md` refined | done |
 | 3 | Oracle matrix | `docs/reference/serve/oracle-matrix.md` + `tools/probe/snapshots/` | done |
-| 4 | OpenSpec bootstrap change | `openspec/changes/000-establish-serve-compatibility-baseline/` | todo |
+| 4 | OpenSpec bootstrap change | `openspec/changes/000-establish-serve-compatibility-baseline/` | done |
 | 5a | First implementation proposal (specs delta + design + tasks, no code) | `openspec/changes/001-port-minimal-static-server/` (proposal/design/tasks/specs only) | todo |
 | 5b | Rust scaffold + first vertical slice | `Cargo.toml` + `tests/oracle/` + first crate code | todo |
 | 6 | Implementation proposals (vertical slices, in dependency order) | `openspec/changes/002...010` | todo |
