@@ -56,8 +56,9 @@ the same eight SRVs and add Rust artifacts.
   pins.
 - Request-lifecycle skeleton matching SRV-ROUT-006 even though only the
   static-file branch is wired in this slice.
-- CLI surface for the four L0 flags (positional dir, `-l`/`--listen`
-  numeric, `-h`/`--help`, `-V`/`--version`).
+- CLI surface for the L0 flags (positional dir, `-l`/`--listen`
+  numeric, `-h`/`--help`, `-v`/`--version`, plus `-n`/`--no-clipboard`
+  accepted as a no-op per the D-005 invariant).
 - Mapping of each in-scope SRV to existing probe cases under
   `tools/probe/cases/` so Stage-5b's oracle harness can run unmodified.
 - D-008 entry in `docs/reference/serve/decisions.md` (release-scoping).

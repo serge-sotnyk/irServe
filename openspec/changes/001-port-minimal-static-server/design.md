@@ -177,63 +177,110 @@ observable contract is preserved.
 
 ## 5. CLI surface (clap derive)
 
-`irserve` (bin) recognizes exactly the four strict-L0 flags. All other
-flags from the broader `cli/spec.md` are **deferred** by D-008 and
-SHALL be rejected by clap as unknown flags (non-zero exit). This is
-conservative and matches Stage-5b oracle expectation: an L1 change
-widens acceptance.
+`irserve` (bin) recognizes the strict-L0 flags below plus
+`-n`/`--no-clipboard` (accepted as a no-op per the D-005 invariant —
+see "D-005 exception" below). All other flags from the broader
+`cli/spec.md` are **deferred** by D-008 and SHALL be rejected by clap
+as unknown flags (non-zero exit). This is conservative and matches
+Stage-5b oracle expectation: an L1 change widens acceptance.
 
 | Form | Spec source | Notes |
 |---|---|---|
 | `[DIRECTORY]` (positional, default `.`) | SRV-CLI-007 | One positional only; two positionals → fatal (ORC-062). |
 | `-l, --listen <PORT>` | SRV-CLI-002 | Numeric port only at L0. `tcp://` URIs (SRV-CLI-003) are L1. |
 | `-h, --help` | SRV-CLI-019 | Exit 0; clap default. Help text is implementation-defined per D-002. |
-| `-V, --version` | SRV-CLI-019 | Exit 0; clap default. Version string is `MAJOR.MINOR.PATCH` from `Cargo.toml`. |
+| `-v, --version` | SRV-CLI-019 | Exit 0. **Override clap default** (`#[command(version, ...)]` with `short = 'v'`) — clap's default short for version is `-V`, but `cli/spec.md` and the existing oracle case `cli-help-version.json` both require lowercase `-v`. Version string is `MAJOR.MINOR.PATCH` from `Cargo.toml`. |
+| `-n, --no-clipboard` | SRV-CLI-011 (D-005 exempt) | Accepted as a no-op. See "D-005 exception" below. |
 
 Default port (SRV-CLI-001) is **3000** when `-l` is omitted and `PORT`
 is unset; the `PORT` env var, if set, is used instead. This is wired in
 the bin (clap `default_value_t` cannot read env at compile time —
 Stage 5b reads `std::env::var("PORT")` after clap parses).
 
-`--no-clipboard` (SRV-CLI-011) is **not** accepted at L0. D-008 defers
-it; D-005 says clipboard is unimplemented anyway. The flag becomes a
-clap-level no-op only when SRV-CLI-011 ships in a future change. The
-strict rejection at L0 is intentional — Stage-5b oracle harness will
-detect any divergence from contract.
+### D-005 exception for `--no-clipboard`
+
+D-005 (Impact line) is a project-wide invariant: "IrServe MUST accept
+the `-n`/`--no-clipboard` flag without error so existing scripts keep
+working, but it has no observable effect because IrServe never touches
+the clipboard." That MUST is unconditional — it does not depend on
+which SRVs are implemented in the current release. D-008 defers the
+**probe coverage** of SRV-CLI-011, but D-005 still mandates flag
+acceptance. Therefore `irserve` (the bin) declares `-n`/`--no-clipboard`
+as a clap boolean flag at L0 and ignores its value.
+
+This is the **only** flag exempt from D-008's strict-rejection rule.
+All other deferred flags (`tcp://` URIs, `-p`, `-s`/`--single`,
+`-c`/`--config`, `-C`/`--cors`, `-d`/`--debug`,
+`-L`/`--no-request-logging`, `--no-port-switching`) remain rejected at
+L0.
 
 ## 6. Stage-5b oracle harness mapping
 
-The strict-L0 binary must pass the following existing probe cases under
-`tools/probe/cases/` without modifying any case or snapshot. The mapping
-below cross-references probe → SRV → ORC and lists the response surface
-the oracle harness asserts:
+The existing snapshots under `tools/probe/snapshots/` are recorded
+against the reference `serve` running with its **default**
+configuration — which means `cleanUrls: true` (per CLI default) and
+default `directoryListing`. Strict-L0 IrServe implements **neither**
+cleanUrls nor directory listing (D-008 defers SRV-ROUT-001/002 and
+SRV-DLST-001..003), so it cannot match every byte of the existing
+snapshots verbatim. Anchor-level analysis is required.
 
-| Probe case (existing) | SRV(s) covered | ORC(s) | What the snapshot pins |
+The probe runner (`tools/probe/run.mjs:706`) iterates every entry in a
+case's `requests`/`cli` array and writes one result per anchor. Stage
+5b's oracle harness can therefore filter at the anchor level when
+running against `irserve`. The table below partitions every relevant
+existing anchor into **L0-clean** (strict-L0 IrServe must match the
+existing snapshot byte-for-byte, up to D-002/D-003 exclusions) and
+**L1-divergent** (existing snapshot encodes cleanUrls behavior; strict-
+L0 IrServe legitimately diverges and the harness MUST NOT compare
+against it).
+
+| Case | Anchor | Status | Coverage |
 |---|---|---|---|
-| `_smoke.json` | FILE-001, FILE-004, FILE-005, CLI-002, CLI-007 | ORC-001 | base smoke (200, body, MIME, `Content-Length`) |
-| `mime-defaults.json` | FILE-004 | ORC-003 | MIME bindings for the eight required extensions |
-| `notfound-shape.json` | FILE-002 | ORC-004 (HTML), ORC-005 (JSON) | 404 status, `Content-Type`, JSON envelope shape |
-| `cli-help-version.json` | CLI-019 | ORC-060 (help), ORC-061 (version) | exit 0; stdout non-empty; server not started |
-| `cli-positional-error.json` | CLI-007 sc.3 | ORC-062 | non-zero exit on two positionals |
+| `_smoke.json` | `root` (`GET /`) | L0-clean | FILE-001/005, CLI-002/007 → ORC-001 |
+| `_smoke.json` | `index_html_redirect` (`GET /index.html`) | **L1-divergent** (snapshot is 301 → `/index`; L0 IrServe serves 200 from `index.html`) | covered by future `cleanUrls` change |
+| `mime-defaults.json` | `js`, `json`, `css`, `txt`, `wasm`, `svg`, `png`, `noext`, `unknownext` | L0-clean | FILE-004 → ORC-003 (9 of 10 anchors) |
+| `mime-defaults.json` | `html` (`GET /page.html`) | **L1-divergent** (snapshot is 301 → `/page`; L0 IrServe serves 200 with `text/html; charset=utf-8`) | covered by future `cleanUrls` change |
+| `notfound-shape.json` | `missing_html`, `missing_html_with_accept` | L0-clean | FILE-002 → ORC-004 (HTML), ORC-005 (JSON) |
+| `cli-help-version.json` | `help_long`, `help_short`, `version_long`, `version_short` | L0-clean (CLI mode) | CLI-019 → ORC-060 (help), ORC-061 (version) |
+| `cli-positional-error.json` | `two_positionals` | L0-clean (CLI mode) | CLI-007 sc.3 → ORC-062 |
 
-Stage 5b's `tests/oracle/` runs each existing snapshot against `irserve`
-in place of `node third_party/serve/build/main.js` and asserts response
-equality up to the comparison rules already used by `tools/probe/run.js`
-(snapshot fields excluded by D-002/D-003 — exact stdout text, HTML
-markup of error pages — are not asserted; status, `Content-Type`,
-header set, and body bytes for fixed-shape JSON are).
+The harness comparison rules already exclude D-002 (exact stdout text)
+and D-003 (HTML body markup of error pages). Status code,
+`Content-Type`, header set (per `extraTrackedHeaders`), and body bytes
+for fixed-shape JSON envelopes are asserted on each L0-clean anchor.
 
-The probe cases above are the **whole** oracle surface for change 001.
-All other probe cases under `tools/probe/cases/` exercise L1+ behavior
-(cleanUrls, redirects, rewrites, directory listing, custom error pages,
-ETag, Range, headers, CORS) and are deferred to subsequent change
-proposals. Stage 5a does **not** modify any probe case or snapshot.
+### What Stage 5b must do
+
+The mapping above is **L0-clean for the listed anchors only**, not
+"runs every existing snapshot unmodified". Stage 5b therefore needs:
+
+1. **An anchor-level filter in the harness.** The runner adapter
+   (5b-prep `tasks.md` § 6.2) should accept an "L0 mode" that, when
+   running `irserve`, consults a per-anchor allow-list (the
+   `L0-clean` rows above) and only compares those anchors against
+   the reference snapshot. L1-divergent anchors are recorded as
+   informational-only or skipped.
+2. **L0-mode probe cases (preferred for new coverage).** For
+   future-proofing, Stage 5b should add cases backed by
+   `serve.json` fixtures with `{"cleanUrls": false}` so the
+   reference snapshots themselves do not encode cleanUrls. Working
+   names: `default-port-l0.json` (closes the SRV-CLI-001 probe gap
+   from Risk #3), `mime-defaults-l0.json` (replaces the cleanUrls-
+   tainted `html` anchor with one that bypasses cleanUrls). Tracked
+   as `tasks.md` §§ 6.1 and 6.5.
+
+### Process discipline
+
+Stage 5a does **not** modify any probe case or snapshot. The current
+runner remains unchanged. All adapter work and any new L0-mode probe
+cases land in Stage 5b inside its own change `002-…` (or alongside it
+as separate research-track edits to `tools/probe/`).
 
 The probe runner currently launches `node third_party/serve/build/main.js`.
 Stage 5b adapts the runner to also launch `irserve` (e.g. via an
 environment variable selecting the target binary) without breaking
 existing per-case parity. That adapter work is **Stage 5b** — not part
-of change 001's design. `tasks.md` flags it as a 5b-prep item.
+of change 001's design.
 
 ## 7. Open assumptions
 

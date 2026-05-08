@@ -53,7 +53,7 @@ future change (`002-implement-strict-l0-runtime`) opened at Stage 5b.
 
 - [x] 4.1 `npx -y @fission-ai/openspec@latest validate --all --strict
   --concurrency 12` exits 0
-- [ ] 4.2 No accidental Rust artifacts: `git diff --stat` shows zero
+- [x] 4.2 No accidental Rust artifacts: `git diff --stat` shows zero
   lines under `tools/probe/`, `third_party/`, or any `*.rs` / `Cargo.*`
   file
 - [x] 4.3 Single delta only: `openspec/changes/001-port-minimal-static-server/specs/cli/spec.md`
@@ -62,17 +62,17 @@ future change (`002-implement-strict-l0-runtime`) opened at Stage 5b.
 
 ## 5. Cross-check
 
-- [ ] 5.1 Every SRV ID cited in `proposal.md` and `design.md` is present
+- [x] 5.1 Every SRV ID cited in `proposal.md` and `design.md` is present
   in `docs/reference/serve/inventory.md`
-- [ ] 5.2 Every ORC ID cited resolves to a row in
+- [x] 5.2 Every ORC ID cited resolves to a row in
   `docs/reference/serve/oracle-matrix.md`
-- [ ] 5.3 Every D-NNN cited resolves to an entry in
+- [x] 5.3 Every D-NNN cited resolves to an entry in
   `docs/reference/serve/decisions.md` (D-001..D-008, with D-008 being
   the new entry from this stage)
-- [ ] 5.4 Every Q-NNN cited resolves to an entry in
+- [x] 5.4 Every Q-NNN cited resolves to an entry in
   `docs/reference/serve/open-questions.md`; none of those entries was
   modified by Stage 5a
-- [ ] 5.5 Every probe case named in `design.md` § 6 exists under
+- [x] 5.5 Every probe case named in `design.md` § 6 exists under
   `tools/probe/cases/` and `tools/probe/snapshots/`
 
 ## 6. Stage-5b prep (informational; not closed by change 001)
@@ -80,17 +80,26 @@ future change (`002-implement-strict-l0-runtime`) opened at Stage 5b.
 These items are out-of-scope for this change but flagged here so the
 Stage-5b implementer does not have to re-derive them:
 
-- [ ] 6.1 Add `tools/probe/cases/default-port.json` (omits `--listen`)
-  to promote SRV-CLI-001 from `accepted` to `verified`
-- [ ] 6.2 Adapt `tools/probe/run.js` to launch `irserve` in addition to
-  `node third_party/serve/build/main.js`, selectable via env var
+- [ ] 6.1 Add `tools/probe/cases/default-port-l0.json` (fixture has
+  `serve.json` with `{"cleanUrls": false}` and the case omits `--listen`)
+  to promote SRV-CLI-001 from `accepted` to `verified` and to record
+  an L0-clean baseline that strict-L0 IrServe can match byte-for-byte
+- [ ] 6.2 Adapt `tools/probe/run.mjs` to launch `irserve` in addition to
+  `node third_party/serve/build/main.js`, selectable via env var, and
+  add an L0-mode anchor-level filter (consults the L0-clean / L1-divergent
+  partition from `design.md` § 6) so cleanUrls-divergent anchors are
+  recorded as informational rather than asserted against `irserve`
 - [ ] 6.3 Author Stage-5b change `002-implement-strict-l0-runtime` with
   the actual Rust module structure, `Cargo.toml`, and `tests/oracle/`
   scaffolding
 - [ ] 6.4 Pin Cargo dependencies to current-stable versions at 5b
   authoring time (re-verify the working pins in `design.md` § 2)
+- [ ] 6.5 Add L0-mode replacements for the L1-divergent anchors flagged
+  in `design.md` § 6 (e.g. `mime-defaults-l0.json` with a `serve.json`
+  fixture disabling cleanUrls so the `/page.html` anchor produces a 200
+  with `text/html` MIME instead of a 301)
 
 ## 7. Stage map update
 
-- [ ] 7.1 Mark `Stage 5a` as `Done.` in `README.md` Status block (line ≈20)
-- [ ] 7.2 Update `README.md` Stage map row 5a status `todo` → `done`
+- [x] 7.1 Mark `Stage 5a` as `Done.` in `README.md` Status block (line ≈20)
+- [x] 7.2 Update `README.md` Stage map row 5a status `todo` → `done`
