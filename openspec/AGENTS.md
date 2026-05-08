@@ -8,22 +8,24 @@ This folder is the canonical home of IrServe specifications and proposed changes
 openspec/
 ├── project.md          # Project context (read first)
 ├── AGENTS.md           # This file
-├── specs/              # Source of truth (populated after Stage 4 archives the bootstrap change)
+├── specs/              # Source of truth (populated by archived bootstrap change `000-…`)
 │   └── <capability>/
 │       └── spec.md
 └── changes/            # Proposed changes (one folder per change)
-    └── <change-name>/
-        ├── proposal.md
-        ├── design.md         # optional
-        ├── tasks.md
-        └── specs/            # delta specs (ADDED / MODIFIED / REMOVED)
-            └── <capability>/
-                └── spec.md
+    ├── <change-name>/
+    │   ├── proposal.md
+    │   ├── design.md         # optional
+    │   ├── tasks.md
+    │   └── specs/            # delta specs (ADDED / MODIFIED / REMOVED), optional when no delta
+    │       └── <capability>/
+    │           └── spec.md
+    └── archive/        # Archived (accepted-and-applied) changes
+        └── YYYY-MM-DD-<change-name>/
 ```
 
 ## Lifecycle
 
-`propose → apply → sync → archive`. The first change is `000-establish-serve-compatibility-baseline`, created in Stage 4. The bootstrap is intentionally not archived in Stage 4: `specs/` stays empty until the change is archived in a separate user-initiated step.
+`propose → apply → sync → archive`. The bootstrap change `000-establish-serve-compatibility-baseline` (Stage 4) was archived as `archive/2026-05-08-000-establish-serve-compatibility-baseline/` and its delta specs were merged into `openspec/specs/`. Subsequent changes (e.g. Stage 5a's `001-…`) follow the same lifecycle.
 
 ## Validating changes
 

@@ -25,7 +25,7 @@ Each bullet cites the backing `SRV-*` entries from `inventory.md`. Bullets with 
 
 - Serve the current directory by default — SRV-CLI-001, SRV-CLI-007.
 - Serve a specified directory — SRV-CLI-007.
-- Bind host and port — SRV-CLI-001, SRV-CLI-002, SRV-CLI-003.
+- Bind host and port — SRV-CLI-001, SRV-CLI-002.
 - Return static files for existing paths — SRV-FILE-001, SRV-FILE-005.
 - Return 404 for missing paths — SRV-FILE-002.
 - Basic MIME type / `Content-Type` resolution — SRV-FILE-004.
@@ -33,7 +33,7 @@ Each bullet cites the backing `SRV-*` entries from `inventory.md`. Bullets with 
 
 ### Level 1 — serve-style CLI and configuration
 
-- Subset of `serve` CLI options — SRV-CLI-006 (`-p` deprecated alias), SRV-CLI-009 (`--config`), SRV-CLI-010 (`--cors` flag presence; full response surface is L3 — see SRV-CORS-001), SRV-CLI-011 (`--no-clipboard`), SRV-CLI-014 (`--debug`), SRV-CLI-015 (`--no-request-logging`), SRV-CLI-016 (`--no-port-switching`).
+- Subset of `serve` CLI options — SRV-CLI-003 (`tcp://host:port` URI form for `-l`), SRV-CLI-006 (`-p` deprecated alias), SRV-CLI-009 (`--config`), SRV-CLI-010 (`--cors` flag presence; full response surface is L3 — see SRV-CORS-001), SRV-CLI-011 (`--no-clipboard`), SRV-CLI-014 (`--debug`), SRV-CLI-015 (`--no-request-logging`), SRV-CLI-016 (`--no-port-switching`).
 - Load `serve.json` from the served directory — SRV-CFG-001.
 - `public` root and configuration schema — SRV-CFG-002.
 - Custom error pages (`<status>.html`) — SRV-FILE-003.
