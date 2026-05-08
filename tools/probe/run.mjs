@@ -33,6 +33,34 @@ const SERVE_ENTRY = join(REPO_ROOT, 'third_party', 'serve', 'build', 'main.js');
 
 const DEFAULT_VOLATILE_HEADERS = ['last-modified'];
 
+// Extra volatile headers applied on top of the case's `volatileHeaders` set
+// when running against the strict L0 Rust runtime (`target=irserve`). The
+// reference (vercel/serve) emits these unconditionally; irserve omits them
+// (or differs on them) by deliberate L0 design (D-008/D-003 etc.). They are
+// masked from BOTH sides of the diff so the comparison stays meaningful.
+const L0_EXTRA_VOLATILE_HEADERS = ['etag', 'vary', 'accept-ranges'];
+
+// Flags deferred from the strict L0 implementation (D-008). If a case asks
+// for one of these via `serveArgs`, the runner refuses to run it against
+// `target=irserve` rather than silently dropping the flag.
+const L0_DEFERRED_FLAGS = new Set([
+  '-p',
+  '-c', '--config',
+  '-C', '--cors',
+  '-d', '--debug',
+  '-L', '--no-request-logging',
+  '-s', '--single',
+  '--no-port-switching',
+]);
+
+function resolveIrserveBin() {
+  if (process.env.IRSERVE_BIN) return process.env.IRSERVE_BIN;
+  const exe = process.platform === 'win32' ? 'irserve.exe' : 'irserve';
+  return join(REPO_ROOT, 'target', 'debug', exe);
+}
+
+const IRSERVE_BIN = resolveIrserveBin();
+
 const TRACKED_RESPONSE_HEADERS = [
   'accept-ranges',
   'cache-control',
@@ -108,26 +136,70 @@ async function materializeFixture(fixture, baseDir) {
   }
 }
 
-function spawnServe({ port, fixtureDir, extraArgs }) {
-  const args = [
-    SERVE_ENTRY,
-    '--listen',
-    String(port),
-    '--no-clipboard',
-    '--no-port-switching',
-    ...(extraArgs ?? []),
-    fixtureDir,
-  ];
-  const child = spawn(process.execPath, args, {
+// Detect whether `extraArgs` (case-level `serveArgs`) contains any flag that
+// the strict L0 Rust runtime rejects. Returns null when clean, or a string
+// describing the offending flag when not.
+function findDeferredL0Flag(extraArgs) {
+  const args = extraArgs ?? [];
+  for (let i = 0; i < args.length; i++) {
+    const a = args[i];
+    if (L0_DEFERRED_FLAGS.has(a)) return a;
+    if (a === '-l' || a === '--listen') {
+      const v = args[i + 1];
+      if (typeof v === 'string' && v.startsWith('tcp://')) {
+        return `${a} ${v}`;
+      }
+    } else if (a.startsWith('-l=') || a.startsWith('--listen=')) {
+      const v = a.slice(a.indexOf('=') + 1);
+      if (v.startsWith('tcp://')) return a;
+    }
+  }
+  return null;
+}
+
+function spawnServe({ port, fixtureDir, extraArgs, target = 'reference', skipAutoListen = false, extraEnv = {} }) {
+  const isIrserve = target === 'irserve';
+  const baseEnv = { ...process.env, NO_UPDATE_NOTIFIER: '1', FORCE_COLOR: '0', ...extraEnv };
+  let cmd;
+  let args;
+  if (isIrserve) {
+    const injected = ['--no-clipboard'];
+    if (!skipAutoListen) injected.unshift('--listen', String(port));
+    args = [...injected, ...(extraArgs ?? []), fixtureDir];
+    cmd = IRSERVE_BIN;
+  } else {
+    const injected = ['--no-clipboard', '--no-port-switching'];
+    if (!skipAutoListen) injected.unshift('--listen', String(port));
+    args = [SERVE_ENTRY, ...injected, ...(extraArgs ?? []), fixtureDir];
+    cmd = process.execPath;
+  }
+  const child = spawn(cmd, args, {
     cwd: REPO_ROOT,
     stdio: ['ignore', 'pipe', 'pipe'],
-    env: { ...process.env, NO_UPDATE_NOTIFIER: '1', FORCE_COLOR: '0' },
+    env: baseEnv,
   });
   let stdout = '';
   let stderr = '';
   child.stdout.on('data', (d) => { stdout += d.toString(); });
   child.stderr.on('data', (d) => { stderr += d.toString(); });
   return { child, getStdout: () => stdout, getStderr: () => stderr };
+}
+
+// Verify port 3000 is free for `defaultPortScenario=no-flag-no-env`. We try
+// to listen on 127.0.0.1:3000 and then close: if the bind succeeds, the port
+// was free at this instant. There's an unavoidable race between this check
+// and the spawned server's own bind, but it's no worse than getFreePort().
+async function ensurePort3000Free(probeId) {
+  return new Promise((resolveFn, rejectFn) => {
+    const srv = net.createServer();
+    srv.unref();
+    srv.once('error', () => {
+      rejectFn(new Error(`port 3000 occupied; cannot run case "${probeId}" with defaultPortScenario=no-flag-no-env`));
+    });
+    srv.listen(3000, '127.0.0.1', () => {
+      srv.close(() => resolveFn());
+    });
+  });
 }
 
 async function waitReady(port, timeoutMs = 10000) {
@@ -346,7 +418,11 @@ async function runRequestRaw(port, req, opts = {}) {
   });
 }
 
-function renderMarkdown(probe, runMeta, results) {
+function renderMarkdown(probe, runMeta, results, opts = {}) {
+  const { l0 = null } = opts;
+  const divergentSet = new Set(l0?.divergent ?? []);
+  const cleanResults = l0 ? results.filter((r) => !divergentSet.has(r.name)) : results;
+  const divergentResults = l0 ? results.filter((r) => divergentSet.has(r.name)) : [];
   const lines = [];
   lines.push(`# Probe \`${probe.id}\``);
   lines.push('');
@@ -356,6 +432,7 @@ function renderMarkdown(probe, runMeta, results) {
   }
   lines.push('## Run metadata');
   lines.push('');
+  if (runMeta.target) lines.push(`- Target: \`${runMeta.target}\``);
   lines.push(`- Reference: \`serve@${runMeta.serveVersion ?? 'unknown'}\``);
   lines.push(`- Generated: \`${runMeta.generatedAt}\``);
   lines.push(`- Port: \`${runMeta.port}\``);
@@ -368,7 +445,7 @@ function renderMarkdown(probe, runMeta, results) {
   lines.push('');
   lines.push('## Requests');
   lines.push('');
-  for (const r of results) {
+  for (const r of cleanResults) {
     lines.push(`### \`${r.name}\``);
     lines.push('');
     lines.push(`- Request: \`${r.method} ${r.path}\``);
@@ -399,6 +476,28 @@ function renderMarkdown(probe, runMeta, results) {
       lines.push('  ```');
     }
     lines.push('');
+  }
+  if (divergentResults.length > 0) {
+    lines.push('### Informational (L1-divergent against strict L0)');
+    lines.push('');
+    lines.push('The following anchors were executed against the target but excluded');
+    lines.push('from the snapshot diff because the case marks them as L1-divergent.');
+    lines.push('');
+    for (const r of divergentResults) {
+      lines.push(`#### \`${r.name}\` (informational)`);
+      lines.push('');
+      lines.push(`- Request: \`${r.method} ${r.path}\``);
+      lines.push(`- Status: \`${r.status} ${r.statusText}\``);
+      if (Object.keys(r.headers).length) {
+        lines.push(`- Response headers:`);
+        for (const [k, v] of Object.entries(r.headers)) {
+          lines.push(`  - \`${k}: ${v}\``);
+        }
+      }
+      lines.push(`- Body length: \`${r.body.length}\``);
+      lines.push(`- Body sha256: \`${r.body.sha256}\``);
+      lines.push('');
+    }
   }
   return lines.join('\n');
 }
@@ -521,15 +620,84 @@ function canonicalJson(value) {
   return '{' + keys.map((k) => JSON.stringify(k) + ':' + canonicalJson(value[k])).join(',') + '}';
 }
 
-function diffSnapshots(expected, actual) {
+// L0 mode preprocessor: when running against irserve, apply the case's
+// per-anchor L0 partition to BOTH sides of the snapshot before diffing.
+//   * remove `divergent` anchors entirely (informational only)
+//   * for `bodyMayDiffer` anchors, strip body.length / body.sha256 / body.preview
+//     (and content-length, since body length implies content-length)
+//   * for `contentLengthMayDiffer` anchors, strip only the content-length
+//     header (transport detail; body bytes still must-match)
+//   * for `exitCodeMayDiffer` anchors (CLI entries), assert both sides are
+//     non-zero then strip exitCode (per ORC-062 must-match: "non-zero")
+//   * extend volatileHeaders with L0_EXTRA_VOLATILE_HEADERS so the masking
+//     pass blanks them out on both sides.
+function applyL0Filter(snap, l0) {
+  if (!l0) return snap;
+  const cloned = JSON.parse(JSON.stringify(snap));
+  const divergent = new Set(l0.divergent ?? []);
+  const bodyMayDiffer = new Set(l0.bodyMayDiffer ?? []);
+  const contentLengthMayDiffer = new Set(l0.contentLengthMayDiffer ?? []);
+  const exitCodeMayDiffer = new Set(l0.exitCodeMayDiffer ?? []);
+  if (Array.isArray(cloned.requests)) {
+    cloned.requests = cloned.requests.filter((r) => !divergent.has(r.name));
+    for (const r of cloned.requests) {
+      // Strip L0 extra-volatile headers entirely from both sides. We can't
+      // use the existing `<volatile>` masking because if a header is present
+      // on one side but missing on the other, the masked-vs-missing diff
+      // still fires.
+      if (r.response?.headers) {
+        for (const h of L0_EXTRA_VOLATILE_HEADERS) {
+          delete r.response.headers[h];
+        }
+      }
+      if (bodyMayDiffer.has(r.name) && r.response?.body) {
+        const b = r.response.body;
+        if ('length' in b) delete b.length;
+        if ('sha256' in b) delete b.sha256;
+        if ('preview' in b) delete b.preview;
+        // The body byte count is what content-length reports, so when body
+        // is may-differ, content-length must also be may-differ.
+        if (r.response.headers && 'content-length' in r.response.headers) {
+          delete r.response.headers['content-length'];
+        }
+      }
+      if (contentLengthMayDiffer.has(r.name) && r.response?.headers) {
+        delete r.response.headers['content-length'];
+      }
+    }
+  }
+  if (Array.isArray(cloned.cli)) {
+    cloned.cli = cloned.cli.filter((e) => !divergent.has(e.name));
+    for (const e of cloned.cli) {
+      if (exitCodeMayDiffer.has(e.name)) {
+        // Per ORC-062 must-match the exit code is "non-zero", not a specific
+        // value. Refuse to strip a zero exit code — that would be a real
+        // contract violation.
+        if (typeof e.exitCode === 'number' && e.exitCode === 0) {
+          throw new Error(
+            `L0 filter: anchor "${e.name}" has exitCode=0 but is in exitCodeMayDiffer; ` +
+              `non-zero is contractual (ORC-062). Cannot strip.`
+          );
+        }
+        delete e.exitCode;
+      }
+    }
+  }
+  return cloned;
+}
+
+function diffSnapshots(expected, actual, opts = {}) {
+  const { target = 'reference', l0 = null } = opts;
   // Mask volatile headers/bodies using the expected snapshot's volatile
   // lists (the committed contract). CLI streams are masked unconditionally
   // — see maskVolatileForDiff for rationale. Compare canonicalized JSON.
-  const exp = maskVolatileForDiff(expected);
+  const expFiltered = target === 'irserve' ? applyL0Filter(expected, l0) : expected;
+  const actFiltered = target === 'irserve' ? applyL0Filter(actual, l0) : actual;
+  const exp = maskVolatileForDiff(expFiltered);
   const overlay = {};
-  if ('volatileHeaders' in expected) overlay.volatileHeaders = expected.volatileHeaders;
-  if ('volatileBodies' in expected) overlay.volatileBodies = expected.volatileBodies;
-  const act = maskVolatileForDiff({ ...actual, ...overlay });
+  if ('volatileHeaders' in expFiltered) overlay.volatileHeaders = expFiltered.volatileHeaders;
+  if ('volatileBodies' in expFiltered) overlay.volatileBodies = expFiltered.volatileBodies;
+  const act = maskVolatileForDiff({ ...actFiltered, ...overlay });
   if (canonicalJson(exp) === canonicalJson(act)) return null;
   // Produce a readable line-based diff of the prettified forms so a reviewer
   // can locate the divergence quickly.
@@ -588,9 +756,12 @@ async function readServeVersion() {
 // HTTP). Capture exitCode + stdout + stderr (each summarized as
 // {kind, length, sha256, preview}). Used for cases asserting --help,
 // --version, two-positional-arg failure, etc.
-async function runCliInvocation(name, args, fixtureDir) {
+async function runCliInvocation(name, args, fixtureDir, target = 'reference') {
+  const isIrserve = target === 'irserve';
+  const cmd = isIrserve ? IRSERVE_BIN : process.execPath;
+  const cmdArgs = isIrserve ? [...args] : [SERVE_ENTRY, ...args];
   return new Promise((resolveFn, rejectFn) => {
-    const child = spawn(process.execPath, [SERVE_ENTRY, ...args], {
+    const child = spawn(cmd, cmdArgs, {
       cwd: fixtureDir,
       stdio: ['ignore', 'pipe', 'pipe'],
       env: { ...process.env, NO_UPDATE_NOTIFIER: '1', FORCE_COLOR: '0' },
@@ -627,19 +798,20 @@ async function runCliInvocation(name, args, fixtureDir) {
   });
 }
 
-async function runCliProbe(probeId, probe, snapshotMode) {
+async function runCliProbe(probeId, probe, snapshotMode, target = 'reference') {
   await mkdir(TMP_DIR, { recursive: true });
   const fixtureDir = await mkdtemp(join(TMP_DIR, `${probeId}-`));
+  const l0 = probe.runner?.l0 ?? null;
   try {
     await materializeFixture(probe.fixture ?? {}, fixtureDir);
     let effectiveMode = snapshotMode;
     if (effectiveMode === 'auto') {
       effectiveMode = (await snapshotExists(probeId)) ? 'verify' : 'none';
     }
-    logInfo(`probe '${probeId}': serve@${await readServeVersion()} cli mode (${probe.cli.length} invocation(s)), snapshot=${effectiveMode}`);
+    logInfo(`probe '${probeId}': target=${target} cli mode (${probe.cli.length} invocation(s)), snapshot=${effectiveMode}`);
     const cliResults = [];
     for (const inv of probe.cli) {
-      cliResults.push(await runCliInvocation(inv.name, inv.args ?? [], fixtureDir));
+      cliResults.push(await runCliInvocation(inv.name, inv.args ?? [], fixtureDir, target));
     }
 
     let snapshotStatus = 'skipped';
@@ -652,7 +824,7 @@ async function runCliProbe(probeId, probe, snapshotMode) {
         throw new Error(`--snapshot=verify but no snapshot at snapshots/${probeId}.json (run with --snapshot=update first)`);
       }
       const actual = buildCliSnapshot(probe, cliResults);
-      const diff = diffSnapshots(expected, actual);
+      const diff = diffSnapshots(expected, actual, { target, l0 });
       if (diff) {
         const err = new Error(`snapshot mismatch for ${probeId}\n${diff}`);
         err.snapshotMismatch = true;
@@ -668,12 +840,25 @@ async function runCliProbe(probeId, probe, snapshotMode) {
 }
 
 async function runProbe(probeId, options = {}) {
-  const { snapshotMode = 'auto' } = options;
+  const { snapshotMode = 'auto', target = 'reference' } = options;
   const probe = await readCase(probeId);
   if (!probe.id) probe.id = probeId;
+  const l0 = probe.runner?.l0 ?? null;
+  // §D rule 3: cases with no L0 partition declared are skipped against irserve.
+  if (target === 'irserve' && !l0) {
+    logInfo(`probe '${probeId}': skipped (no L0 partition declared)`);
+    return { probeId, skipped: true, reason: 'no L0 partition declared' };
+  }
   // CLI mode: case has a `cli` array instead of `requests`.
   if (Array.isArray(probe.cli) && probe.cli.length > 0) {
-    return runCliProbe(probeId, probe, snapshotMode);
+    return runCliProbe(probeId, probe, snapshotMode, target);
+  }
+  // L0: refuse cases with deferred flags rather than silently dropping them.
+  if (target === 'irserve') {
+    const offending = findDeferredL0Flag(probe.serveArgs ?? []);
+    if (offending) {
+      throw new Error(`case "${probeId}" uses deferred flag ${offending}; cannot run against target=irserve (D-008)`);
+    }
   }
   await mkdir(RESULTS_DIR, { recursive: true });
   await mkdir(TMP_DIR, { recursive: true });
@@ -684,6 +869,7 @@ async function runProbe(probeId, options = {}) {
   const runMeta = {
     generatedAt: new Date().toISOString(),
     serveVersion: await readServeVersion(),
+    target,
   };
   // Resolve the effective snapshot mode. `auto` means: verify if a snapshot
   // exists, else `none`. The other modes (`update`, `verify`, `none`) are
@@ -694,10 +880,38 @@ async function runProbe(probeId, options = {}) {
   }
   try {
     await materializeFixture(probe.fixture ?? {}, fixtureDir);
-    port = await getFreePort();
+
+    // §C: resolve port + spawn options based on per-case skipAutoListen flag.
+    const skipAutoListen = probe.runner?.skipAutoListen === true;
+    const defaultPortScenario = probe.runner?.defaultPortScenario ?? null;
+    const extraEnv = {};
+    if (skipAutoListen) {
+      if (!defaultPortScenario) {
+        throw new Error(`case "${probeId}": runner.skipAutoListen=true requires runner.defaultPortScenario`);
+      }
+      if (defaultPortScenario === 'no-flag-no-env') {
+        await ensurePort3000Free(probeId);
+        port = 3000;
+      } else if (defaultPortScenario === 'env-var') {
+        const allocated = await getFreePort();
+        extraEnv.PORT = String(allocated);
+        port = allocated;
+      } else {
+        throw new Error(`case "${probeId}": unknown runner.defaultPortScenario "${defaultPortScenario}"`);
+      }
+    } else {
+      port = await getFreePort();
+    }
     runMeta.port = port;
-    logInfo(`probe '${probeId}': serve@${runMeta.serveVersion} on port ${port}, fixture=${relative(REPO_ROOT, fixtureDir)}, snapshot=${effectiveMode}`);
-    serveBundle = spawnServe({ port, fixtureDir, extraArgs: probe.serveArgs ?? [] });
+    logInfo(`probe '${probeId}': target=${target} on port ${port}, fixture=${relative(REPO_ROOT, fixtureDir)}, snapshot=${effectiveMode}`);
+    serveBundle = spawnServe({
+      port,
+      fixtureDir,
+      extraArgs: probe.serveArgs ?? [],
+      target,
+      skipAutoListen,
+      extraEnv,
+    });
     serveProc = serveBundle.child;
     await waitReady(port);
     const extraTracked = probe.snapshot?.extraTrackedHeaders ?? [];
@@ -706,7 +920,7 @@ async function runProbe(probeId, options = {}) {
     for (const req of probe.requests ?? []) {
       results.push(await runRequest(port, req, requestOpts));
     }
-    const md = renderMarkdown(probe, runMeta, results);
+    const md = renderMarkdown(probe, runMeta, results, { l0: target === 'irserve' ? l0 : null });
     const json = {
       id: probeId,
       description: probe.description ?? null,
@@ -729,7 +943,7 @@ async function runProbe(probeId, options = {}) {
         throw new Error(`--snapshot=verify but no snapshot at snapshots/${probeId}.json (run with --snapshot=update first)`);
       }
       const actual = buildSnapshot(probe, results);
-      const diff = diffSnapshots(expected, actual);
+      const diff = diffSnapshots(expected, actual, { target, l0 });
       if (diff) {
         const err = new Error(`snapshot mismatch for ${probeId}\n${diff}`);
         err.snapshotMismatch = true;
@@ -753,6 +967,7 @@ async function runProbe(probeId, options = {}) {
 function parseArgs(argv) {
   const positional = [];
   let snapshotMode = 'auto';
+  let target = null;
   for (const a of argv) {
     if (a.startsWith('--snapshot=')) {
       const v = a.slice('--snapshot='.length);
@@ -760,11 +975,29 @@ function parseArgs(argv) {
         throw new Error(`invalid --snapshot value: ${v} (expected update | verify | none | auto)`);
       }
       snapshotMode = v;
+    } else if (a.startsWith('--target=')) {
+      const v = a.slice('--target='.length);
+      if (!['reference', 'irserve'].includes(v)) {
+        throw new Error(`invalid --target value: ${v} (expected reference | irserve)`);
+      }
+      target = v;
     } else {
       positional.push(a);
     }
   }
-  return { positional, snapshotMode };
+  // CLI flag wins; PROBE_TARGET env var is the fallback. Default: 'reference'.
+  if (target === null) {
+    const envTarget = process.env.PROBE_TARGET;
+    if (envTarget) {
+      if (!['reference', 'irserve'].includes(envTarget)) {
+        throw new Error(`invalid PROBE_TARGET env value: ${envTarget} (expected reference | irserve)`);
+      }
+      target = envTarget;
+    } else {
+      target = 'reference';
+    }
+  }
+  return { positional, snapshotMode, target };
 }
 
 async function main() {
@@ -772,8 +1005,8 @@ async function main() {
   if (rawArgs.length === 0 || rawArgs.includes('--help') || rawArgs.includes('-h')) {
     process.stdout.write([
       'Usage:',
-      '  node tools/probe/run.mjs <probe-id> [--snapshot=update|verify|none]',
-      '  node tools/probe/run.mjs --all       [--snapshot=update|verify|none]',
+      '  node tools/probe/run.mjs <probe-id> [--snapshot=update|verify|none] [--target=reference|irserve]',
+      '  node tools/probe/run.mjs --all       [--snapshot=update|verify|none] [--target=reference|irserve]',
       '  node tools/probe/run.mjs --list',
       '',
       'Case files live in tools/probe/cases/<probe-id>.json.',
@@ -786,12 +1019,18 @@ async function main() {
       '            when a snapshot exists; non-zero exit on mismatch).',
       '  none    — skip snapshot handling (legacy, default when no snapshot).',
       '',
+      'Targets:',
+      '  reference — pinned `vercel/serve` Node bundle (default).',
+      '  irserve   — strict L0 Rust binary at $IRSERVE_BIN (or target/debug/irserve).',
+      '              Cases without a `runner.l0` partition are skipped.',
+      '              Set via --target=… or PROBE_TARGET=…; CLI flag wins.',
+      '',
       'Set PROBE_VERBOSE=1 to also print serve stderr after each run.',
       '',
     ].join('\n'));
     process.exit(rawArgs.length === 0 ? 1 : 0);
   }
-  const { positional, snapshotMode } = parseArgs(rawArgs);
+  const { positional, snapshotMode, target } = parseArgs(rawArgs);
   if (positional[0] === '--list') {
     const ids = await listCases();
     for (const id of ids) process.stdout.write(`${id}\n`);
@@ -805,9 +1044,13 @@ async function main() {
   }
   let failed = 0;
   let mismatched = 0;
+  let skipped = 0;
+  let passed = 0;
   for (const id of ids) {
     try {
-      await runProbe(id, { snapshotMode });
+      const result = await runProbe(id, { snapshotMode, target });
+      if (result?.skipped) skipped++;
+      else passed++;
     } catch (e) {
       failed++;
       if (e.snapshotMismatch) mismatched++;
@@ -815,6 +1058,7 @@ async function main() {
       if (process.env.PROBE_VERBOSE) logError(e.stack ?? '');
     }
   }
+  logInfo(`summary: target=${target} total=${ids.length} passed=${passed} skipped=${skipped} failed=${failed}`);
   if (failed > 0) {
     logError(`${failed} of ${ids.length} probes failed${mismatched ? ` (${mismatched} snapshot mismatches)` : ''}`);
     process.exit(1);

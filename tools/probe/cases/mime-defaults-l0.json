@@ -1,0 +1,14 @@
+{
+  "id": "mime-defaults-l0",
+  "description": "FILE-004 .html anchor with cleanUrls disabled, complementing mime-defaults.json (where /page.html 301-redirects under default cleanUrls).",
+  "fixture": {
+    "files": { "page.html": "<p>html</p>\n" },
+    "serveJson": { "cleanUrls": false }
+  },
+  "runner": {
+    "l0": { "clean": ["html"], "divergent": [] }
+  },
+  "requests": [
+    { "name": "html", "method": "GET", "path": "/page.html" }
+  ]
+}

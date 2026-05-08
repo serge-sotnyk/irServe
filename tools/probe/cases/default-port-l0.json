@@ -1,0 +1,15 @@
+{
+  "id": "default-port-l0",
+  "description": "SRV-CLI-001: server uses PORT env var when --listen omitted. Probes only GET / so default cleanUrls=true on the reference resolves to index.html (matching strict-L0 IrServe's index.html resolution).",
+  "fixture": {
+    "files": { "index.html": "default-port\n" }
+  },
+  "runner": {
+    "skipAutoListen": true,
+    "defaultPortScenario": "env-var",
+    "l0": { "clean": ["root"], "divergent": [] }
+  },
+  "requests": [
+    { "name": "root", "method": "GET", "path": "/" }
+  ]
+}

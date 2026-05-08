@@ -18,7 +18,7 @@ Concretely: take `vercel/serve` (a small but real Node.js static file server), r
 - **Stage 3 — oracle matrix.** Done.
 - **Stage 4 — OpenSpec bootstrap change.** Done.
 - **Stage 5a — first implementation proposal.** Done.
-- **Stage 5b — Rust scaffold + first vertical slice.** Next.
+- **Stage 5b — Rust scaffold + first vertical slice.** Done.
 
 No Rust code exists in this repository yet. It is introduced at Stage 5b, after the first implementation proposal (Stage 5a) is reviewed.
 
@@ -51,7 +51,7 @@ The methodology runs in nine stages. Status is updated when entering or completi
 | 3 | Oracle matrix | `docs/reference/serve/oracle-matrix.md` + `tools/probe/snapshots/` | done |
 | 4 | OpenSpec bootstrap change | `openspec/changes/000-establish-serve-compatibility-baseline/` | done |
 | 5a | First implementation proposal (specs delta + design + tasks, no code) | `openspec/changes/001-port-minimal-static-server/` (proposal/design/tasks/specs only) | done |
-| 5b | Rust scaffold + first vertical slice | `Cargo.toml` + `tests/oracle/` + first crate code | todo |
+| 5b | Rust scaffold + first vertical slice | `Cargo.toml` + `tests/oracle/` + first crate code | done |
 | 6 | Implementation proposals (vertical slices, in dependency order) | `openspec/changes/002...010` | todo |
 | 7 | Polish: terminal output, Windows quirks, edge cases | `openspec/changes/011...` | todo |
 

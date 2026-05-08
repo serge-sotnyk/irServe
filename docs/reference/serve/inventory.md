@@ -63,7 +63,7 @@ Open questions:
 
 #### SRV-CLI-001: Listen on default port 3000 on all interfaces
 
-Status: accepted
+Status: verified
 Area: cli
 Compatibility level: 0
 Priority: P0
@@ -72,8 +72,8 @@ Reference source:
 - README: yes — `third_party/serve/readme.md`, the help-text excerpt and the smoke example.
 - serve source (CLI flag enumeration): `third_party/serve/source/main.ts:55-56` — when no `--listen` is provided the default endpoint is `{ port: parseInt(env.PORT ?? '3000', 10) }`.
 - Existing test: absent.
-- Probe: `tools/probe/cases/_smoke.json` (port supplied explicitly; presence of default in source is the evidence).
-- Oracle test: planned.
+- Probe: `tools/probe/cases/default-port-l0.json` (env-var scenario; backs ORC-063). The no-flag-no-env scenario remains source-evidence only because port 3000 cannot be reliably reserved on developer machines.
+- Oracle test: ORC-063.
 
 Requirement (draft):
 With no `--listen`/`-l` and no `PORT` env var, the server binds TCP port `3000`. With the `PORT` environment variable set, the value of `PORT` is used in place of `3000`.

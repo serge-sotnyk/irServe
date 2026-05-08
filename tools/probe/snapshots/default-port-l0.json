@@ -1,0 +1,42 @@
+{
+  "$schemaVersion": 1,
+  "case": "default-port-l0",
+  "description": "SRV-CLI-001: server uses PORT env var when --listen omitted. Probes only GET / so default cleanUrls=true on the reference resolves to index.html (matching strict-L0 IrServe's index.html resolution).",
+  "fixture": {
+    "files": {
+      "index.html": "default-port\n"
+    }
+  },
+  "serveArgs": [],
+  "volatileHeaders": [
+    "last-modified"
+  ],
+  "volatileBodies": [],
+  "requests": [
+    {
+      "name": "root",
+      "request": {
+        "method": "GET",
+        "mode": "fetch",
+        "path": "/"
+      },
+      "response": {
+        "body": {
+          "kind": "text",
+          "length": 13,
+          "sha256": "fea7188d7a5dd656305d285b541c85774d11473f3916df2a2c73ccd76e1c0008",
+          "preview": "default-port\n"
+        },
+        "headers": {
+          "accept-ranges": "bytes",
+          "content-length": "13",
+          "content-type": "text/html; charset=utf-8",
+          "etag": "\"39d818baa7aac810508f8f55c9612f41bc97b44d\"",
+          "vary": "Accept-Encoding"
+        },
+        "status": 200,
+        "statusText": "OK"
+      }
+    }
+  ]
+}

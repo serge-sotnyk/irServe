@@ -1,6 +1,12 @@
 {
   "id": "cli-help-version",
   "description": "`serve --help`, `-h`, `--version`, and `-v` exit 0 and write deterministic content to stdout. Backs SRV-CLI-019.",
+  "runner": {
+    "l0": {
+      "clean": ["help_long", "help_short", "version_long", "version_short"],
+      "divergent": []
+    }
+  },
   "cli": [
     { "name": "help_long", "args": ["--help"] },
     { "name": "help_short", "args": ["-h"] },

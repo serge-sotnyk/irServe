@@ -6,6 +6,14 @@
       "index.html": "root\n"
     }
   },
+  "runner": {
+    "l0": {
+      "clean": ["missing_html", "missing_html_with_accept"],
+      "divergent": [],
+      "bodyMayDiffer": ["missing_html"],
+      "contentLengthMayDiffer": ["missing_html_with_accept"]
+    }
+  },
   "requests": [
     { "name": "missing_html", "method": "GET", "path": "/does-not-exist" },
     { "name": "missing_html_with_accept", "method": "GET", "path": "/does-not-exist", "headers": { "accept": "application/json" } }

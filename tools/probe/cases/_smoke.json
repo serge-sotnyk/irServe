@@ -6,6 +6,12 @@
       "index.html": "hello\n"
     }
   },
+  "runner": {
+    "l0": {
+      "clean": ["root"],
+      "divergent": ["index_html_redirect"]
+    }
+  },
   "requests": [
     {
       "name": "root",

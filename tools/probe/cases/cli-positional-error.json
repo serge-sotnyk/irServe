@@ -1,6 +1,13 @@
 {
   "id": "cli-positional-error",
   "description": "`serve a b` exits with non-zero code and writes an error message to stderr. Backs SRV-CLI-007 scenario 3 (more than one positional path is rejected).",
+  "runner": {
+    "l0": {
+      "clean": ["two_positionals"],
+      "divergent": [],
+      "exitCodeMayDiffer": ["two_positionals"]
+    }
+  },
   "cli": [
     { "name": "two_positionals", "args": ["a", "b"] }
   ]

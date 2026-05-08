@@ -1,0 +1,45 @@
+{
+  "$schemaVersion": 1,
+  "case": "mime-defaults-l0",
+  "description": "FILE-004 .html anchor with cleanUrls disabled, complementing mime-defaults.json (where /page.html 301-redirects under default cleanUrls).",
+  "fixture": {
+    "files": {
+      "page.html": "<p>html</p>\n"
+    },
+    "serveJson": {
+      "cleanUrls": false
+    }
+  },
+  "serveArgs": [],
+  "volatileHeaders": [
+    "last-modified"
+  ],
+  "volatileBodies": [],
+  "requests": [
+    {
+      "name": "html",
+      "request": {
+        "method": "GET",
+        "mode": "fetch",
+        "path": "/page.html"
+      },
+      "response": {
+        "body": {
+          "kind": "text",
+          "length": 12,
+          "sha256": "7669cadada041c060554ad23484ec46095eb76f71f64cb190e10ca606374221d",
+          "preview": "<p>html</p>\n"
+        },
+        "headers": {
+          "accept-ranges": "bytes",
+          "content-length": "12",
+          "content-type": "text/html; charset=utf-8",
+          "etag": "\"63d9c58bd399092284c98e45c1c9a580875c0498\"",
+          "vary": "Accept-Encoding"
+        },
+        "status": 200,
+        "statusText": "OK"
+      }
+    }
+  ]
+}
