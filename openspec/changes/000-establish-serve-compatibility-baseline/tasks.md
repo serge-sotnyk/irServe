@@ -39,7 +39,7 @@
 
 ## 6. Final review pre-commit
 
-- [x] 6.1 `git diff --name-only` shows changes only under `openspec/` and `README.md`
+- [x] 6.1 `git diff --name-only` shows changes only under `openspec/`, `README.md`, and `docs/features/0004_PLAN_*.md` (the historical plan, committed per the `save_existed_plan.md` workflow)
 - [x] 6.2 No new dependencies committed (no new `package.json` at repo root, no `tools/probe/package.json` modifications)
 - [x] 6.3 `openspec/specs/` unchanged from Stage 0 (`.gitkeep` files only)
 - [x] 6.4 No Rust code, no probe-cases changes, no `third_party/` changes

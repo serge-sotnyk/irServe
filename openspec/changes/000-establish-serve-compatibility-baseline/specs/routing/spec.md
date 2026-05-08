@@ -39,14 +39,19 @@ Evidence: SRV-ROUT-001 (status: verified, level: L2); oracle: ORC-002, ORC-012, 
 ### Requirement: `cleanUrls` resolves extensionless paths to `.html` files
 
 The server SHALL resolve an extensionless request by trying
-`<P>.html` then `<P>/index.html` in order, serving the first that
+`<P>/index.html` first and `<P>.html` second, serving the first that
 exists with status 200, when `cleanUrls` is enabled.
 
 Evidence: SRV-ROUT-002 (status: verified, level: L2); oracle: ORC-013, ORC-014, ORC-022, ORC-024.
 
-Note: When both `/foo.html` and `/foo/index.html` exist, observed
-behavior is that `/foo/index.html` wins (Q-005 closed by probe
-`prec-cleanurls-default`).
+Note: Index-first order is the probe-confirmed behavior (Q-005 closed
+by `prec-cleanurls-default`: when both `/about.html` and
+`/about/index.html` exist, `/about/index.html` wins). The
+corresponding inventory body wording — "tries `/foo.html` and
+`/foo/index.html` in that order" — is imprecise; per
+anti-hallucination rule #4, runtime behavior is the arbiter and is
+reflected here. Stage-5b cleanup TODO: reconcile the inventory body
+with the probe-confirmed order.
 
 #### Scenario: Extensionless resolution to index.html
 
@@ -93,19 +98,26 @@ Evidence: SRV-ROUT-004 (status: verified, level: L2); oracle: ORC-019.
 - THEN status is 301
 - AND `Location: /about`
 
-### Requirement: Multi-slash path is normalized via 301
+### Requirement: Multi-slash path is normalized before routing
 
-A request whose path contains consecutive slashes SHALL be redirected
-with status 301 to the slash-collapsed form. Wire-level probing has
-shown this normalization fires under default config as well: `GET //`
-returns 200, and `GET //docs/guide.html` and `GET /docs//guide.html`
-both produce 301 to `/docs/guide` (cleanUrls 301 fires after the
-slash collapse).
+The server SHALL normalize consecutive slashes in the request path to
+a single slash before subsequent routing stages. Whether a 301
+redirect or a 200 response follows SHALL be governed by the
+subsequent pipeline stages (cleanUrls, trailingSlash, redirects,
+rewrites, static-file resolution) acting on the normalized path —
+slash collapse itself SHALL NOT emit a redirect.
 
 Evidence: SRV-ROUT-005 (status: verified, level: L2); oracle: ORC-025, ORC-026, ORC-027.
 
 Note: Q-006 (closed) — `serve` collapses consecutive slashes silently
-even when `trailingSlash` is unset.
+even when `trailingSlash` is unset. The corresponding inventory body
+wording — "redirected with 301 to the slash-collapsed form (only when
+`trailingSlash` is set)" — is imprecise; per anti-hallucination rule
+#4, the wire-level probe (ORC-025: `GET //` returns 200 after
+collapse, no redirect; ORC-026/027: 301 comes from cleanUrls, not
+from slash collapse) is the arbiter and is reflected here. Stage-5b
+cleanup TODO: reconcile the inventory body with the probe-confirmed
+behavior.
 
 #### Scenario: Double-slash root
 
@@ -129,10 +141,12 @@ even when `trailingSlash` is unset.
 
 ### Requirement: Operation precedence in the request pipeline
 
-The server SHALL apply the following pipeline stages in fixed order,
-stopping at the first stage that produces a response, for any
-request whose path P does not directly resolve to a regular file
-inside the served root:
+The server SHALL first collapse consecutive slashes in P to a single
+slash (see "Multi-slash path is normalized before routing"), then
+apply the following pipeline stages in fixed order on the normalized
+path, stopping at the first stage that produces a response, for any
+request whose normalized path does not directly resolve to a regular
+file inside the served root:
 
 1. **`cleanUrls` redirect** — if `cleanUrls` is on and P ends with
    `.html` (or with `/index` / `/index.html`), respond 301 to the
@@ -141,16 +155,16 @@ inside the served root:
 2. **`trailingSlash` redirect** — if `trailingSlash` is `true` and P
    lacks a trailing slash (and is not a dotfile / has no extension),
    respond 301 to `P + "/"`. If `false` and P ends with `/`, respond
-   301 to the stripped form. Multi-slash collapse runs in the same
-   gate.
+   301 to the stripped form.
 3. **Config `redirects`** — first matching `redirects` entry produces
    a 301 (or its `type`-overridden status) (see redirects capability).
 4. **`rewrites`** — first matching `rewrites` entry serves the
    destination file with status 200 (see rewrites capability).
    Implicit `--single` rewrites participate at this stage.
 5. **`cleanUrls` resolution** — if `cleanUrls` is on, attempt
-   `<P>.html` and `<P>/index.html` (see "cleanUrls resolves
-   extensionless paths to .html files").
+   `<P>/index.html` first and `<P>.html` second (see "cleanUrls
+   resolves extensionless paths to .html files"). Serve the first
+   that exists with status 200.
 6. **Static file** — final attempt to resolve P (or its `index.html`)
    under the served root. Failure here SHALL yield a 404.
 
