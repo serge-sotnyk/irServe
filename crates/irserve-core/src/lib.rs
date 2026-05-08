@@ -1,6 +1,8 @@
 #![forbid(unsafe_code)]
 
 mod dispatch;
+mod mime;
+mod notfound;
 mod resolve;
 mod server;
 

@@ -4,8 +4,12 @@ pub enum ResolveOutcome {
     File(PathBuf),
     Index(PathBuf),
     NotFound,
-    #[allow(dead_code)]
     EscapedRoot,
+}
+
+enum Kind {
+    File,
+    Index,
 }
 
 pub async fn resolve(url_path: &str, root: &Path) -> ResolveOutcome {
@@ -21,19 +25,29 @@ pub async fn resolve(url_path: &str, root: &Path) -> ResolveOutcome {
         Err(_) => return ResolveOutcome::NotFound,
     };
 
-    if meta.is_file() {
-        return ResolveOutcome::File(candidate);
-    }
-
-    if meta.is_dir() {
+    let (resolved_path, kind) = if meta.is_file() {
+        (candidate, Kind::File)
+    } else if meta.is_dir() {
         let index = candidate.join("index.html");
-        if let Ok(m) = tokio::fs::metadata(&index).await {
-            if m.is_file() {
-                return ResolveOutcome::Index(index);
-            }
+        match tokio::fs::metadata(&index).await {
+            Ok(m) if m.is_file() => (index, Kind::Index),
+            _ => return ResolveOutcome::NotFound,
         }
+    } else {
         return ResolveOutcome::NotFound;
+    };
+
+    let canonical = match tokio::fs::canonicalize(&resolved_path).await {
+        Ok(p) => p,
+        Err(_) => return ResolveOutcome::NotFound,
+    };
+
+    if !canonical.starts_with(root) {
+        return ResolveOutcome::EscapedRoot;
     }
 
-    ResolveOutcome::NotFound
+    match kind {
+        Kind::File => ResolveOutcome::File(canonical),
+        Kind::Index => ResolveOutcome::Index(canonical),
+    }
 }

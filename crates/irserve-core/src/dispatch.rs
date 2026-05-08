@@ -1,13 +1,19 @@
 use std::path::Path;
 
 use axum::body::Body;
+use axum::http::header::{HeaderValue, CONTENT_TYPE};
 use axum::http::{Method, Request, Response, StatusCode};
 
+use crate::mime::mime_for;
+use crate::notfound::not_found_response;
 use crate::resolve::{resolve, ResolveOutcome};
 
 pub async fn dispatch(req: Request<Body>, root: &Path) -> Response<Body> {
     if req.method() != Method::GET && req.method() != Method::HEAD {
-        return empty_status(StatusCode::METHOD_NOT_ALLOWED);
+        return Response::builder()
+            .status(StatusCode::METHOD_NOT_ALLOWED)
+            .body(Body::empty())
+            .expect("405 response should always build");
     }
 
     let url_path = req.uri().path().to_string();
@@ -15,23 +21,24 @@ pub async fn dispatch(req: Request<Body>, root: &Path) -> Response<Body> {
 
     match outcome {
         ResolveOutcome::File(p) | ResolveOutcome::Index(p) => match tokio::fs::read(&p).await {
-            Ok(bytes) => Response::builder()
-                .status(StatusCode::OK)
-                .body(Body::from(bytes))
-                .expect("static response should always build"),
-            Err(_) => not_found_stub(),
+            Ok(bytes) => file_response(&p, bytes),
+            Err(_) => not_found_response(req.headers()),
         },
-        ResolveOutcome::NotFound | ResolveOutcome::EscapedRoot => not_found_stub(),
+        ResolveOutcome::NotFound | ResolveOutcome::EscapedRoot => {
+            not_found_response(req.headers())
+        }
     }
 }
 
-fn not_found_stub() -> Response<Body> {
-    empty_status(StatusCode::NOT_FOUND)
-}
-
-fn empty_status(status: StatusCode) -> Response<Body> {
-    Response::builder()
-        .status(status)
-        .body(Body::empty())
-        .expect("empty body response should always build")
+fn file_response(path: &Path, bytes: Vec<u8>) -> Response<Body> {
+    let mut builder = Response::builder().status(StatusCode::OK);
+    if let Some(mime) = mime_for(path) {
+        builder = builder.header(
+            CONTENT_TYPE,
+            HeaderValue::from_static(mime),
+        );
+    }
+    builder
+        .body(Body::from(bytes))
+        .expect("file response should always build")
 }
