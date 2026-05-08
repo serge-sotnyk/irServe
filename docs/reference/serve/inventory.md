@@ -987,13 +987,13 @@ Reference source:
 - Oracle test: ORC-014, ORC-016, ORC-017, ORC-018, ORC-020, ORC-032, ORC-033 (snapshots in tools/probe/snapshots/).
 
 Requirement (draft):
-For a request whose path P does not directly resolve to a regular file inside the served root, the server applies the following stages in order, stopping at the first stage that produces a response:
+The server first collapses consecutive slashes in P to a single slash (silent pre-routing normalization, SRV-ROUT-005). Then, for a request whose normalized path does not directly resolve to a regular file inside the served root, the server applies the following stages in order, stopping at the first stage that produces a response:
 
 1. **`cleanUrls` redirect** — if `cleanUrls` is on and P ends with `.html` (or with `/index` / `/index.html`), respond 301 to the extension-stripped form (SRV-ROUT-001).
-2. **`trailingSlash` redirect** — if `trailingSlash` is `true` and P lacks a trailing slash (and is not a dotfile / has no extension), respond 301 to `P + "/"`. If `false` and P ends with `/`, respond 301 to the stripped form (SRV-ROUT-003, SRV-ROUT-004). Multi-slash collapse runs in the same gate (SRV-ROUT-005).
+2. **`trailingSlash` redirect** — if `trailingSlash` is `true` and P lacks a trailing slash (and is not a dotfile / has no extension), respond 301 to `P + "/"`. If `false` and P ends with `/`, respond 301 to the stripped form (SRV-ROUT-003, SRV-ROUT-004).
 3. **Config `redirects`** — first matching `redirects` entry produces a 301 (or its `type`-overridden status) (SRV-RDIR-001, SRV-RDIR-002).
 4. **`rewrites`** — first matching `rewrites` entry serves the destination file with status 200 (SRV-RWRT-001). Implicit `--single` rewrites participate at this stage (SRV-CLI-008).
-5. **`cleanUrls` resolution** — if cleanUrls is on, attempt `<P>.html` and `<P>/index.html` (SRV-ROUT-002).
+5. **`cleanUrls` resolution** — if cleanUrls is on, attempt `<P>/index.html` first and `<P>.html` second; serve the first that exists with status 200 (SRV-ROUT-002).
 6. **Static file** — final attempt to resolve P (or its index.html) under the served root (SRV-FILE-001, SRV-FILE-005). Failure here yields a 404 (SRV-FILE-002).
 
 Stage 0 — direct file pre-stat — short-circuits the rewrite/findRelated branch only when the request path **has a non-empty extension** (`path.extname(relativePath) !== ''`, per `src/index.js:608-616`). Concretely:
