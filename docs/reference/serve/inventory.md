@@ -866,7 +866,7 @@ Reference source:
 - Oracle test: ORC-013, ORC-014, ORC-018, ORC-022, ORC-024 (snapshots in tools/probe/snapshots/).
 
 Requirement (draft):
-With `cleanUrls` enabled, a request `/foo` whose direct path is not a file is resolved by trying `/foo.html` and `/foo/index.html` (in that order). The first that exists is served with status 200.
+With `cleanUrls` enabled, a request `/foo` whose direct path is not a file is resolved by trying `/foo/index.html` first and `/foo.html` second. The first that exists is served with status 200.
 
 Scenarios:
 - GIVEN fixture `/about.html` and `/about/index.html`, default cleanUrls.
@@ -874,11 +874,11 @@ Scenarios:
   THEN status is 200 and body comes from `/about/index.html` (per probe `prec-cleanurls-default`).
 
 Compatibility notes:
-- The probe shows that, with both candidates present, `/about/index.html` wins. This is observed runtime behavior; the source comment indicates `getPossiblePaths` orders `index<ext>` first.
+- Index-first order is the runtime-observed behavior, confirmed by probe `prec-cleanurls-default` (with both `/about.html` and `/about/index.html` present, `/about/index.html` wins). The serve-handler source backs this — `getPossiblePaths` orders `index<ext>` first. An earlier draft of this body said "trying `/foo.html` and `/foo/index.html` (in that order)"; that wording was imprecise and has been corrected per anti-hallucination rule #4 (runtime is the arbiter).
 - For full pipeline ordering see SRV-ROUT-006.
 
 Open questions:
-- Q-005 (precedence between `<dir>/index.html` and `<dir>.html` is the observed default; if a future configuration combination flips this we will document it here).
+- Q-005 closed by ORC-013/014/022/024 (index-first is the observed default). If a future configuration combination flips this we will document it here.
 
 #### SRV-ROUT-003: `trailingSlash: true` adds a trailing slash via 301
 
@@ -937,7 +937,7 @@ Compatibility notes:
 Open questions:
 - None.
 
-#### SRV-ROUT-005: Multi-slash path is normalized via 301
+#### SRV-ROUT-005: Multi-slash path is silently normalized before routing
 
 Status: verified
 Area: routing
@@ -946,24 +946,31 @@ Priority: P1
 
 Reference source:
 - README: absent.
-- serve-handler source: `src/index.js:158-160` (when `decodedPath.indexOf('//') > -1`, target is the slash-collapsed path).
+- serve-handler source: `src/index.js:158-160` (when `decodedPath.indexOf('//') > -1`, the target is the slash-collapsed path).
 - Existing test: `set 'trailingSlash' config property to any boolean and remove multiple slashes` in `test/integration.test.js`.
-- Probe: not run for this specific case (covered by source + test).
+- Probe: `tools/probe/cases/multislash-collapse.json` (raw-socket; verifies wire-level behavior under default config).
 - Oracle test: ORC-025, ORC-026, ORC-027 (snapshots in tools/probe/snapshots/).
 
 Requirement (draft):
-A request whose path contains consecutive slashes is redirected with 301 to the slash-collapsed form (only when `trailingSlash` is set; per source, this branch is gated by `slashing`).
+Consecutive slashes in the request path are collapsed to a single slash silently before subsequent routing stages. The collapse itself does NOT emit a redirect; any 301 observed for a multi-slash request comes from a later stage (cleanUrls, trailingSlash, or `redirects`) acting on the normalized path. The collapse fires regardless of whether `trailingSlash` is set.
 
 Scenarios:
-- GIVEN `trailingSlash: false`.
-  WHEN `GET /a//b`.
-  THEN status is 301 and `Location: /a/b`.
+- GIVEN any fixture with an `index.html` at the root, default config.
+  WHEN a wire-level `GET //` is sent.
+  THEN status is 200 (the path collapses to `/` and the root index is served directly; per probe `multislash-collapse`, request `double_slash_root`).
+- GIVEN default config and fixture has `docs/guide.html`.
+  WHEN a wire-level `GET //docs/guide.html` is sent.
+  THEN status is 301 and `Location: /docs/guide` (collapse normalizes the path, then cleanUrls 301 fires; per probe, request `double_slash_segment`).
+- GIVEN default config and fixture has `docs/guide.html`.
+  WHEN a wire-level `GET /docs//guide.html` is sent.
+  THEN status is 301 and `Location: /docs/guide` (same: collapse, then cleanUrls; per probe, request `internal_double_slash`).
 
 Compatibility notes:
-- Behavior may differ when `trailingSlash` is unset (default). Test-name evidence cites this together with `trailingSlash`.
+- The collapse runs regardless of `trailingSlash`'s value; ORC-025 records it under default `trailingSlash: undefined`. The upstream test name "remove multiple slashes [under] trailingSlash" reflects test-file organization, not a gating condition.
+- An earlier draft of this body said "redirected with 301 to the slash-collapsed form (only when `trailingSlash` is set)"; that wording was imprecise — the collapse is silent and the 301s seen for `.html` paths come from cleanUrls. Corrected per anti-hallucination rule #4 (runtime is the arbiter).
 
 Open questions:
-- Q-006 (does multi-slash collapse fire when `trailingSlash` is unset?).
+- Q-006 closed by ORC-025/026/027.
 
 #### SRV-ROUT-006: Operation precedence (redirect resolution → rewrites → static files)
 
