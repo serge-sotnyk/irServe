@@ -44,14 +44,9 @@ exists with status 200, when `cleanUrls` is enabled.
 
 Evidence: SRV-ROUT-002 (status: verified, level: L2); oracle: ORC-013, ORC-014, ORC-022, ORC-024.
 
-Note: Index-first order is the probe-confirmed behavior (Q-005 closed
-by `prec-cleanurls-default`: when both `/about.html` and
-`/about/index.html` exist, `/about/index.html` wins). The
-corresponding inventory body wording — "tries `/foo.html` and
-`/foo/index.html` in that order" — is imprecise; per
-anti-hallucination rule #4, runtime behavior is the arbiter and is
-reflected here. Stage-5b cleanup TODO: reconcile the inventory body
-with the probe-confirmed order.
+Note: Index-first order is probe-confirmed (Q-005 closed by
+`prec-cleanurls-default`: with both `/about.html` and
+`/about/index.html` present, `/about/index.html` wins).
 
 #### Scenario: Extensionless resolution to index.html
 
@@ -109,15 +104,12 @@ slash collapse itself SHALL NOT emit a redirect.
 
 Evidence: SRV-ROUT-005 (status: verified, level: L2); oracle: ORC-025, ORC-026, ORC-027.
 
-Note: Q-006 (closed) — `serve` collapses consecutive slashes silently
-even when `trailingSlash` is unset. The corresponding inventory body
-wording — "redirected with 301 to the slash-collapsed form (only when
-`trailingSlash` is set)" — is imprecise; per anti-hallucination rule
-#4, the wire-level probe (ORC-025: `GET //` returns 200 after
-collapse, no redirect; ORC-026/027: 301 comes from cleanUrls, not
-from slash collapse) is the arbiter and is reflected here. Stage-5b
-cleanup TODO: reconcile the inventory body with the probe-confirmed
-behavior.
+Note: Q-006 closed by ORC-025/026/027 — `serve` collapses
+consecutive slashes silently regardless of `trailingSlash`'s value.
+ORC-025 (`GET //` → 200, no redirect) shows the normalization is
+silent; ORC-026/027 (301 to `/docs/guide`) show the 301 comes from
+cleanUrls firing on the normalized path, not from the slash
+collapse itself.
 
 #### Scenario: Double-slash root
 
