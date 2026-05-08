@@ -71,10 +71,13 @@ the same eight SRVs and add Rust artifacts.
 
 ### Out of scope (explicit non-goals)
 
-The 27 SRVs deferred by D-008 are **explicitly out of scope** for this
-slice. Each name pairs with the SRV it defers and the change that is
-expected to deliver it (numbering tentative, sequencing decided per
-stage):
+The non-strict-L0 SRVs in the archived contract are **out of scope**
+for this slice. The bulk are formally deferred by D-008
+(`docs/reference/serve/decisions.md`); the security capability is
+treated separately because phase-10 containment is wired even though
+the full SEC contract is not. Each bullet pairs with the SRV it
+covers and the change that is expected to deliver it (numbering
+tentative, sequencing decided per stage):
 
 - `serve.json` loading and the schema map — SRV-CFG-001, SRV-CFG-002.
 - Custom `<status>.html` error pages — SRV-FILE-003.
@@ -95,6 +98,13 @@ stage):
   no-op** at L0 because the D-005 invariant ("IrServe MUST accept the
   flag without error") is unconditional — see `design.md` § 5
   "D-005 exception". Probe coverage of SRV-CLI-011 stays deferred.
+- *Partially honored:* security — SRV-SEC-001 (path-traversal denial)
+  and SRV-SEC-002 (single-pass URL decode) are **not in D-008**. The
+  L0 dispatcher wires phase-10 root-containment (canonicalize →
+  prefix-check; escape returns 404) as L0 hygiene, but the contractual
+  400-status response and the full wire-level scenario surface from
+  `security/spec.md` are deferred to a later L2 change. See
+  `design.md` § 4 phase 10.
 - All L3 SRVs (custom `headers`, `http-cache`/ETag/Last-Modified/Range,
   CORS response surface, compression, MIME fallback for rewrites). Already
   excluded from the bootstrap and stay excluded.
