@@ -582,8 +582,8 @@ Reference source:
 - README: yes — `third_party/serve/readme.md` Configuration section: "create a `serve.json` file in the public folder".
 - serve source: `third_party/serve/source/utilities/config.ts:31-108`.
 - Existing test: absent (CLI-level lookup) — the field-level behavior is covered per-area (e.g. `set 'cleanUrls' config property to 'true'`).
-- Probe: indirect — most probes ship a `serve.json`; `_smoke.json` validates startup with no config.
-- Oracle test: ORC-006 (snapshots in tools/probe/snapshots/).
+- Probe: indirect for most fields (per-area probes ship a `serve.json`); direct probes for the loader surface added in change `003-load-serve-json` (Stage 6a).
+- Oracle test: ORC-006, ORC-064, ORC-065, ORC-066 (snapshots in tools/probe/snapshots/).
 
 Requirement (draft):
 Configuration is loaded from the served directory. The lookup order is: `--config <path>` (if given) → `serve.json` → `now.json` (deprecated, key `now.static`) → `package.json` (deprecated, key `static`). The first existing file with a usable section wins; the rest are ignored. Missing implicit files are silently skipped; a missing `--config` file is a fatal error. Invalid JSON or non-object content is a fatal error. The `public` field is resolved relative to the served directory.

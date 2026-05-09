@@ -19,6 +19,7 @@ Concretely: take `vercel/serve` (a small but real Node.js static file server), r
 - **Stage 4 — OpenSpec bootstrap change.** Done.
 - **Stage 5a — first implementation proposal.** Done.
 - **Stage 5b — Rust scaffold + first vertical slice.** Done.
+- **Stage 6a — `serve.json` loader.** Done.
 
 Rust code lives under `crates/irserve` (the bin) and `crates/irserve-core` (the lib). The first slice is strict-L0: eight SRVs (`SRV-CLI-001/002/007/019`, `SRV-FILE-001/002/004/005`); every other capability is deferred per `D-008`.
 
@@ -52,7 +53,7 @@ The methodology runs in nine stages. Status is updated when entering or completi
 | 4 | OpenSpec bootstrap change | `openspec/changes/000-establish-serve-compatibility-baseline/` | done |
 | 5a | First implementation proposal (specs delta + design + tasks, no code) | `openspec/changes/001-port-minimal-static-server/` (proposal/design/tasks/specs only) | done |
 | 5b | Rust scaffold + first vertical slice | `Cargo.toml` + `tests/oracle/` + first crate code | done |
-| 6a | `serve.json` loader | `openspec/changes/003-load-serve-json` | todo |
+| 6a | `serve.json` loader | `openspec/changes/003-load-serve-json` | done |
 | 6b | Routing normalization (trailingSlash, multi-slash) | `openspec/changes/004-route-normalization` | todo |
 | 6c | cleanUrls (301 + extensionless resolution) | `openspec/changes/005-clean-urls` | todo |
 | 6d | Configured redirects | `openspec/changes/006-configured-redirects` | todo |
