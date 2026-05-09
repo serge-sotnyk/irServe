@@ -12,6 +12,7 @@ use crate::config::ServeConfig;
 use crate::mime::mime_for;
 use crate::normalize::collapse_slashes;
 use crate::notfound::not_found_response;
+use crate::redirects::{compute_configured_redirects, RedirectRuleCompiled};
 use crate::resolve::{resolve, ResolveOutcome};
 use crate::trailing_slash::compute_trailing_slash_redirect;
 
@@ -20,6 +21,7 @@ pub async fn dispatch(
     root: &Path,
     serve_config: &ServeConfig,
     clean_urls_view: &CleanUrlsView,
+    redirect_rules: &[RedirectRuleCompiled],
 ) -> Response<Body> {
     // Phase 1–2: method gate (existing).
     if req.method() != Method::GET && req.method() != Method::HEAD {
@@ -62,7 +64,14 @@ pub async fn dispatch(
     // the redirect for `//` is emitted by phase 5 above.
     let url_path = collapse_slashes(&decoded_path);
 
-    // Phase 6: configured redirects (Stage 6d).
+    // Phase 6: configured redirects (Stage 6d). First-match-wins
+    // iteration over the precompiled rules, mirroring `shouldRedirect`'s
+    // redirects branch at `serve-handler/src/index.js:172-182`. The
+    // status code defaults to 301 when the rule has no `type` override
+    // (`index.js:179`, `statusCode: type || defaultType`).
+    if let Some((target, status)) = compute_configured_redirects(&url_path, redirect_rules) {
+        return redirect_with_status(&target, status);
+    }
     // Phase 7: rewrites + --single (Stage 6e).
 
     // Phase 8: cleanUrls resolution (SRV-ROUT-002). Mirrors
@@ -151,14 +160,26 @@ pub(crate) fn encode_uri_target(target: &str) -> String {
 }
 
 fn redirect_301(target: &str) -> Response<Body> {
+    redirect_with_status(target, 301)
+}
+
+/// Build a 3xx redirect response with the given status code. Mirrors
+/// `serve-handler/src/index.js:586-587` which writes
+/// `{Location: encodeURI(redirect.target)}` with whatever status the
+/// rule resolved to. Out-of-range or otherwise invalid status codes
+/// fall back to 301; this mirrors the "accept any 3xx; range-checking
+/// is not specified" stance of the spec
+/// (`openspec/specs/redirects/spec.md` SRV-RDIR-002 Note).
+fn redirect_with_status(target: &str, status: u16) -> Response<Body> {
     let encoded = encode_uri_target(target);
     let location = HeaderValue::from_str(&encoded)
         .unwrap_or_else(|_| HeaderValue::from_static("/"));
+    let status_code = StatusCode::from_u16(status).unwrap_or(StatusCode::MOVED_PERMANENTLY);
     Response::builder()
-        .status(StatusCode::MOVED_PERMANENTLY)
+        .status(status_code)
         .header(LOCATION, location)
         .body(Body::empty())
-        .expect("301 response should always build")
+        .expect("redirect response should always build")
 }
 
 #[cfg(test)]

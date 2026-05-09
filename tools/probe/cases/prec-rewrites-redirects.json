@@ -16,6 +16,12 @@
       ]
     }
   },
+  "runner": {
+    "l0": {
+      "clean": ["go_root", "page_html_cleanurl_default"],
+      "contentLengthMayDiffer": ["go_root", "page_html_cleanurl_default"]
+    }
+  },
   "requests": [
     { "name": "go_root", "method": "GET", "path": "/go" },
     { "name": "page_html_cleanurl_default", "method": "GET", "path": "/page.html" }

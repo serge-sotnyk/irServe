@@ -10,12 +10,14 @@ use tokio::net::TcpListener;
 use crate::clean_urls::CleanUrlsView;
 use crate::config::ServeConfig;
 use crate::dispatch::dispatch;
+use crate::redirects::{compile_rules, RedirectRuleCompiled};
 use crate::{Error, ServerConfig};
 
 struct AppState {
     root: PathBuf,
     serve_config: ServeConfig,
     clean_urls_view: CleanUrlsView,
+    redirect_rules: Vec<RedirectRuleCompiled>,
 }
 
 type SharedState = Arc<AppState>;
@@ -34,10 +36,23 @@ pub async fn serve(config: ServerConfig) -> Result<(), Error> {
             inv.pattern, inv.error
         );
     }
+    // Same treatment for redirect rules: an invalid glob source is
+    // silently dropped at the reference (try/catch around
+    // `pathToRegExp` + minimatch fallback in `sourceMatches`); mirror
+    // by warning to stderr and dropping the rule. Other rules continue
+    // to work.
+    let (redirect_rules, invalid_redirects) = compile_rules(&config.serve_config.redirects);
+    for inv in &invalid_redirects {
+        eprintln!(
+            "warning: redirect source {:?} skipped (invalid glob): {}",
+            inv.source, inv.error
+        );
+    }
     let state: SharedState = Arc::new(AppState {
         root: config.root,
         serve_config: config.serve_config,
         clean_urls_view,
+        redirect_rules,
     });
     let app: Router = Router::new().fallback(handler).with_state(state);
 
@@ -85,6 +100,7 @@ async fn handler(State(state): State<SharedState>, req: Request<Body>) -> Respon
         state.root.as_path(),
         &state.serve_config,
         &state.clean_urls_view,
+        &state.redirect_rules,
     )
     .await
 }

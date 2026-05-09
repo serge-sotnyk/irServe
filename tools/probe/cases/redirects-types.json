@@ -12,6 +12,13 @@
       ]
     }
   },
+  "runner": {
+    "l0": {
+      "clean": ["explicit_302"],
+      "divergent": ["default_301_segment"],
+      "contentLengthMayDiffer": ["explicit_302"]
+    }
+  },
   "requests": [
     { "name": "explicit_302", "method": "GET", "path": "/old" },
     { "name": "default_301_segment", "method": "GET", "path": "/old-docs/12" }
