@@ -119,7 +119,16 @@ Codex review round 3 amendments (P1 + P2):
 - **P1 — extglob (`+(...)`, `@(...)`, `?(...)`, `*(...)`, `!(...)`)
   scoped explicitly out.** The reference's `sourceMatches` calls
   `minimatch` at `index.js:59`, which honors Bash-style extended
-  glob constructs (test evidence: `serve-handler/test/integration.test.js:449`).
+  glob constructs. `sourceMatches` is shared between `applicable`
+  (cleanUrls scope, `index.js:265`) and `toTarget` (redirects/rewrites,
+  `index.js:70`), so extglob support is structurally identical on
+  both branches. The pinned reference's only dedicated extglob
+  test exercises redirects (`serve-handler/test/integration.test.js:449`,
+  `redirects: ["face/+(mask1|mask2)/ideal"]`); the cleanUrls array
+  test at `integration.test.js:705` uses a plain `/directory**`
+  glob. cleanUrls-side extglob is therefore structurally implied
+  but not upstream-tested — captured by the new
+  `tools/probe/cases/cleanurls-extglob.json` snapshot in this repo.
   IrServe's `globset::GlobBuilder` does NOT support extglob and as
   of context7 lookup on 2026-05-09 no surveyed Rust crate
   (`globset 0.4.18`, `fast-glob 1.0.1`, `glob-match 0.2.1`,

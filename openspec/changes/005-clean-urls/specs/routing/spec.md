@@ -55,15 +55,25 @@ Glob syntax scope: array-form `cleanUrls` patterns support the
 `?` (single non-`/` char), character classes `[abc]` / `[a-z]`,
 brace alternation `{a,b}`, and `!`-prefix negation. **Bash-style
 extglob** constructs (`+(a|b)`, `@(a|b)`, `?(a|b)`, `*(a|b)`,
-`!(a|b)`) — which the reference inherits from `minimatch` (test
-evidence: `serve-handler/test/integration.test.js:449`) — are NOT
-supported. `globset::GlobBuilder` treats them as literal characters,
-so a pattern like `/public/+(page|other).html` matches the literal
-path `/public/+(page|other).html` rather than expanding the
-alternation. This divergence is captured by Q-012 in
-`docs/reference/serve/open-questions.md` and by the reference-only
-probe `tools/probe/cases/cleanurls-extglob.json` (no `runner.l0`
-block; auto-skipped against irserve). Closing Q-012 is out of
+`!(a|b)`) — which the reference inherits from `minimatch` via the
+shared `sourceMatches` helper (`serve-handler/src/index.js:38-67`,
+called from both `applicable` for cleanUrls at `index.js:265` and
+`toTarget` for redirects/rewrites at `index.js:70`) — are NOT
+supported by IrServe. The pinned reference's only dedicated
+extglob test exercises the redirects branch
+(`serve-handler/test/integration.test.js:449`,
+`redirects: ["face/+(mask1|mask2)/ideal"]`); the cleanUrls array
+test at `integration.test.js:705` uses a plain `/directory**`
+glob. The cleanUrls-side extglob behavior is therefore
+structurally implied by the shared helper but not directly tested
+upstream — captured by the new reference-only probe
+`tools/probe/cases/cleanurls-extglob.json` (no `runner.l0` block;
+auto-skipped against irserve). `globset::GlobBuilder` treats
+extglob constructs as literal characters, so a pattern like
+`/public/+(page|other).html` matches the literal path
+`/public/+(page|other).html` rather than expanding the
+alternation. Tracked as Q-012 in
+`docs/reference/serve/open-questions.md`. Closing Q-012 is out of
 6c's scope.
 
 The redirect target passes through `dispatch.rs::encode_uri_target`
