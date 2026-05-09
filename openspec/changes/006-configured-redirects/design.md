@@ -417,6 +417,32 @@ plan:
    ORC-106 (brace no-dot-alt rejects), ORC-107 (`:id`+`?`
    minimatch hit), ORC-108 (negation+bracket flips correctly).
 
+6. **Path resolve trim, `**` optional, DoubleStar end-strict
+   (Codex round 7).** P1.1: the reference applies
+   `path.posix.resolve(requestPath)` before BOTH `pathToRegExp.exec`
+   and `minimatch` (`index.js:41`). The round-6 implementation
+   only trimmed in the Glob / glob_fallback branches; the Pattern
+   regex saw the raw path, so `/a/*` against `/a/` matched
+   incorrectly. Decision: trim once at the top of `try_match`.
+   P1.2: path-to-regexp's `(.*)*` parsing makes the trailing-`**`
+   segment optional+repeat. The round-5 compiler collapsed `**`
+   into the same first-only `(.*)` substitution, requiring an
+   extra slash segment that real paths don't always carry.
+   Decision: refactor `compile_source_regex` to be segment-aware;
+   `**` segments emit `(?:/(.*))?` (optional multi-segment).
+   P1.3: minimatch's `**` at END of pattern requires ≥1 segment,
+   while in MIDDLE it admits zero — asymmetric with pathToRegExp's
+   permissive `(.*)*`. The asymmetry shows up via negation: `!/a/**`
+   falls to minimatch (because `!`-bearing pattern fails
+   pathToRegExp), and minimatch's strict end-`**` semantics
+   determine the result. Decision: in `match_segments`'s
+   DoubleStar branch, when `**` is the last pattern element
+   (`pat.len() == 1`), require `min_skip = 1` and reject empty
+   paths. `**` in middle still allows zero-skip. The split
+   between routes (positive → Pattern regex permissive, negation
+   → Glob segment-matcher strict) mirrors the reference exactly.
+   Pinned by ORC-109..117.
+
 ## 9. Hard stops
 
 - `third_party/` — read-only.

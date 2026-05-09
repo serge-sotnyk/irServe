@@ -179,11 +179,35 @@ fn match_segments(pat: &[PatSeg], path: &[&str]) -> bool {
             }
         },
         Some(PatSeg::DoubleStar) => {
-            // `**` matches zero or more path segments. With
-            // `dot: false`, none of the consumed segments may begin
-            // with `.`. Try increasing skip counts; abort once a dot
-            // segment would have to be consumed.
-            let mut skip = 0usize;
+            // `**` matches a sequence of path segments with
+            // `dot: false`: none of the consumed segments may begin
+            // with `.`. Codex review round 7 P1.3: the empirical
+            // contract from minimatch (per
+            // `third_party/serve-handler/src/index.js:59`) is that
+            // `**` at the END of a pattern requires at least ONE
+            // segment to consume — `/a/**` does NOT match `/a` via
+            // minimatch. `**` in the MIDDLE of a pattern (followed
+            // by more pattern segments) still allows zero-skip so
+            // that `/a/**/b` matches `/a/b`. The asymmetry shows
+            // up via negation: `!/a/**` against `/a` fires (inner
+            // didn't match), where round-6 incorrectly let `**`
+            // consume zero and the negation flipped wrong. Note
+            // that the POSITIVE case for `**`-bearing sources
+            // routes through `Pattern`'s `regex` (which uses
+            // path-to-regexp's `(.*)*` semantics — permissive,
+            // matches zero), so `/a/**` against `/a` still fires
+            // 301; the asymmetry mirrors the reference.
+            let is_last = pat.len() == 1;
+            let mut skip = if is_last { 1 } else { 0 };
+            if is_last && path.is_empty() {
+                return false;
+            }
+            // Pre-validate dot rule on the initial mandatory skip.
+            for seg in &path[..skip] {
+                if seg.starts_with('.') {
+                    return false;
+                }
+            }
             loop {
                 if match_segments(&pat[1..], &path[skip..]) {
                     return true;
@@ -567,6 +591,20 @@ pub fn compute_configured_redirects(
 
 impl RedirectRuleCompiled {
     fn try_match(&self, path: &str) -> Option<String> {
+        // Mirror `serve-handler/src/index.js:41`'s
+        // `path.posix.resolve(requestPath)`. Both `pathToRegExp.exec`
+        // (line 49) AND `minimatch` (line 59) operate on the
+        // resolved path — which strips a single trailing `/` (except
+        // the bare root `/`). Codex review round 7 P1.1: the
+        // round-6 implementation only trimmed in the Glob /
+        // glob_fallback branches, not before the Pattern regex, so
+        // `/a/*` against `/a/` matched in irserve while reference
+        // returned 404.
+        let path = if path != "/" && path.ends_with('/') {
+            &path[..path.len() - 1]
+        } else {
+            path
+        };
         match &self.matcher {
             Matcher::Literal {
                 source,
@@ -583,17 +621,8 @@ impl RedirectRuleCompiled {
                 negate,
                 destination,
             } => {
-                // Trim a single trailing `/` (mirror
-                // `path.posix.resolve` per `index.js:41`) so
-                // segment splitting yields the same shape as
-                // minimatch sees.
-                let path_for_match = if path != "/" && path.ends_with('/') {
-                    &path[..path.len() - 1]
-                } else {
-                    path
-                };
                 let path_segs: Vec<&str> =
-                    path_for_match.split('/').filter(|s| !s.is_empty()).collect();
+                    path.split('/').filter(|s| !s.is_empty()).collect();
                 if match_segments(segments, &path_segs) ^ negate {
                     Some(destination.clone())
                 } else {
@@ -609,22 +638,10 @@ impl RedirectRuleCompiled {
                     return Some(dest_template.render(Some(&caps)));
                 }
                 if let Some(fb) = glob_fallback {
-                    // Mirror `serve-handler/src/index.js:41`'s
-                    // `path.posix.resolve(requestPath)` — drop a
-                    // single trailing `/` (except for the root `/`)
-                    // before minimatch sees the path. Without this,
-                    // globset's `*` (zero-or-more) would match an
-                    // empty trailing segment and `/a/x/b/` would hit
-                    // a `/a/*/b/*` rule, diverging from the
-                    // reference's 404. minimatch's `*` requires a
-                    // non-empty segment.
-                    let path_for_glob =
-                        if path != "/" && path.ends_with('/') {
-                            &path[..path.len() - 1]
-                        } else {
-                            path
-                        };
-                    if fb.matches_strict(path_for_glob) {
+                    // The trailing-slash trim is now applied at the
+                    // top of `try_match` (Codex round 7 P1.1), so
+                    // the path here is already path.posix.resolve-d.
+                    if fb.matches_strict(path) {
                         // Glob-fallback path: no regex captures
                         // (the regex didn't match). dest_template's
                         // `Param` fragments fail open to empty
@@ -717,83 +734,113 @@ fn has_path_param(source: &str) -> bool {
     false
 }
 
-/// Compile a `:name`-bearing source pattern into a `regex::Regex` with
-/// named capture groups. Mirrors `slashed.replace('*', '(.*)')` +
-/// `pathToRegExp(normalized, keys)` from
-/// `serve-handler/src/index.js:46-49`, with two fidelity points:
+/// Compile a source pattern into a `regex::Regex` mirroring
+/// `slashed.replace('*', '(.*)')` + `pathToRegExp(normalized, keys)`
+/// from `serve-handler/src/index.js:46-49`.
 ///
-/// - JavaScript's `String.prototype.replace('*', '(.*)')` replaces
-///   only the FIRST `*` (Codex review round 2 P1). We mirror by
-///   tracking `star_replaced`: the first `*`-run becomes `(.*)`,
-///   later `*`-runs are emitted as regex literals (`\*`).
-/// - Consecutive `*`s collapse to a single `*` in our compiler.
-///   Reference test `serve-handler/test/integration.test.js:432`
-///   ("set 'redirects' config property to wildcard path") shows
-///   `face/**` matching `/face/me`; after the first-only replace
-///   the reference passes `face/(.*)*` to path-to-regexp v3, which
-///   parses the trailing `*` as a kleene modifier on the previous
-///   `(.*)` group — yielding a regex that matches anything under
-///   `/face/`. Rather than port the path-to-regexp v3 modifier
-///   grammar, we collapse consecutive `*`s to a single one (so
-///   `**` → `(.*)`), which produces the same effective match for
-///   the patterns the reference test suite exercises.
+/// Compilation walks segments (split on `/`), then characters within
+/// each non-`**` segment. Codex review round 7 P1.2 made this
+/// segment-aware so that `**` segments compile to OPTIONAL groups
+/// `(?:/(.*))?` — mirroring path-to-regexp v3's `(.*)*` token (the
+/// `*` modifier makes the segment optional+repeat). With this,
+/// `/a/:id/**` matches `/a/foo` (the trailing `**` segment can be
+/// skipped) without needing a glob-fallback rescue.
 ///
-/// Other tokens:
+/// Per-segment rules:
+/// - `**` → `(?:/(.*))?` (optional multi-segment) when first such
+///   substitution. Subsequent `**` segments emit literal `/**`
+///   characters (mirroring JS first-only `String.replace('*',
+///   '(.*)')` plus path-to-regexp's parsing of remaining stars).
 /// - `:name` segments → `(?P<name>[^/]+)` (single segment, no
 ///   slashes).
+/// - `*` (within a non-`**` segment) → first becomes `(.*)`,
+///   subsequent become regex literals `\*`. Consecutive `*`s in the
+///   same segment (e.g. `**` standalone segment is handled above;
+///   inside other text like `prefix**` is rare) collapse to a
+///   single `*` for the substitution decision.
 /// - All other characters → regex-escaped literals.
 /// - The regex is anchored `^...\/?$`, matching path-to-regexp's
 ///   default optional trailing slash.
 fn compile_source_regex(slashed: &str) -> Result<regex::Regex, regex::Error> {
     let mut pattern = String::from("^");
-    let bytes = slashed.as_bytes();
-    let mut i = 0;
     let mut star_replaced = false;
-    while i < bytes.len() {
-        match bytes[i] {
-            b':' => {
-                let start = i + 1;
-                let mut end = start;
-                while end < bytes.len()
-                    && (bytes[end].is_ascii_alphanumeric() || bytes[end] == b'_')
-                {
-                    end += 1;
-                }
-                if end == start {
-                    pattern.push_str(&regex::escape(":"));
-                    i += 1;
-                } else {
-                    let name = std::str::from_utf8(&bytes[start..end])
-                        .expect("ascii name slice is valid utf-8");
-                    pattern.push_str("(?P<");
-                    pattern.push_str(name);
-                    pattern.push_str(">[^/]+)");
-                    i = end;
-                }
+    let mut segments = slashed.split('/').peekable();
+    // Skip the leading-empty segment from the `/` prefix; trailing
+    // empties (from a trailing `/`) are also filtered as we walk.
+    if segments.peek() == Some(&"") {
+        segments.next();
+    }
+    for seg in segments {
+        if seg.is_empty() {
+            continue;
+        }
+        if seg == "**" {
+            if !star_replaced {
+                // Optional multi-segment match. The leading `/` is
+                // inside the optional group, so a missing trailing
+                // segment (e.g. path `/a` for source `/a/**`) is
+                // accepted by the regex (positive case in
+                // `Pattern`). The negation case routes through
+                // `Matcher::Glob` → `match_segments` whose
+                // DoubleStar branch is stricter (requires ≥1
+                // segment when `**` is the last pattern element);
+                // that asymmetry mirrors the reference's
+                // pathToRegExp-vs-minimatch divergence.
+                pattern.push_str("(?:/(.*))?");
+                star_replaced = true;
+            } else {
+                pattern.push('/');
+                pattern.push_str(&regex::escape("**"));
             }
-            b'*' => {
-                // Consume consecutive `*`s — collapse to a single
-                // wildcard to match the reference's effective
-                // `**`-handling (see doc comment above).
-                while i + 1 < bytes.len() && bytes[i + 1] == b'*' {
+            continue;
+        }
+        // Non-`**` segment: emit `/` then walk segment characters.
+        pattern.push('/');
+        let bytes = seg.as_bytes();
+        let mut i = 0;
+        while i < bytes.len() {
+            match bytes[i] {
+                b':' => {
+                    let start = i + 1;
+                    let mut end = start;
+                    while end < bytes.len()
+                        && (bytes[end].is_ascii_alphanumeric() || bytes[end] == b'_')
+                    {
+                        end += 1;
+                    }
+                    if end == start {
+                        pattern.push_str(&regex::escape(":"));
+                        i += 1;
+                    } else {
+                        let name = std::str::from_utf8(&bytes[start..end])
+                            .expect("ascii name slice is valid utf-8");
+                        pattern.push_str("(?P<");
+                        pattern.push_str(name);
+                        pattern.push_str(">[^/]+)");
+                        i = end;
+                    }
+                }
+                b'*' => {
+                    while i + 1 < bytes.len() && bytes[i + 1] == b'*' {
+                        i += 1;
+                    }
+                    if !star_replaced {
+                        pattern.push_str("(.*)");
+                        star_replaced = true;
+                    } else {
+                        pattern.push_str(&regex::escape("*"));
+                    }
                     i += 1;
                 }
-                if !star_replaced {
-                    pattern.push_str("(.*)");
-                    star_replaced = true;
-                } else {
-                    pattern.push_str(&regex::escape("*"));
+                _ => {
+                    let start = i;
+                    while i < bytes.len() && bytes[i] != b':' && bytes[i] != b'*' {
+                        i += 1;
+                    }
+                    let run = std::str::from_utf8(&bytes[start..i])
+                        .expect("byte run from utf-8 source is valid utf-8");
+                    pattern.push_str(&regex::escape(run));
                 }
-                i += 1;
-            }
-            _ => {
-                let start = i;
-                while i < bytes.len() && bytes[i] != b':' && bytes[i] != b'*' {
-                    i += 1;
-                }
-                let run = std::str::from_utf8(&bytes[start..i])
-                    .expect("byte run from utf-8 source is valid utf-8");
-                pattern.push_str(&regex::escape(run));
             }
         }
     }
@@ -989,6 +1036,119 @@ mod tests {
         let rules = compile(&[rule("/dir/**", "/elsewhere", None)]);
         assert!(compute_configured_redirects("/dir/page", &rules).is_some());
         assert!(compute_configured_redirects("/dir/sub/page", &rules).is_some());
+    }
+
+    #[test]
+    fn star_source_rejects_trailing_slash_only_path() {
+        // Codex review round 7 P1.1: reference applies
+        // `path.posix.resolve(requestPath)` BEFORE both
+        // pathToRegExp and minimatch, dropping a single trailing
+        // `/` (except `/` itself). irserve now trims at the top
+        // of `try_match`. For source `/a/*`, request `/a/` is
+        // resolved to `/a`, which the regex (require `/(.*)`)
+        // doesn't match — both pathToRegExp and minimatch fail
+        // in reference, returning 404.
+        let rules = compile(&[rule("/a/*", "/hit", None)]);
+        assert!(compute_configured_redirects("/a/", &rules).is_none());
+        assert!(compute_configured_redirects("/a", &rules).is_none());
+        assert!(compute_configured_redirects("/a/x", &rules).is_some());
+    }
+
+    #[test]
+    fn param_plus_star_rejects_trailing_slash_only_path() {
+        // Same trim behavior with `:name`+`*` source. Reference
+        // would resolve `/a/foo/` to `/a/foo`, which fails the
+        // regex (need `:id` then `/(.*)`).
+        let rules = compile(&[rule("/a/:id/*", "/new/:id", None)]);
+        assert!(compute_configured_redirects("/a/foo/", &rules).is_none());
+        assert!(compute_configured_redirects("/a/foo", &rules).is_none());
+        let (target, _) = compute_configured_redirects("/a/foo/x", &rules)
+            .expect(":id+* should match three-segment path");
+        assert_eq!(target, "/new/foo");
+    }
+
+    #[test]
+    fn doublestar_after_param_admits_zero_segments() {
+        // Codex review round 7 P1.2: trailing `**` after a
+        // `:name` segment must be optional (zero-segment match).
+        // path-to-regexp's `(.*)*` parses the trailing `*` as a
+        // modifier making the whole segment optional+repeat. Our
+        // segment-aware compiler now emits `(?:/(.*))?` for `**`
+        // segments, mirroring that behavior. Captured `:id` is
+        // substituted into the destination via the regex match.
+        let rules = compile(&[rule("/a/:id/**", "/new/:id", None)]);
+        let (target, _) = compute_configured_redirects("/a/foo", &rules)
+            .expect("**` should admit zero trailing segments");
+        assert_eq!(target, "/new/foo");
+        let (target, _) = compute_configured_redirects("/a/foo/extra", &rules).unwrap();
+        assert_eq!(target, "/new/foo");
+        let (target, _) =
+            compute_configured_redirects("/a/foo/x/y/z", &rules).unwrap();
+        assert_eq!(target, "/new/foo");
+    }
+
+    #[test]
+    fn doublestar_in_middle_admits_zero_segments_with_literal_after() {
+        // Round 7 P1.2 alongside zero-trailing match: `**` in the
+        // MIDDLE of a pattern (with a literal segment after it)
+        // must accept zero-skip so that `/a/:id/**/z` matches
+        // `/a/foo/z`. The regex's `(?:/(.*))?` is optional, so the
+        // trailing `/z` literal can match directly after the
+        // `:id` capture.
+        let rules = compile(&[rule("/a/:id/**/z", "/new/:id", None)]);
+        let (target, _) = compute_configured_redirects("/a/foo/z", &rules)
+            .expect("** in middle should admit zero segments before /z literal");
+        assert_eq!(target, "/new/foo");
+        let (target, _) =
+            compute_configured_redirects("/a/foo/extra/z", &rules).unwrap();
+        assert_eq!(target, "/new/foo");
+    }
+
+    #[test]
+    fn negated_doublestar_at_end_requires_at_least_one_segment() {
+        // Codex review round 7 P1.3: under negation (which routes
+        // through `Matcher::Glob` + `match_segments`), the
+        // DoubleStar branch mirrors minimatch's stricter `**`
+        // semantics — `**` at the END of a pattern requires at
+        // least ONE segment to consume. So `!/a/**` against `/a`
+        // matches via negation (the inner `/a/**` doesn't match
+        // `/a` per minimatch). The asymmetry between positive
+        // (regex, permissive) and negation (segment-matcher,
+        // strict) mirrors `index.js:46-67`.
+        let rules = compile(&[rule("!/a/**", "/hit", None)]);
+        let (target, _) = compute_configured_redirects("/a", &rules)
+            .expect("negated /a/** should match /a (inner pattern fails to match per minimatch)");
+        assert_eq!(target, "/hit");
+        let (target, _) = compute_configured_redirects("/a/", &rules)
+            .expect("trailing slash trimmed; same as /a");
+        assert_eq!(target, "/hit");
+        // Inner pattern matches `/a/x` (one trailing segment), so
+        // negation rejects.
+        assert!(compute_configured_redirects("/a/x", &rules).is_none());
+        // Unrelated path also matches negation.
+        let (target, _) = compute_configured_redirects("/b", &rules).unwrap();
+        assert_eq!(target, "/hit");
+    }
+
+    #[test]
+    fn doublestar_in_middle_glob_path_admits_zero() {
+        // Round 7 P1.3 is asymmetric: only `**` at END of pattern
+        // requires ≥1 segment under the segment matcher. `**` in
+        // the MIDDLE allows zero-skip. Empirical reference probe
+        // (with negation `!/a/**/b`) shows `/a/b`, `/a/x/b`, and
+        // `/a/x/y/b` are all rejected by negation, meaning the
+        // inner `/a/**/b` matches all three paths. So our
+        // segment matcher MUST allow `**` in the middle to
+        // consume zero segments for `/a/**/b` against `/a/b` to
+        // match.
+        let rules = compile(&[rule("!/a/**/b", "/hit", None)]);
+        // Inner matches `/a/b` (zero `**` skip), so negation rejects.
+        assert!(compute_configured_redirects("/a/b", &rules).is_none());
+        // Inner matches `/a/x/b` (one `**` skip), negation rejects.
+        assert!(compute_configured_redirects("/a/x/b", &rules).is_none());
+        // Inner doesn't match `/a` (no trailing `b`), negation matches.
+        let (target, _) = compute_configured_redirects("/a", &rules).unwrap();
+        assert_eq!(target, "/hit");
     }
 
     #[test]

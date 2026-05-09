@@ -1,0 +1,37 @@
+{
+  "id": "redirects-negation-doublestar",
+  "description": "Codex round 7 P1.3: under negation (which routes through `Matcher::Glob` + `match_segments`), DoubleStar at END of pattern requires at least one segment to consume — mirrors minimatch's stricter `**` semantics versus pathToRegExp's `(.*)*` permissive parsing. So `!/a/**` against `/a` returns 301 (the inner `/a/**` does not match `/a` per minimatch's last-`**` rule), while `!/a/**` against `/a/x` returns 404 (the inner matches via consuming `x`). Isolated probe because negation rules match almost any path and would interfere with positive anchors elsewhere.",
+  "fixture": {
+    "files": {
+      "_marker.txt": "marker\n"
+    },
+    "serveJson": {
+      "redirects": [
+        { "source": "!/a/**", "destination": "/hit" }
+      ]
+    }
+  },
+  "runner": {
+    "l0": {
+      "clean": [
+        "negated_doublestar_at_end_admits_a",
+        "negated_doublestar_at_end_admits_a_slash",
+        "negated_doublestar_at_end_rejects_a_x",
+        "negated_doublestar_at_end_admits_b"
+      ],
+      "contentLengthMayDiffer": [
+        "negated_doublestar_at_end_admits_a",
+        "negated_doublestar_at_end_admits_a_slash",
+        "negated_doublestar_at_end_rejects_a_x",
+        "negated_doublestar_at_end_admits_b"
+      ],
+      "bodyMayDiffer": ["negated_doublestar_at_end_rejects_a_x"]
+    }
+  },
+  "requests": [
+    { "name": "negated_doublestar_at_end_admits_a", "method": "GET", "path": "/a" },
+    { "name": "negated_doublestar_at_end_admits_a_slash", "method": "GET", "path": "/a/" },
+    { "name": "negated_doublestar_at_end_rejects_a_x", "method": "GET", "path": "/a/x" },
+    { "name": "negated_doublestar_at_end_admits_b", "method": "GET", "path": "/b" }
+  ]
+}

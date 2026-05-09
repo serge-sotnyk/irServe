@@ -1,0 +1,46 @@
+{
+  "id": "redirects-resolve-and-doublestar",
+  "description": "Codex round 7 corners: (P1.1) reference applies `path.posix.resolve(requestPath)` BEFORE both pathToRegExp and minimatch (`serve-handler/src/index.js:41`), so `/a/*` against `/a/` returns 404 — the trailing slash drops, the `*` segment requires a non-empty trailing segment that's no longer there. (P1.2) `**` after `:name` is optional in pathToRegExp's `(.*)*` parsing, so `/a/:id/**` matches `/a/foo` (zero trailing segments). (P1.3) Under negation the segment matcher mirrors minimatch's strict `**` semantics — `**` at END of pattern requires ≥1 segment, so `!/a/**` against `/a` matches via negation.",
+  "fixture": {
+    "files": {
+      "_marker.txt": "marker\n"
+    },
+    "serveJson": {
+      "redirects": [
+        { "source": "/a/*", "destination": "/star-hit" },
+        { "source": "/p/:id/*", "destination": "/p-hit/:id" },
+        { "source": "/d/:id/**", "destination": "/d-hit/:id" },
+        { "source": "/m/:id/**/z", "destination": "/m-hit/:id" }
+      ]
+    }
+  },
+  "runner": {
+    "l0": {
+      "clean": [
+        "star_rejects_trailing_slash_only",
+        "star_with_param_rejects_trailing_slash_only",
+        "doublestar_after_param_admits_zero_trailing",
+        "doublestar_after_param_admits_multi_trailing",
+        "doublestar_in_middle_admits_zero"
+      ],
+      "contentLengthMayDiffer": [
+        "star_rejects_trailing_slash_only",
+        "star_with_param_rejects_trailing_slash_only",
+        "doublestar_after_param_admits_zero_trailing",
+        "doublestar_after_param_admits_multi_trailing",
+        "doublestar_in_middle_admits_zero"
+      ],
+      "bodyMayDiffer": [
+        "star_rejects_trailing_slash_only",
+        "star_with_param_rejects_trailing_slash_only"
+      ]
+    }
+  },
+  "requests": [
+    { "name": "star_rejects_trailing_slash_only", "method": "GET", "path": "/a/" },
+    { "name": "star_with_param_rejects_trailing_slash_only", "method": "GET", "path": "/p/foo/" },
+    { "name": "doublestar_after_param_admits_zero_trailing", "method": "GET", "path": "/d/foo" },
+    { "name": "doublestar_after_param_admits_multi_trailing", "method": "GET", "path": "/d/foo/x/y" },
+    { "name": "doublestar_in_middle_admits_zero", "method": "GET", "path": "/m/foo/z" }
+  ]
+}

@@ -523,3 +523,72 @@
   tools/probe/run.mjs --all --target=reference --snapshot=verify`
   51/51 (was 49); `npx -y @fission-ai/openspec@latest validate
   --all --strict` — 14/14.
+
+## 10. Codex review round 7 (P1 × 3 fixes)
+
+- [x] 10.1 **P1.1 — `path.posix.resolve(requestPath)` trim
+  before regex.** The reference applies
+  `path.posix.resolve(requestPath)` BEFORE both `pathToRegExp.exec`
+  (`index.js:49`) and `minimatch` (`index.js:59`). The round-6
+  impl trimmed only in Glob and glob_fallback branches; the
+  Pattern regex saw the raw path. Repro: `/a/*` against `/a/`
+  matched in irserve while reference returned 404 (after trim,
+  the regex needs `/(.*)` which `/a` can't satisfy). Fix: trim
+  once at the top of `try_match`.
+- [x] 10.2 **P1.2 — `**` after `:name` admits zero segments.**
+  path-to-regexp v3 parses `(.*)*` (the JS-replaced `**`) as a
+  custom regex segment plus an `*` modifier, making the whole
+  segment optional+repeat. So `/a/:id/**` matches `/a/foo` (zero
+  trailing segments) with `id=foo`. The round-5 compiler
+  collapsed `**` into the same first-only `(.*)` substitution,
+  requiring the slash segment, and the glob fallback couldn't
+  rescue realistic paths because it treated `:id` literally.
+  Fix: refactor `compile_source_regex` to be segment-aware. Walk
+  segments (split on `/`); `**` segments emit `(?:/(.*))?`
+  (optional multi-segment); other segments walk char-by-char as
+  before. The first-only `*`-replace flag is shared across
+  segments.
+- [x] 10.3 **P1.3 — DoubleStar at END of pattern requires ≥1
+  segment in segment matcher.** The reference's minimatch
+  fallback (`index.js:59`) is stricter than pathToRegExp's
+  `(.*)*` here: `/a/**` does NOT match `/a` via minimatch, even
+  though it does via pathToRegExp. The asymmetry shows up via
+  negation: `!/a/**` falls to minimatch (because `!`-bearing
+  pattern fails pathToRegExp), and the inner minimatch
+  semantics determine the negation result. Empirical probe
+  confirms: `!/a/**` against `/a` → 301, against `/a/x` → 404,
+  against `/b` → 301. `**` in MIDDLE of pattern still allows
+  zero-skip per the empirical probe of `!/a/**/b` (matches
+  `/a/b` via inner minimatch). Fix: in `match_segments`'s
+  DoubleStar branch, when `**` is the last pattern element
+  (`pat.len() == 1`), require `min_skip = 1` and reject empty
+  paths.
+- [x] 10.4 New unit tests in `redirects.rs` covering all three
+  corners: `star_source_rejects_trailing_slash_only_path`,
+  `param_plus_star_rejects_trailing_slash_only_path`,
+  `doublestar_after_param_admits_zero_segments`,
+  `doublestar_in_middle_admits_zero_segments_with_literal_after`,
+  `negated_doublestar_at_end_requires_at_least_one_segment`,
+  `doublestar_in_middle_glob_path_admits_zero`. Six new tests
+  bringing the redirects suite to 75.
+- [x] 10.5 New probes:
+  - `tools/probe/cases/redirects-resolve-and-doublestar.json`
+    (5 anchors, ORC-109..113) covering the resolve trim and
+    `**`-after-param positive cases.
+  - `tools/probe/cases/redirects-negation-doublestar.json`
+    (4 anchors, ORC-114..117) covering negation+end-`**` strict
+    behavior. Isolated probe because `!`-rules match almost any
+    path and would interfere with positive anchors.
+- [x] 10.6 D-012 in `decisions.md` extended with all three
+  round-7 fixes; `design.md` §8 stop-the-line item 6 added;
+  `inventory.md` SRV-RDIR-001 oracle list extended through
+  ORC-117 (using `ORC-084..ORC-117` shorthand for the long
+  range); `006-configured-redirects` delta
+  `specs/redirects/spec.md` SRV-RDIR-001 oracle list
+  enumerated through ORC-117.
+- [x] 10.7 Verify: `cargo test -p irserve-core redirects` 75/75
+  green (was 69); `cargo test --test oracle` 32 passed (was
+  30, +2 cases from new probes), 21 skipped, 0 failed; `node
+  tools/probe/run.mjs --all --target=reference --snapshot=verify`
+  53/53 (was 51); `npx -y @fission-ai/openspec@latest validate
+  --all --strict` — 14/14.
