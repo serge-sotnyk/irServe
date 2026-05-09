@@ -1,0 +1,18 @@
+{
+  "id": "cleanurls-extglob",
+  "description": "`cleanUrls` array form with a Bash-style extglob pattern. Reference `serve-handler` honors extglob via `minimatch` at `serve-handler/src/index.js:59` — `+(page|other)` matches one or more occurrences of the alternation, so `/public/+(page|other).html` matches both `/public/page.html` and `/public/other.html`. Reference test evidence: `serve-handler/test/integration.test.js:449`. Codex review round 3 P1 confirmed the divergence: irserve treats extglob constructs as literal characters (its `globset::GlobBuilder` does not support them), so the cleanUrls 301 does not fire. This probe captures the reference behavior and intentionally has no `runner.l0` block — it auto-skips against `target=irserve`. Tracked as Q-012 in `docs/reference/serve/open-questions.md` (closure options: implement extglob via regex translation; adopt an extglob-capable Rust crate when one materializes; or record an `adapted` D-NNN scoping IrServe to the standard glob set).",
+  "fixture": {
+    "files": {
+      "public/page.html": "<p>page</p>\n",
+      "public/other.html": "<p>other</p>\n"
+    },
+    "serveJson": {
+      "cleanUrls": ["/public/+(page|other).html"]
+    }
+  },
+  "requests": [
+    { "name": "extglob_in_scope_redirect", "method": "GET", "path": "/public/page.html" },
+    { "name": "extglob_in_scope_extensionless", "method": "GET", "path": "/public/page" },
+    { "name": "extglob_alternation_other", "method": "GET", "path": "/public/other.html" }
+  ]
+}

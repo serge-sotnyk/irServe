@@ -35,8 +35,8 @@ This change wires:
   on `NotFound` do they fall back into phase 8. This avoids phase 8
   shadowing a real `/foo.css` via a `/foo.css.html` fallback.
 
-Both `cleanUrls: bool` and `cleanUrls: string[]` (globs) are
-implemented in this change, including minimatch-style negation
+Both `cleanUrls: bool` and `cleanUrls: string[]` (standard globs)
+are implemented in this change, including minimatch-style negation
 patterns (`!`-prefix; mirrors `slasher` at `glob-slash.js:8` plus
 `nonegate: false` minimatch behavior). The array form is precompiled
 once at server start into a `Vec<ScopedPattern>`, where each
@@ -46,6 +46,13 @@ the first truthy result, mirroring the reference's iteration at
 `index.js:261-268`. Invalid glob patterns are silently skipped
 with a stderr warning (server keeps running), mirroring the
 reference's behavior at `index.js:38-67` via `minimatch`.
+
+Glob syntax scope is the **standard glob set** — `*`, `**`, `?`,
+character classes, brace alternation, and `!`-prefix negation.
+Bash-style extglob (`+(a|b)`, `@(a|b)`, `?(a|b)`, `*(a|b)`,
+`!(a|b)`), which `minimatch` honors but `globset` does not, is
+out of 6c's scope; tracked as Q-012 with reference-only probe
+`tools/probe/cases/cleanurls-extglob.json`.
 
 The compose probes `prec-cleanurls-trailing.json` and
 `prec-cleanurls-trailing-false.json` — which were
@@ -88,10 +95,14 @@ without renumbering).
 - `crates/irserve-core/src/clean_urls.rs` — **NEW.** Capability
   module containing:
   - `pub struct CleanUrlsView` and `pub fn from_config(&Option<BoolOrGlobs>)
-    -> Result<Self, globset::Error>` — precompiled view (Off / On /
-    Scoped(GlobSet)).
+    -> (Self, Vec<InvalidGlob>)` — precompiled view (Off / On /
+    Scoped(Vec<ScopedPattern>) — each pattern carries a
+    `globset::GlobMatcher` plus a `negate: bool`). Invalid patterns
+    are surfaced via the returned `Vec<InvalidGlob>` rather than
+    failing startup.
   - `pub fn applicable(&self, decoded_path: &str) -> bool` — mirrors
-    `applicable()` at `index.js:256-274`.
+    `applicable()` at `index.js:256-274`, with per-pattern XOR
+    against the `negate` flag.
   - `pub fn compute_clean_urls_redirect(decoded_path, view) ->
     Option<String>` — phase 4. Single-pass strip, `//` collapse,
     `ensureSlashStart`.
@@ -157,6 +168,15 @@ without renumbering).
 
 ### Out of scope
 
+- **Bash-style extglob in `cleanUrls` array patterns**
+  (`+(...)`, `@(...)`, `?(...)`, `*(...)`, `!(...)`). The reference
+  inherits these from `minimatch`; `globset` does not support
+  them. Tracked as Q-012 in
+  `docs/reference/serve/open-questions.md`; reference-only probe
+  `tools/probe/cases/cleanurls-extglob.json` captures the
+  divergence. Closure (manual regex translation, an extglob-capable
+  Rust crate, or an `adapted` D-NNN scoping IrServe to standard
+  globs) belongs to a future stage.
 - Phase 6 (configured redirects): Stage 6d. The compose surface
   cleanUrls↔redirects stays deferred until 6d.
 - Phase 7 (rewrites + `--single`): Stage 6e.

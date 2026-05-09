@@ -97,6 +97,18 @@ How to verify:
 - Probe: replace `fetch` with a raw `net.connect` request that sends the exact bytes `GET /%2e%2e/etc/passwd HTTP/1.1\r\n...`. Capture status.
 Resolution: closed by snapshot `tools/probe/snapshots/traversal-raw-encoded.json`. Wire-level findings: literal `..` and `%2e%2e` escapes return 400; `//etc/passwd` returns 404 (double-slash is not, by itself, an escape); malformed `%`-escapes return 400. ORC-038, ORC-039, ORC-040, ORC-041; SRV-SEC-001 promoted to `verified` in Stage 3.
 
+## Q-012: cleanUrls extglob (`+(...)`, `@(...)`, `?(...)`, `*(...)`, `!(...)`) parity
+
+Affected area: routing (SRV-ROUT-001, SRV-ROUT-002 — array-form scope)
+Suspected behavior: `serve-handler` calls `minimatch` via `sourceMatches` (`serve-handler/src/index.js:59`), which honors **extglob** constructs by default — Bash-style extended glob patterns where `+(a|b)` matches one or more occurrences of `a|b`, `@(a|b)` matches exactly one, `?(a|b)` matches zero or one, `*(a|b)` matches zero or more, and `!(a|b)` matches anything except. Reference test evidence: `serve-handler/test/integration.test.js:449` exercises extglob in cleanUrls. Probe-confirmed via Codex review round 3 (`cleanUrls: ["/public/+(page|other).html"]`, `GET /public/page.html` → reference `301 Location: /public/page`).
+How to verify:
+- Probe `tools/probe/cases/cleanurls-extglob.json` (reference-only): `cleanUrls: ["/public/+(page|other).html"]`, fixture `/public/page.html` and `/public/other.html`. Reference snapshot recorded; no `runner.l0` block (auto-skips against irserve). Anchors: `extglob_in_scope_redirect` (`GET /public/page.html` → 301 `/public/page`), `extglob_alternation_other` (`GET /public/other.html` → 301 `/public/other` — confirms `+(page|other)` alternation), `extglob_in_scope_extensionless` (`GET /public/page` → 404 — the extglob pattern requires `.html` so the extensionless resolution leg doesn't fire even on the reference).
+Resolution: open. IrServe currently uses `globset::GlobBuilder` which supports `*`, `**`, `?`, character classes `[...]`, and brace alternation `{a,b}` but **not** extglob. Three options for a future close:
+- (a) Implement extglob via manual translation to `regex` (mirroring minimatch's algorithm). Significant code; needs careful semantic alignment.
+- (b) Adopt a Rust crate that supports extglob natively. As of context7 lookup on 2026-05-09, the surveyed candidates (`globset 0.4.18`, `fast-glob 1.0.1`, `glob-match 0.2.1`, `wax 0.7.0`) do NOT advertise extglob; `wcmatch` (Python) and `node-glob`/`minimatch` (JS) do, but Rust analogues are missing.
+- (c) Record an `adapted` D-NNN scoping IrServe to the standard glob set, and document the divergence in the spec text. Most existing real-world `cleanUrls` configurations use plain `**`-style globs (the `serve` README's example is `/!components/**`), so the practical impact is small.
+Until closed, the SRV-ROUT-001/002 array-form scope claim in `openspec/specs/routing/spec.md` should be read as "standard globs", not "minimatch-equivalent".
+
 ## Q-011: Windows symlink/junction parity
 
 Affected area: symlinks (SRV-SYM-001)

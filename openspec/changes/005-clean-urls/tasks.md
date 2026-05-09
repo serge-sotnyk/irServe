@@ -205,6 +205,67 @@
   42/42; `npx -y @fission-ai/openspec@latest validate --all
   --strict` 13/13 clean.
 
+## 6. Codex review round 3 — P1 + P2 fixes
+
+- [x] 6.1 P2 — round-2 stale text fix. The original D-011 paragraph
+  in `docs/reference/serve/decisions.md` and §1 module map + §3
+  pseudocode in this change package's `design.md` still referenced
+  the pre-round-2 shape (`Mode::Scoped(GlobSet)`,
+  `Result<Self, globset::Error>`, `GlobSetBuilder`,
+  `Error::CleanUrlsGlob` startup-error). The round-2 amendment
+  paragraphs were correct but contradicted the originals. Updated
+  all three artifacts to reflect the as-implemented shape:
+  `Mode::Scoped(Vec<ScopedPattern>)`, `(Self, Vec<InvalidGlob>)`,
+  per-pattern `GlobMatcher` with `negate: bool`, silent-skip + stderr
+  warning. `proposal.md` §"In scope" `clean_urls.rs` bullet also
+  refreshed.
+- [x] 6.2 P1 — extglob (`+(...)`, `@(...)`, `?(...)`, `*(...)`,
+  `!(...)`) scoped explicitly out, not implemented. Codex round 3
+  confirmed reference-divergence: `cleanUrls: ["/public/+(page|other).html"]`,
+  `GET /public/page.html` → reference 301 → `/public/page`; irserve
+  serves the file directly because `globset::GlobBuilder` treats
+  the extglob constructs as literal characters. Survey of Rust glob
+  crates via context7 + crates.io on 2026-05-09 (`globset 0.4.18`,
+  `fast-glob 1.0.1`, `glob-match 0.2.1`, `wax 0.7.0`) found no
+  drop-in extglob support. Decision: scope IrServe's array-form
+  `cleanUrls` to the **standard glob set** (`*`, `**`, `?`,
+  character classes, brace alternation, `!`-prefix negation) and
+  document the gap; defer extglob to a future closure of Q-012.
+- [x] 6.3 New `Q-012` entry in `docs/reference/serve/open-questions.md`
+  documenting the divergence and three closure options (manual
+  regex translation; an extglob-capable Rust crate when one
+  materializes; an `adapted` D-NNN scoping to standard globs).
+- [x] 6.4 New reference-only probe
+  `tools/probe/cases/cleanurls-extglob.json` (3 anchors covering
+  the redirect leg, the alternation leg, and the extensionless
+  leg of `/public/+(page|other).html`). No `runner.l0` block —
+  the probe auto-skips against `target=irserve`, so the gap is
+  captured as evidence without contractual must-match. Snapshot
+  recorded via `node tools/probe/run.mjs cleanurls-extglob
+  --target=reference --snapshot=update`.
+- [x] 6.5 D-011 in `docs/reference/serve/decisions.md` extended
+  with a round-3 amendments paragraph naming the extglob scope-out
+  and the round-2 stale-text fix.
+- [x] 6.6 `openspec/changes/005-clean-urls/specs/routing/spec.md`
+  Implementation paragraph for SRV-ROUT-001 extended with a "Glob
+  syntax scope" sub-section that explicitly names extglob as out
+  of scope and points to Q-012.
+- [x] 6.7 `openspec/changes/005-clean-urls/proposal.md` "Out of
+  scope" extended with the extglob bullet; "What" cleanUrls-array
+  description softened from "globs" to "standard globs" with a
+  pointer to Q-012.
+- [x] 6.8 No code change in this round. The four divergence
+  alignments from rounds 1 and 2 (a-d in proposal §Risks) stand;
+  extglob support would be a fifth alignment pending Q-012
+  closure.
+- [x] 6.9 Verify: `cargo test --workspace` 92/92 unit tests green
+  (no test changes); `cargo test --test oracle` 20/43 against
+  irserve (was 20/42; +1 because the new `cleanurls-extglob`
+  probe runs against reference but auto-skips against irserve, so
+  it counts in the total but in the skipped bucket); reference
+  43/43; `npx -y @fission-ai/openspec@latest validate --all
+  --strict` 13/13 clean.
+
 ## Hard stops (per template)
 
 - `third_party/` is read-only.

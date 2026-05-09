@@ -105,7 +105,7 @@ Affected requirements: SRV-ROUT-001, SRV-ROUT-002 (un-deferred from D-008's list
 Status: adapted
 Reason: Change `005-clean-urls` (Stage 6c) wires phases 4 and 8 of the 13-phase dispatcher. Phase 4 (`crates/irserve-core/src/clean_urls.rs::compute_clean_urls_redirect`) emits a 301 to the extension-stripped form for any request matching the end-anchored regex `(\.html|\/index)$` when `cleanUrls` is enabled, with the `//` collapse on the stripped target and `ensureSlashStart` re-prepend mirroring `serve-handler/src/index.js:121-143` exactly. Single-pass strip semantics (`/index.html` → `/index`, NOT `/`) match the reference's regex with the redundant `g` flag against an end-anchor, pinned by the existing `_smoke#index_html_redirect` snapshot. Phase 8 (`crates/irserve-core/src/clean_urls.rs::try_clean_urls_resolve`) tries `<P>/index.html` first and `<P>.html` second, mirroring `findRelated` + `getPossiblePaths('.html')` at `index.js:276-307`; index-first order is probe-confirmed (Q-005 closed by `prec-cleanurls-default`).
 
-The dispatcher gates phase 8 on `url_path_has_extension(&url_path)` so the reference's pre-stat behavior at `index.js:608-642` is faithfully reproduced: extensionless paths skip pre-stat and run phase 8 first (so an existing `<P>.html` is preferred over a bare extensionless `<P>` file, matching SRV-ROUT-006's "no pre-stat for extensionless" clause); has-extension paths run `resolve()` first and only fall back to phase 8 on `NotFound`, preventing `<P>.html` from shadowing an existing `<P>` file. Both phase 4 and phase 8 honor scope via a precompiled `CleanUrlsView` (`Off | On | Scoped(GlobSet)`) built once at server start from `serve.json#cleanUrls`; `globset` was added at workspace pin `0.4` (latest stable verified via context7 on 2026-05-09). Invalid glob patterns surface as a startup error (`Error::CleanUrlsGlob`) rather than per-request.
+The dispatcher gates phase 8 on `url_path_has_extension(&url_path)` so the reference's pre-stat behavior at `index.js:608-642` is faithfully reproduced: extensionless paths skip pre-stat and run phase 8 first (so an existing `<P>.html` is preferred over a bare extensionless `<P>` file, matching SRV-ROUT-006's "no pre-stat for extensionless" clause); has-extension paths run `resolve()` first and only fall back to phase 8 on `NotFound`, preventing `<P>.html` from shadowing an existing `<P>` file. Both phase 4 and phase 8 honor scope via a precompiled `CleanUrlsView` (`Off | On | Scoped(Vec<ScopedPattern>)`) built once at server start from `serve.json#cleanUrls`; each `ScopedPattern` carries a compiled `globset::GlobMatcher` (built with `literal_separator(true)` so `*` does not cross `/`) plus a `negate: bool` for minimatch-style `!`-prefix negation. `globset` was added at workspace pin `0.4` (latest stable verified via context7 on 2026-05-09). `applicable` collapses `//` in the request path before matching (mirrors `path.posix.resolve(requestPath)` inside `sourceMatches` at `index.js:38-67`) and iterates `matcher.is_match(path) ^ negate`, returning `true` on the first truthy result. Invalid glob patterns are silently skipped with a stderr warning emitted from `server.rs::serve` (server keeps running), mirroring the reference's silent-never-match behavior at `index.js:38-67` via `minimatch`.
 
 Compose probes deferred at 6b per D-010 (`prec-cleanurls-trailing.json`, `prec-cleanurls-trailing-false.json`, and the `double_slash_segment` / `internal_double_slash` anchors of `multislash-collapse.json`) flip to L0-clean in this change, closing the cleanUrls↔trailingSlash composition surface. The cleanUrls↔redirects compose surface stays deferred to 6d (`006-configured-redirects`); cleanUrls↔rewrites to 6e (`007-configured-rewrites`). Until those land, SRV-ROUT-006 is `partially un-deferred` — its trailingSlash composition is verified against irserve, its redirects/rewrites composition is not.
 
@@ -114,6 +114,42 @@ Compose probes deferred at 6b per D-010 (`prec-cleanurls-trailing.json`, `prec-c
 Impact: IrServe now (a) emits 301 to the extension-stripped form for `.html`, `/index`, and `.../index.html` requests when `cleanUrls` is enabled; (b) resolves extensionless requests via the index-first `<P>/index.html`-then-`<P>.html` candidate chain, with array-form `cleanUrls` globs gating both behaviors; (c) honors the reference's pre-stat ordering so `/foo.css` with both `/foo.css` and `/foo.css.html` present serves the existing `/foo.css` and does not get shadowed; (d) participates correctly in the cleanUrls↔trailingSlash compose surface (phase 4 fires before phase 5, mirroring `index.js:130-133`'s "strip the HTML parts before handling the trailing slash" coupling). The remaining routing SRVs (SRV-ROUT-006 redirects/rewrites composition) stay deferred per D-008 until 6d/6e land. README's "What is NOT yet observable" list is shrunk by cleanUrls; "Try IrServe" is refreshed with cleanUrls examples. ORC-002/012/013/014/017/020/021/022/023/024/026/027 flipped from "verified against reference only" to "verified against both reference and irserve" without renumbering.
 
 Codex review round 1 amendments (P1 + P2): the array-form scope check was tightened against minimatch semantics — globs are now built with `GlobBuilder::new(...).literal_separator(true)` so a single `*` does not cross `/`, and `applicable` collapses `//` in the request path before `is_match` (mirrors `path.posix.resolve(requestPath)` inside `sourceMatches` at `index.js:38-67`). `oracle-matrix.md` ORC-017's must-match field was corrected from `Location: /about/` to `Location: /about` to match the canonical snapshot at `tools/probe/snapshots/prec-cleanurls-trailing.json#about_html` (cleanUrls strip wins over the trailingSlash add per the phase-4-before-5 coupling).
+
+Codex review round 3 amendments (P1 + P2):
+- **P1 — extglob (`+(...)`, `@(...)`, `?(...)`, `*(...)`, `!(...)`)
+  scoped explicitly out.** The reference's `sourceMatches` calls
+  `minimatch` at `index.js:59`, which honors Bash-style extended
+  glob constructs (test evidence: `serve-handler/test/integration.test.js:449`).
+  IrServe's `globset::GlobBuilder` does NOT support extglob and as
+  of context7 lookup on 2026-05-09 no surveyed Rust crate
+  (`globset 0.4.18`, `fast-glob 1.0.1`, `glob-match 0.2.1`,
+  `wax 0.7.0`) does either. Rather than pull in regex-translation
+  machinery for a power-user surface no committed probe exercises,
+  the divergence is recorded as **Q-012** (open) with a
+  reference-only probe `tools/probe/cases/cleanurls-extglob.json`
+  capturing the gap: `cleanUrls: ["/public/+(page|other).html"]`,
+  `GET /public/page.html` → reference 301 → `/public/page`, irserve
+  serves the file directly (cleanUrls scope check misses because
+  globset treats the extglob constructs as literal characters). The
+  array-form contract claim in `005-clean-urls/specs/routing/spec.md`
+  reads "standard globs" — `*`, `**`, `?`, character classes
+  `[...]`, brace alternation `{a,b}`, and `!`-prefix negation —
+  not full minimatch parity. Future closure of Q-012 (option a:
+  manual regex translation; option b: a future Rust crate with
+  extglob; option c: explicit `adapted` D-NNN) is out of 6c's
+  scope.
+- **P2 — round-2 stale text fixed.** The first paragraph of D-011
+  (above) and the §1 module map + §3 pseudocode in
+  `openspec/changes/005-clean-urls/design.md` referenced the
+  pre-round-2 shape (`Mode::Scoped(GlobSet)`,
+  `Result<Self, globset::Error>`, `GlobSetBuilder`,
+  `Error::CleanUrlsGlob` startup-error). Updated in round 3 to
+  match the as-implemented shape (`Mode::Scoped(Vec<ScopedPattern>)`,
+  `(Self, Vec<InvalidGlob>)`, per-pattern `GlobMatcher` with
+  `negate: bool`, silent-skip + stderr warning). The round-2
+  amendment paragraph below was already correct; the stale
+  references in the original D-011 paragraph were what tripped
+  Codex.
 
 Codex review round 2 amendments (P1 + P2): two more reference-faithfulness gaps closed.
 - **Negation patterns now honored.** `slasher` preserves a leading `!` (mirrors `glob-slash.js:8`); `Mode::Scoped` stores `Vec<ScopedPattern>` where each pattern carries a `negate: bool`; `applicable` evaluates `matcher.is_match(path) ^ negate` per pattern and returns `true` on the first true result (mirrors minimatch's per-pattern negate with `nonegate: false` plus the reference's `applicable` iteration at `index.js:261-268`). A sole `!/secret/**` therefore enables cleanUrls for every path outside `/secret/**`, matching the reference. Backed by ORC-077 (`cases/cleanurls-negation.json`, 4 anchors).

@@ -50,6 +50,22 @@ silently skipped with a stderr warning emitted from
 `server.rs::serve` (server keeps running), mirroring the reference's
 behavior at `index.js:38-67` via `minimatch`.
 
+Glob syntax scope: array-form `cleanUrls` patterns support the
+**standard glob set** — `*` (single segment), `**` (multi-segment),
+`?` (single non-`/` char), character classes `[abc]` / `[a-z]`,
+brace alternation `{a,b}`, and `!`-prefix negation. **Bash-style
+extglob** constructs (`+(a|b)`, `@(a|b)`, `?(a|b)`, `*(a|b)`,
+`!(a|b)`) — which the reference inherits from `minimatch` (test
+evidence: `serve-handler/test/integration.test.js:449`) — are NOT
+supported. `globset::GlobBuilder` treats them as literal characters,
+so a pattern like `/public/+(page|other).html` matches the literal
+path `/public/+(page|other).html` rather than expanding the
+alternation. This divergence is captured by Q-012 in
+`docs/reference/serve/open-questions.md` and by the reference-only
+probe `tools/probe/cases/cleanurls-extglob.json` (no `runner.l0`
+block; auto-skipped against irserve). Closing Q-012 is out of
+6c's scope.
+
 The redirect target passes through `dispatch.rs::encode_uri_target`
 (unchanged from 6b) for `Location`-header encoding, so SPACEs
 become `%20`, non-ASCII bytes become percent-escaped UTF-8, and

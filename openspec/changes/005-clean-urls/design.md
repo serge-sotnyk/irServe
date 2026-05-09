@@ -11,7 +11,7 @@ SRV-ROUT-006).
 
 | Module | Delta | Wires |
 |---|---|---|
-| `crates/irserve-core/src/clean_urls.rs` | **NEW.** `CleanUrlsView` precompiled view (Off / On / Scoped(GlobSet)); `from_config` / `applicable`; `compute_clean_urls_redirect` (phase 4); `try_clean_urls_resolve` (phase 8). 19 in-module unit tests. | phases 4 + 8 |
+| `crates/irserve-core/src/clean_urls.rs` | **NEW.** `CleanUrlsView` precompiled view (Off / On / Scoped(Vec<ScopedPattern>) — each pattern carries a compiled `globset::GlobMatcher` plus a `negate: bool` for `!`-prefix negation); `from_config` returning `(Self, Vec<InvalidGlob>)` (silent-skip on invalid patterns); `applicable`; `compute_clean_urls_redirect` (phase 4); `try_clean_urls_resolve` (phase 8). 32 in-module unit tests after Codex round-2 expansion. | phases 4 + 8 |
 | `crates/irserve-core/src/dispatch.rs` | `dispatch()` signature gains `&CleanUrlsView`. Phase 4 hooked between URL-decode and phase 5; phase 8 hooked around the existing `resolve()` with pre-stat gating. `url_path_has_extension(path: &str) -> bool` helper added. | dispatcher |
 | `crates/irserve-core/src/server.rs` | `AppState` carries `clean_urls_view: CleanUrlsView` built once in `serve()` from `config.serve_config.clean_urls`. `handler` propagates the view into `dispatch`. | startup |
 | `crates/irserve-core/src/lib.rs` | `mod clean_urls;`. No new `Error` variant — invalid globs are non-fatal warnings, surfaced via `(CleanUrlsView, Vec<InvalidGlob>)` from `from_config` and printed to stderr by `server.rs::serve` at startup. | n/a |
@@ -65,42 +65,75 @@ Reference: `serve-handler/src/index.js:256-274` (`applicable`),
 pub struct CleanUrlsView { inner: Mode }
 
 enum Mode {
-    Off,                  // cleanUrls: false
-    On,                   // cleanUrls: true (default when absent)
-    Scoped(GlobSet),      // cleanUrls: ["/docs/**", ...]
+    Off,                                // cleanUrls: false
+    On,                                 // cleanUrls: true (default when absent)
+    Scoped(Vec<ScopedPattern>),         // cleanUrls: ["/docs/**", "!/secret/**", ...]
+}
+
+struct ScopedPattern {
+    matcher: globset::GlobMatcher,      // compiled with literal_separator(true)
+    negate: bool,                       // `!`-prefix from slasher; XOR'd with match result
+}
+
+pub struct InvalidGlob {                // surfaced as a startup warning, not fatal
+    pub pattern: String,
+    pub error: globset::Error,
 }
 
 impl CleanUrlsView {
-    pub fn from_config(cfg: &Option<BoolOrGlobs>) -> Result<Self, globset::Error> {
-        match cfg {
-            None => Mode::On,                                    // serve-handler default
+    pub fn from_config(cfg: &Option<BoolOrGlobs>) -> (Self, Vec<InvalidGlob>) {
+        let mut invalid = Vec::new();
+        let inner = match cfg {
+            None => Mode::On,                                // serve-handler default
             Some(Bool(true)) => Mode::On,
             Some(Bool(false)) => Mode::Off,
             Some(Globs(patterns)) => {
-                let mut builder = GlobSetBuilder::new();
+                let mut compiled = Vec::with_capacity(patterns.len());
                 for p in patterns {
-                    let glob = GlobBuilder::new(&slasher(p))
-                        .literal_separator(true)  // see below
-                        .build()?;
-                    builder.add(glob);
+                    match compile_scoped_pattern(p) {
+                        Ok(scoped) => compiled.push(scoped),
+                        Err(error) => invalid.push(InvalidGlob {
+                            pattern: p.clone(),
+                            error,
+                        }),
+                    }
                 }
-                Mode::Scoped(builder.build()?)
+                Mode::Scoped(compiled)
             }
-        }
+        };
+        (Self { inner }, invalid)
     }
     pub fn applicable(&self, decoded_path: &str) -> bool {
         match &self.inner {
-            Off => false,
-            On => true,
-            Scoped(set) => {
+            Mode::Off => false,
+            Mode::On => true,
+            Mode::Scoped(patterns) => {
                 // Mirror `path.posix.resolve(requestPath)` inside
                 // `sourceMatches` (`index.js:38-67`): collapse `//`
-                // before minimatch / globset.
+                // before minimatch / globset. Then iterate per-pattern,
+                // XOR'ing with `negate` (mirrors minimatch's
+                // `nonegate: false` plus `applicable`'s for-loop at
+                // `index.js:261-268`).
                 let normalized = crate::normalize::collapse_slashes(decoded_path);
-                set.is_match(normalized.as_ref())
+                let path = normalized.as_ref();
+                patterns
+                    .iter()
+                    .any(|p| p.matcher.is_match(path) ^ p.negate)
             }
         }
     }
+}
+
+fn compile_scoped_pattern(raw: &str) -> Result<ScopedPattern, globset::Error> {
+    let slashed = slasher(raw); // preserves leading `!`
+    let (negate, body) = match slashed.strip_prefix('!') {
+        Some(rest) => (true, rest.to_string()),
+        None => (false, slashed),
+    };
+    let glob = GlobBuilder::new(&body)
+        .literal_separator(true)
+        .build()?;
+    Ok(ScopedPattern { matcher: glob.compile_matcher(), negate })
 }
 ```
 

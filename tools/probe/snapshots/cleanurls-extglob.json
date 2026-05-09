@@ -1,0 +1,85 @@
+{
+  "$schemaVersion": 1,
+  "case": "cleanurls-extglob",
+  "description": "`cleanUrls` array form with a Bash-style extglob pattern. Reference `serve-handler` honors extglob via `minimatch` at `serve-handler/src/index.js:59` — `+(page|other)` matches one or more occurrences of the alternation, so `/public/+(page|other).html` matches both `/public/page.html` and `/public/other.html`. Reference test evidence: `serve-handler/test/integration.test.js:449`. Codex review round 3 P1 confirmed the divergence: irserve treats extglob constructs as literal characters (its `globset::GlobBuilder` does not support them), so the cleanUrls 301 does not fire. This probe captures the reference behavior and intentionally has no `runner.l0` block — it auto-skips against `target=irserve`. Tracked as Q-012 in `docs/reference/serve/open-questions.md` (closure options: implement extglob via regex translation; adopt an extglob-capable Rust crate when one materializes; or record an `adapted` D-NNN scoping IrServe to the standard glob set).",
+  "fixture": {
+    "files": {
+      "public/page.html": "<p>page</p>\n",
+      "public/other.html": "<p>other</p>\n"
+    },
+    "serveJson": {
+      "cleanUrls": [
+        "/public/+(page|other).html"
+      ]
+    }
+  },
+  "serveArgs": [],
+  "volatileHeaders": [
+    "last-modified"
+  ],
+  "volatileBodies": [],
+  "requests": [
+    {
+      "name": "extglob_in_scope_redirect",
+      "request": {
+        "method": "GET",
+        "mode": "fetch",
+        "path": "/public/page.html"
+      },
+      "response": {
+        "body": {
+          "kind": "empty",
+          "length": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        "headers": {
+          "location": "/public/page"
+        },
+        "status": 301,
+        "statusText": "Moved Permanently"
+      }
+    },
+    {
+      "name": "extglob_in_scope_extensionless",
+      "request": {
+        "method": "GET",
+        "mode": "fetch",
+        "path": "/public/page"
+      },
+      "response": {
+        "body": {
+          "kind": "text",
+          "length": 1641,
+          "sha256": "8c45c679f40c3f81c111fbf2398d568189c3ab34d8a9704ad225cd8efe1b819f",
+          "preview": "<!DOCTYPE html><head> <meta name=\"viewport\" content=\"width=device-width, initial-scale=1, user-scalable=no\"/> <style> body { margin: 0; font-family: -apple-system, BlinkMacSystemFont, \"Segoe UI\", \"Rob"
+        },
+        "headers": {
+          "content-type": "text/html; charset=utf-8",
+          "vary": "Accept-Encoding"
+        },
+        "status": 404,
+        "statusText": "Not Found"
+      }
+    },
+    {
+      "name": "extglob_alternation_other",
+      "request": {
+        "method": "GET",
+        "mode": "fetch",
+        "path": "/public/other.html"
+      },
+      "response": {
+        "body": {
+          "kind": "empty",
+          "length": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        "headers": {
+          "location": "/public/other"
+        },
+        "status": 301,
+        "statusText": "Moved Permanently"
+      }
+    }
+  ]
+}
