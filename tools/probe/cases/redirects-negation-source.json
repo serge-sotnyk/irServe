@@ -1,0 +1,23 @@
+{
+  "id": "redirects-negation-source",
+  "description": "`!`-prefix on a source pattern with a `:name` fragment falls through to minimatch in the reference's `sourceMatches` (`serve-handler/src/index.js:38-67`): pathToRegExp's first-pass on `!/old-docs/:id` builds a regex that wants `!` as a literal, which real requests don't carry, so it returns null and minimatch handles the negation. Minimatch treats `:id` as literal characters, so the rule fires for every path that does NOT literally equal `/old-docs/:id`. Closes Codex round 2 P1: irserve previously rejected this combination at compile time via `CompileError::NegatedParam`.",
+  "fixture": {
+    "files": {
+      "_marker.txt": "marker\n"
+    },
+    "serveJson": {
+      "redirects": [
+        { "source": "!/old-docs/:id", "destination": "/new" }
+      ]
+    }
+  },
+  "runner": {
+    "l0": {
+      "clean": ["non_literal_path_matches_negation"],
+      "contentLengthMayDiffer": ["non_literal_path_matches_negation"]
+    }
+  },
+  "requests": [
+    { "name": "non_literal_path_matches_negation", "method": "GET", "path": "/old-docs/12" }
+  ]
+}

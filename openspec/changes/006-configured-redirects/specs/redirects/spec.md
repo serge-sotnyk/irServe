@@ -17,7 +17,9 @@ divergence is tracked as Q-012 in
 `docs/reference/serve/open-questions.md` and inherited from the
 cleanUrls capability (see SRV-ROUT-001/002).
 
-Evidence: SRV-RDIR-001 (status: verified, level: L2); oracle: ORC-030.
+Evidence: SRV-RDIR-001 (status: verified, level: L2); oracle:
+ORC-030, ORC-084, ORC-085, ORC-089, ORC-090, ORC-091, ORC-092,
+ORC-093, ORC-094.
 
 Note: Redirects fire after the cleanUrls / trailingSlash redirect
 stage; see the routing capability's "Operation precedence in the
@@ -60,19 +62,22 @@ which mirrors `serve-handler/src/index.js:80`'s `protocol ?
 destination : slasher(destination)` — see SRV-RDIR-003 for the
 detailed semantics.
 
-The `!`-prefix combined with a `:name` segment is rejected at compile
-time via `CompileError::NegatedParam`. Path-to-regexp has no
-negation flag, and the reference's minimatch fallback for that
-combination treats `:name` as literal characters that no real
-request path will match — the rule never fires there either. We
-surface the rejection as a stderr warning rather than silently
-producing a never-matching rule.
+The `!`-prefix combined with a `:name` segment routes to `Glob`
+(negate=true): minimatch's negation handler treats `:name`-like
+fragments as literal characters, mirroring the reference's
+`sourceMatches` fallback at `serve-handler/src/index.js:38-67`
+(path-to-regexp's first-pass on `!`-bearing patterns produces a
+regex that real request paths never match, so it falls through to
+minimatch). The rule fires for every path that does NOT literally
+equal the (slasher-normalized) source string. Codex review round 2
+P1 corrected an earlier compile-time rejection of this combination.
 
 `compile_rules` returns `(Vec<RedirectRuleCompiled>, Vec<InvalidRedirect>)`
 and the bin layer (`server.rs::serve`) emits one stderr warning per
 skipped rule, mirroring the cleanUrls treatment from 6c and the
 reference's silent try/catch at `index.js:38-67`. The `CompileError`
-enum carries the variant (`Glob | Regex | NegatedParam`).
+enum carries the variants `Glob | Regex` (a malformed glob or a
+malformed compiled regex from `compile_source_regex`).
 
 Glob syntax scope: redirect glob sources support the **standard
 glob set** — `*` (single segment), `**` (multi-segment), `?`
@@ -132,8 +137,9 @@ SHALL be normalized via `glob-slash.slasher` — i.e.
 - Guarantees a leading `/`.
 
 Evidence: SRV-RDIR-003 (status: verified, level: L2); oracle:
-ORC-079, ORC-080, ORC-081, ORC-082, ORC-086 (`..` segment
-resolution, `cases/redirects-destination-forms.json#dotdot_resolved`).
+ORC-079, ORC-080, ORC-081, ORC-082, ORC-086 (mid-path `..`
+resolution), ORC-087 (leading `..` resolution), ORC-088 (empty
+destination becomes root).
 
 Implementation: `crates/irserve-core/src/redirects.rs::normalize_destination`
 mirrors `serve-handler/src/index.js:80`'s

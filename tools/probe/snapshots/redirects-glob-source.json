@@ -1,7 +1,7 @@
 {
   "$schemaVersion": 1,
   "case": "redirects-glob-source",
-  "description": "Glob `*` source crosses path segments — reference's `sourceMatches` at serve-handler/src/index.js:38-67 pre-substitutes `*` with `(.*)` then calls `pathToRegExp`, so `/dir/*` matches both `/dir/page` (one segment) and `/dir/sub/page` (multi segment). Locks the redirect-side of this behavior so a future regression on the `*`-source routing classifier shows up in the oracle. Closes Codex round 1 P1.",
+  "description": "Glob `*` source crosses path segments — reference's `sourceMatches` at serve-handler/src/index.js:38-67 pre-substitutes `*` with `(.*)` then calls `pathToRegExp`, so `/dir/*` matches both `/dir/page` (one segment) and `/dir/sub/page` (multi segment). Locks the redirect-side of this behavior so a future regression on the `*`-source routing classifier shows up in the oracle. Closes Codex round 1 P1 and round 2 P1: JS `String.prototype.replace('*', '(.*)')` replaces only the FIRST `*` — so a source like `/a/*/b/*` does NOT over-match (the trailing `*` becomes a path-to-regexp kleene modifier that doesn't fire on multi-segment trailing paths). Also covers `**`-collapse: `/dir/**` matches like `/dir/*`.",
   "fixture": {
     "files": {
       "_marker.txt": "marker\n"
@@ -11,6 +11,14 @@
         {
           "source": "/dir/*",
           "destination": "/elsewhere"
+        },
+        {
+          "source": "/face/**",
+          "destination": "/double-star-hit"
+        },
+        {
+          "source": "/a/*/b/*",
+          "destination": "/multi-hit"
         }
       ]
     }
@@ -59,6 +67,68 @@
         },
         "status": 301,
         "statusText": "Moved Permanently"
+      }
+    },
+    {
+      "name": "double_star_matches_single",
+      "request": {
+        "method": "GET",
+        "mode": "fetch",
+        "path": "/face/me"
+      },
+      "response": {
+        "body": {
+          "kind": "empty",
+          "length": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        "headers": {
+          "location": "/double-star-hit"
+        },
+        "status": 301,
+        "statusText": "Moved Permanently"
+      }
+    },
+    {
+      "name": "double_star_matches_multi",
+      "request": {
+        "method": "GET",
+        "mode": "fetch",
+        "path": "/face/sub/page"
+      },
+      "response": {
+        "body": {
+          "kind": "empty",
+          "length": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        "headers": {
+          "location": "/double-star-hit"
+        },
+        "status": 301,
+        "statusText": "Moved Permanently"
+      }
+    },
+    {
+      "name": "multi_star_no_overmatch",
+      "request": {
+        "method": "GET",
+        "mode": "fetch",
+        "path": "/a/x/b/y/z"
+      },
+      "response": {
+        "body": {
+          "kind": "text",
+          "length": 1641,
+          "sha256": "8c45c679f40c3f81c111fbf2398d568189c3ab34d8a9704ad225cd8efe1b819f",
+          "preview": "<!DOCTYPE html><head> <meta name=\"viewport\" content=\"width=device-width, initial-scale=1, user-scalable=no\"/> <style> body { margin: 0; font-family: -apple-system, BlinkMacSystemFont, \"Segoe UI\", \"Rob"
+        },
+        "headers": {
+          "content-type": "text/html; charset=utf-8",
+          "vary": "Accept-Encoding"
+        },
+        "status": 404,
+        "statusText": "Not Found"
       }
     }
   ]

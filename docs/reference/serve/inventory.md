@@ -1035,8 +1035,8 @@ Reference source:
 - README: yes — serve-handler README, `redirects (Array)` section.
 - serve-handler source: `src/index.js:121-185` (`shouldRedirect`).
 - Existing test: `set 'redirects' config property to wildcard path`, `set 'redirects' config property to path segment`, `set 'redirects' config property to one-star wildcard path`, `set 'redirects' config property to extglob wildcard path`, `set 'redirects' config property to a negated wildcard path`, `set 'redirects' config property to wildcard path and do not match` in `test/integration.test.js`.
-- Probe: `tools/probe/cases/redirects-types.json` (path-segment redirect with default 301), `tools/probe/cases/redirects-glob-source.json` (glob `*` source crosses path segments).
-- Oracle test: ORC-030, ORC-084, ORC-085 (snapshots in tools/probe/snapshots/).
+- Probe: `tools/probe/cases/redirects-types.json` (path-segment redirect with default 301), `tools/probe/cases/redirects-glob-source.json` (`*`-source cross-segment, `**`-collapse, multi-`*` no-overmatch), `tools/probe/cases/redirects-source-slasher.json` (source-side `path.posix.normalize` parity), `tools/probe/cases/redirects-negation-source.json` (`!`-prefix + `:name` falls through to minimatch).
+- Oracle test: ORC-030, ORC-084, ORC-085, ORC-089, ORC-090, ORC-091, ORC-092, ORC-093, ORC-094 (snapshots in tools/probe/snapshots/).
 
 Requirement (draft):
 A `redirects` entry `{source, destination}` matches `source` (minimatch glob or `path-to-regexp` segment pattern) against the request path; on match the server responds with status 301 and `Location: <destination>` (path-to-regexp segments interpolated). The `Location` value is URI-encoded (`encodeURI`).
@@ -1092,11 +1092,11 @@ Reference source:
 - README: yes — serve-handler README: "you can use this option ... to a different one (or even an external URL)".
 - serve-handler source: `src/index.js:79-89` — `protocol`-aware destination handling skips `slasher` for absolute URLs.
 - Existing test: absent (implicit in the README; not flagged in test names).
-- Probe: `tools/probe/cases/redirects-destination-forms.json` (5 anchors covering absolute URL, scheme-relative, relative-no-leading-slash, absolute-path baseline, `..`-segment resolution).
-- Oracle test: ORC-079, ORC-080, ORC-081, ORC-082, ORC-086.
+- Probe: `tools/probe/cases/redirects-destination-forms.json` (7 anchors covering absolute URL, scheme-relative, relative-no-leading-slash, absolute-path baseline, mid-path `..` resolution, leading `..` resolution, empty destination → root).
+- Oracle test: ORC-079, ORC-080, ORC-081, ORC-082, ORC-086, ORC-087, ORC-088.
 
 Requirement:
-A `destination` whose value parses as a URL with a non-empty protocol (e.g. `https://example.com/x`) is used verbatim as the `Location` header value (`encodeURI` is still applied). Destinations without a protocol go through `path.posix.normalize` + leading-slash guarantee (`glob-slash.slasher`), which collapses consecutive slashes — so `//example.com/x` becomes `/example.com/x` (same-origin redirect, not a true scheme-relative URL).
+A `destination` whose value parses as a URL with a non-empty protocol (e.g. `https://example.com/x`) is used verbatim as the `Location` header value (`encodeURI` is still applied). Destinations without a protocol go through `path.posix.normalize(path.posix.join('/', value))` (`glob-slash.slasher`), which collapses consecutive slashes (so `//example.com/x` becomes `/example.com/x` — same-origin redirect, not a true scheme-relative URL), resolves `.`/`..` segments (so `a/../b` becomes `/b`; `../b` joins to `/../b` then drops `..`-above-root to `/b`), and turns an empty destination into `/`.
 
 Compatibility notes:
 - L2 priority. Q-007 closed by `tools/probe/snapshots/redirects-destination-forms.json`.

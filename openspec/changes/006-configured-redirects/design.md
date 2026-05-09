@@ -100,8 +100,10 @@ returns null. The classifier collapses both legs:
    has no trailing slash and `path` has one extra trailing slash, or
    vice versa. Mirrors `pathToRegExp("/old", []) = ^/old/?$`.
 
-A source with `:name` and `!`-prefix is rejected at compile time via
-`CompileError::NegatedParam` (see below).
+A source with `:name` and `!`-prefix is NOT rejected — it routes
+to `Glob` with `negate=true` so the `:name` fragments are treated
+as literal characters in the glob (see CompileError below; Codex
+review round 2 P1).
 
 ### 3.1 Glob meta classification
 
@@ -163,13 +165,17 @@ where the reference would throw at request time.
 - If `has_protocol(dest)` is truthy, return `dest.to_string()` (the
   reference's `protocol ? destination : slasher(destination)` at
   `index.js:80` short-circuits here).
-- Otherwise, `path_posix_normalize(dest)` — a Rust port of Node's
-  `path.posix.normalize` that collapses consecutive slashes AND
-  resolves `.`/`..` segments. Mirrors `glob-slash.slasher`'s
-  `path.posix.normalize(path.posix.join('/', value))` body
-  (`glob-slash.js:6`). `..` above the absolute root is silently
-  dropped (matches Node).
-- If the result starts with `/`, return as-is; else prepend `/`.
+- Otherwise, `slasher_join_normalize(dest)` — a helper that mirrors
+  `path.posix.normalize(path.posix.join('/', value))`: prepends `/`
+  before normalization (Codex review round 2 P1 corrected an
+  earlier implementation that called `path_posix_normalize` first
+  and prepended `/` after, which diverged for leading-`..` and
+  empty inputs).
+
+The same `slasher_join_normalize` is used by `slasher` (the
+source-pattern preprocessor) for parity — the reference's
+`glob-slash.slasher` is also `path.posix.normalize(path.posix.join('/', value))`,
+applied to the source after `!`-prefix splitting.
 
 `has_protocol` checks for a valid URL scheme prefix: `[A-Za-z][A-Za-z0-9+.\-]*`
 followed by `:`. Mirrors the truthy branch of
@@ -182,7 +188,9 @@ followed by `:`. Mirrors the truthy branch of
 - `path_posix_normalize("/a/../b") = "/b"` (absolute).
 - `path_posix_normalize("/../../b") = "/b"` (`..` above root drops).
 - `path_posix_normalize("../foo") = "../foo"` (relative `..`
-  accumulates when nothing left to pop).
+  accumulates when nothing left to pop — the leading-slash join
+  in `slasher_join_normalize` is what causes destinations like
+  `../b` to drop the `..` rather than accumulate it).
 - `path_posix_normalize("//example.com/x") = "/example.com/x"`
   (the Q-007 scheme-relative collapse).
 - `path_posix_normalize("a/./b") = "a/b"` (`.` segments drop).
@@ -236,19 +244,18 @@ pub enum CompileError {
     Glob(#[from] globset::Error),
     #[error("invalid path pattern: {0}")]
     Regex(#[from] regex::Error),
-    #[error("path-segment params (:name) cannot combine with !-prefix negation")]
-    NegatedParam,
 }
 ```
 
 `Glob` covers a malformed `globset::Glob`. `Regex` covers a
 malformed compiled regex from `compile_source_regex` (rare in
 practice — most user-error sources still compile, just to a regex
-that doesn't match anything). `NegatedParam` rejects `!`-prefix +
-`:name` upfront because path-to-regexp has no negation flag and
-the reference's minimatch fallback for that combo treats `:name`
-as literal characters anyway. Surfaced as a stderr warning at
-startup; the rule is dropped from the compiled list.
+that doesn't match anything). `!`-prefix combined with `:name` is
+NOT rejected (Codex review round 2 P1 reversed the earlier
+`NegatedParam` rejection): the combination routes to `Glob` with
+`negate=true` and the `:name` fragments are treated as literal
+characters in the glob, mirroring the reference's minimatch
+fallback at `serve-handler/src/index.js:59`.
 
 ## 7. Test strategy
 

@@ -132,8 +132,6 @@ pub enum CompileError {
     Glob(#[from] globset::Error),
     #[error("invalid path pattern: {0}")]
     Regex(#[from] regex::Error),
-    #[error("path-segment params (:name) cannot combine with !-prefix negation")]
-    NegatedParam,
 }
 
 /// Compile the user-supplied redirect rules into matchers. Invalid
@@ -163,18 +161,23 @@ fn compile_one(rule: &RedirectRule) -> Result<RedirectRuleCompiled, CompileError
     };
     let normalized_dest = normalize_destination(&rule.destination);
     // Routing classifier: mirror `serve-handler/src/index.js:38-67`'s
-    // path-to-regexp first-pass + minimatch fallback. The reference's
-    // `sourceMatches` pre-substitutes `*` → `(.*)` then calls
-    // `pathToRegExp`, so any source containing `*` (with or without
-    // `:name`) participates in cross-segment regex matching. Only
-    // when the source has no `*`/`:name` and no `!`-prefix do we
-    // route to globset (the minimatch-style fallback for `?`, `[`,
-    // `{` patterns). `!`-prefix forces glob (negate XOR mirrors
-    // minimatch's `nonegate: false` per-pattern semantics) and is
-    // incompatible with `:name`: path-to-regexp has no negation flag,
-    // and the reference's minimatch fallback for that combo treats
-    // `:name` as literal characters that no real request path will
-    // match.
+    // `sourceMatches` codepath. The reference always tries
+    // `pathToRegExp` first (with `*` → `(.*)` pre-substitution) and
+    // falls back to `minimatch` only when the regex returns null.
+    //
+    // - Sources with `:name` or `*` (and not `!`-prefixed) → Pattern
+    //   (regex). Mirrors the path-to-regexp first-pass.
+    // - `!`-prefixed sources → Glob (negate=true). The reference's
+    //   path-to-regexp first-pass on `!`-bearing patterns produces
+    //   a regex that matches paths starting with `!` — which real
+    //   requests never do — so it falls through to minimatch's
+    //   negation handler. We mirror by routing directly to globset
+    //   with the negate flag, treating `:name`-like fragments as
+    //   literal characters in the glob (which is what minimatch
+    //   does too — Codex review round 2 P1).
+    // - Sources with `?`/`[`/`{` glob meta (no `*`, no `:name`,
+    //   no `!`) → Glob.
+    // - Otherwise → Literal.
     let needs_pattern = (has_path_param(&body) || body.contains('*')) && !negate;
     let matcher = if needs_pattern {
         let regex = compile_source_regex(&body)?;
@@ -183,8 +186,6 @@ fn compile_one(rule: &RedirectRule) -> Result<RedirectRuleCompiled, CompileError
             regex,
             dest_template,
         }
-    } else if has_path_param(&body) && negate {
-        return Err(CompileError::NegatedParam);
     } else if has_glob_meta(&body) || negate {
         let glob = GlobBuilder::new(&body).literal_separator(true).build()?;
         Matcher::Glob {
@@ -211,30 +212,41 @@ fn compile_one(rule: &RedirectRule) -> Result<RedirectRuleCompiled, CompileError
 /// const normalizedDest = protocol ? destination : slasher(destination);
 /// ```
 ///
-/// where `slasher` is `glob-slash`'s `path.posix.normalize` +
-/// leading-slash guarantee
-/// (`third_party/serve-handler/src/glob-slash.js:6`,
-/// `path.posix.normalize(path.posix.join('/', value))`). This is what
-/// gives the reference two surprising-at-first behaviors:
+/// where `slasher` is
+/// `path.posix.normalize(path.posix.join('/', value))`
+/// (`third_party/serve-handler/src/glob-slash.js:6`). The
+/// `join('/', value)` step is critical: a leading-`..` input like
+/// `../b` first joins to `/../b`, then `path.posix.normalize` drops
+/// the `..`-above-root segment, yielding `/b`. An empty destination
+/// joins to `/` and normalizes to `/`. We mirror via
+/// `slasher_join_normalize` below.
 ///
-/// - `//example.com/x` collapses to `/example.com/x` (consecutive
-///   slashes folded by `path.posix.normalize`, NOT preserved as a
-///   scheme-relative URL).
-/// - `a/../b` collapses to `/b` (`..` segments resolved by
-///   `path.posix.normalize`).
-///
-/// We mirror both via `path_posix_normalize` below, pinned by
-/// `tools/probe/snapshots/redirects-destination-forms.json`.
+/// Q-007 surprises pinned by
+/// `tools/probe/snapshots/redirects-destination-forms.json`:
+/// `//example.com/x` → `/example.com/x` (`//` collapse), `a/../b`
+/// → `/b` (`..` resolution), `../b` → `/b` (leading-`..`-above-root
+/// drop), `""` → `/` (empty destination becomes root).
 fn normalize_destination(dest: &str) -> String {
     if has_protocol(dest) {
         return dest.to_string();
     }
-    let normalized = path_posix_normalize(dest);
-    if normalized.starts_with('/') {
-        normalized
+    slasher_join_normalize(dest)
+}
+
+/// Mirrors `path.posix.normalize(path.posix.join('/', value))` from
+/// `glob-slash.slasher`. Used both for redirect destinations
+/// (`normalize_destination`) and for redirect source patterns
+/// (`slasher`, after the `!`-prefix is split out). The
+/// `path.posix.join('/', ...)` prepends a `/` BEFORE normalization,
+/// which is what causes leading-`..` segments to land above the
+/// absolute root and be silently dropped.
+fn slasher_join_normalize(value: &str) -> String {
+    let joined = if value.starts_with('/') {
+        value.to_string()
     } else {
-        format!("/{normalized}")
-    }
+        format!("/{value}")
+    };
+    path_posix_normalize(&joined)
 }
 
 /// POSIX-style path normalization, mirroring Node's
@@ -439,10 +451,27 @@ fn has_path_param(source: &str) -> bool {
 /// Compile a `:name`-bearing source pattern into a `regex::Regex` with
 /// named capture groups. Mirrors `slashed.replace('*', '(.*)')` +
 /// `pathToRegExp(normalized, keys)` from
-/// `serve-handler/src/index.js:46-49`:
+/// `serve-handler/src/index.js:46-49`, with two fidelity points:
 ///
-/// - `:name` segments → `(?P<name>[^/]+)` (single segment, no slashes).
-/// - `*` token → `(.*)` (anonymous, may cross segments).
+/// - JavaScript's `String.prototype.replace('*', '(.*)')` replaces
+///   only the FIRST `*` (Codex review round 2 P1). We mirror by
+///   tracking `star_replaced`: the first `*`-run becomes `(.*)`,
+///   later `*`-runs are emitted as regex literals (`\*`).
+/// - Consecutive `*`s collapse to a single `*` in our compiler.
+///   Reference test `serve-handler/test/integration.test.js:432`
+///   ("set 'redirects' config property to wildcard path") shows
+///   `face/**` matching `/face/me`; after the first-only replace
+///   the reference passes `face/(.*)*` to path-to-regexp v3, which
+///   parses the trailing `*` as a kleene modifier on the previous
+///   `(.*)` group — yielding a regex that matches anything under
+///   `/face/`. Rather than port the path-to-regexp v3 modifier
+///   grammar, we collapse consecutive `*`s to a single one (so
+///   `**` → `(.*)`), which produces the same effective match for
+///   the patterns the reference test suite exercises.
+///
+/// Other tokens:
+/// - `:name` segments → `(?P<name>[^/]+)` (single segment, no
+///   slashes).
 /// - All other characters → regex-escaped literals.
 /// - The regex is anchored `^...\/?$`, matching path-to-regexp's
 ///   default optional trailing slash.
@@ -450,6 +479,7 @@ fn compile_source_regex(slashed: &str) -> Result<regex::Regex, regex::Error> {
     let mut pattern = String::from("^");
     let bytes = slashed.as_bytes();
     let mut i = 0;
+    let mut star_replaced = false;
     while i < bytes.len() {
         match bytes[i] {
             b':' => {
@@ -473,7 +503,18 @@ fn compile_source_regex(slashed: &str) -> Result<regex::Regex, regex::Error> {
                 }
             }
             b'*' => {
-                pattern.push_str("(.*)");
+                // Consume consecutive `*`s — collapse to a single
+                // wildcard to match the reference's effective
+                // `**`-handling (see doc comment above).
+                while i + 1 < bytes.len() && bytes[i + 1] == b'*' {
+                    i += 1;
+                }
+                if !star_replaced {
+                    pattern.push_str("(.*)");
+                    star_replaced = true;
+                } else {
+                    pattern.push_str(&regex::escape("*"));
+                }
                 i += 1;
             }
             _ => {
@@ -537,21 +578,28 @@ fn compile_dest_template(dest: &str) -> DestTemplate {
     DestTemplate { fragments }
 }
 
-/// Mirrors `slasher` from `serve-handler/src/glob-slash.js:8`: ensures
-/// the source has a leading `/`. The `!`-prefix is preserved so the
-/// caller can split out the negation flag.
+/// Mirrors `slasher` from `serve-handler/src/glob-slash.js:6`:
+///
+/// ```js
+/// value.charAt(0) === '!'
+///     ? '!' + path.posix.normalize(path.posix.join('/', value.substr(1)))
+///     : path.posix.normalize(path.posix.join('/', value));
+/// ```
+///
+/// The `!`-prefix is preserved verbatim so the caller can split out
+/// the negation flag; the body is run through
+/// `slasher_join_normalize` (i.e.
+/// `path.posix.normalize(path.posix.join('/', body))`), which
+/// ensures a leading `/`, collapses consecutive slashes, and
+/// resolves `.`/`..` segments. Codex review round 2 P1: the
+/// previous implementation only prepended `/`, so a source like
+/// `../old` would compile to a literal-match against `/../old`
+/// rather than the reference's `/old`.
 fn slasher(pattern: &str) -> String {
     if let Some(rest) = pattern.strip_prefix('!') {
-        let normalized = if rest.starts_with('/') {
-            rest.to_string()
-        } else {
-            format!("/{rest}")
-        };
-        format!("!{normalized}")
-    } else if pattern.starts_with('/') {
-        pattern.to_string()
+        format!("!{}", slasher_join_normalize(rest))
     } else {
-        format!("/{pattern}")
+        slasher_join_normalize(pattern)
     }
 }
 
@@ -629,6 +677,26 @@ mod tests {
         assert!(compute_configured_redirects("/old", &rules).is_some());
     }
 
+    #[test]
+    fn literal_source_resolves_leading_dotdot() {
+        // Codex review round 2 P1: source `slasher` is
+        // `path.posix.normalize(path.posix.join('/', value))`, so
+        // `../old` joins to `/../old`, normalizes to `/old`. The
+        // compiled rule then literal-matches `/old`. Without the
+        // join-with-`/` step, the source would compile to a literal
+        // match against `/../old` (a path no real request carries).
+        let rules = compile(&[rule("../old", "/new", None)]);
+        let (target, _) = compute_configured_redirects("/old", &rules)
+            .expect("source `../old` should normalize to literal `/old`");
+        assert_eq!(target, "/new");
+    }
+
+    #[test]
+    fn literal_source_resolves_dot_segment() {
+        let rules = compile(&[rule("/a/./b", "/new", None)]);
+        assert!(compute_configured_redirects("/a/b", &rules).is_some());
+    }
+
     // ----- glob source ---------------------------------------------
 
     #[test]
@@ -652,6 +720,24 @@ mod tests {
         let rules = compile(&[rule("/dir/**", "/elsewhere", None)]);
         assert!(compute_configured_redirects("/dir/page", &rules).is_some());
         assert!(compute_configured_redirects("/dir/sub/page", &rules).is_some());
+    }
+
+    #[test]
+    fn multi_star_source_only_first_substitutes() {
+        // Codex review round 2 P1: JS `String.replace('*', '(.*)')`
+        // replaces only the FIRST `*`. The reference's source
+        // `/a/*/b/*` becomes regex `/a/(.*)/b/*` (path-to-regexp
+        // then interprets the trailing `*` as kleene). Our compiler
+        // emits `^/a/(.*)/b/\*/?$` — the second `*` is regex-escaped
+        // to a literal `*` that real URLs never carry, so requests
+        // like `/a/x/b/y/z` correctly fall through to 404 (matching
+        // the reference's "no match" behavior on this input).
+        let rules = compile(&[rule("/a/*/b/*", "/multi-hit", None)]);
+        assert!(compute_configured_redirects("/a/x/b/y/z", &rules).is_none());
+        assert!(compute_configured_redirects("/a/x/b/y", &rules).is_none());
+        // A request that literally contains `*` after `/b/` would
+        // match — odd but consistent with the regex shape.
+        assert!(compute_configured_redirects("/a/x/b/*", &rules).is_some());
     }
 
     #[test]
@@ -822,14 +908,24 @@ mod tests {
     }
 
     #[test]
-    fn pattern_negation_combo_is_rejected() {
-        // `!`-prefix + `:name` is an unsupported combination; the rule
-        // is dropped with a CompileError::NegatedParam variant.
-        let rules = vec![rule("!/old-docs/:id", "/new", None)];
-        let (compiled, invalid) = compile_rules(&rules);
-        assert_eq!(compiled.len(), 0);
-        assert_eq!(invalid.len(), 1);
-        assert!(matches!(invalid[0].error, CompileError::NegatedParam));
+    fn pattern_negation_combo_falls_to_glob() {
+        // Codex review round 2 P1: `!`-prefix + `:name` is NOT
+        // rejected — the reference's `sourceMatches` falls through
+        // to minimatch on this combo (`serve-handler/src/index.js:59`),
+        // and minimatch treats `:name`-like fragments as literal
+        // characters in a negated glob. We mirror by routing to
+        // Glob with negate=true; the rule matches every path that
+        // does NOT literally equal the (slasher-normalized) source.
+        let rules = compile(&[rule("!/old-docs/:id", "/new", None)]);
+        // Path `/old-docs/12` is NOT literally `/old-docs/:id`, so
+        // the negation matches → redirect fires.
+        let (target, status) = compute_configured_redirects("/old-docs/12", &rules)
+            .expect("negation glob should match a non-literal path");
+        assert_eq!(target, "/new");
+        assert_eq!(status, 301);
+        // The literal source itself, on the other hand, does NOT
+        // match (negation excludes it).
+        assert!(compute_configured_redirects("/old-docs/:id", &rules).is_none());
     }
 
     #[test]
@@ -945,6 +1041,31 @@ mod tests {
         let rules = compile(&[rule("/escape", "/../../b", None)]);
         let (target, _) = compute_configured_redirects("/escape", &rules).unwrap();
         assert_eq!(target, "/b");
+    }
+
+    #[test]
+    fn destination_normalize_leading_dotdot_resolves() {
+        // Codex review round 2 P1: `slasher` is
+        // `path.posix.normalize(path.posix.join('/', value))`. The
+        // `join('/', '../b')` step prepends `/` BEFORE normalize,
+        // turning `../b` into `/../b`, which normalize then folds
+        // to `/b` (`..`-above-root drop). Without the join step, a
+        // naive `path.posix.normalize('../b')` returns `'../b'`
+        // (relative `..` accumulates). Pinned by ORC-086 family.
+        let rules = compile(&[rule("/up", "../b", None)]);
+        let (target, _) = compute_configured_redirects("/up", &rules).unwrap();
+        assert_eq!(target, "/b");
+    }
+
+    #[test]
+    fn destination_normalize_empty_becomes_root() {
+        // Codex review round 2 P1: empty destination joins to `/`,
+        // which normalizes to `/`. Without the join-with-`/` step,
+        // `path_posix_normalize("")` returns `.`, which would yield
+        // a `Location: /.` — divergent from the reference's `/`.
+        let rules = compile(&[rule("/empty", "", None)]);
+        let (target, _) = compute_configured_redirects("/empty", &rules).unwrap();
+        assert_eq!(target, "/");
     }
 
     #[test]

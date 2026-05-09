@@ -1,0 +1,69 @@
+{
+  "$schemaVersion": 1,
+  "case": "redirects-source-slasher",
+  "description": "Source-side slasher parity: reference's `slasher` is `path.posix.normalize(path.posix.join('/', value))` (glob-slash.js:6), so a source `../old` joins to `/../old`, normalizes to `/old`, then literal-matches request `/old`. Closes Codex round 2 P1 source-side gap. The earlier slice-1 `slasher` only prepended `/` and would have compiled this rule against `/../old`, which real requests never carry.",
+  "fixture": {
+    "files": {
+      "_marker.txt": "marker\n"
+    },
+    "serveJson": {
+      "redirects": [
+        {
+          "source": "../old",
+          "destination": "/new"
+        },
+        {
+          "source": "/a/./b",
+          "destination": "/dot-resolved"
+        }
+      ]
+    }
+  },
+  "serveArgs": [],
+  "volatileHeaders": [
+    "last-modified"
+  ],
+  "volatileBodies": [],
+  "requests": [
+    {
+      "name": "leading_dotdot_source_resolves",
+      "request": {
+        "method": "GET",
+        "mode": "fetch",
+        "path": "/old"
+      },
+      "response": {
+        "body": {
+          "kind": "empty",
+          "length": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        "headers": {
+          "location": "/new"
+        },
+        "status": 301,
+        "statusText": "Moved Permanently"
+      }
+    },
+    {
+      "name": "dot_segment_source_resolves",
+      "request": {
+        "method": "GET",
+        "mode": "fetch",
+        "path": "/a/b"
+      },
+      "response": {
+        "body": {
+          "kind": "empty",
+          "length": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        "headers": {
+          "location": "/dot-resolved"
+        },
+        "status": 301,
+        "statusText": "Moved Permanently"
+      }
+    }
+  ]
+}

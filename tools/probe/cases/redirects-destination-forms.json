@@ -11,7 +11,9 @@
         { "source": "/proto", "destination": "//example.com/x" },
         { "source": "/rel", "destination": "foo/bar" },
         { "source": "/abs-path", "destination": "/foo/bar" },
-        { "source": "/up", "destination": "a/../b" }
+        { "source": "/up", "destination": "a/../b" },
+        { "source": "/up-leading", "destination": "../b" },
+        { "source": "/empty", "destination": "" }
       ]
     }
   },
@@ -22,14 +24,18 @@
         "scheme_relative",
         "relative_no_leading_slash",
         "absolute_path_baseline",
-        "dotdot_resolved"
+        "dotdot_resolved",
+        "dotdot_leading_resolved",
+        "empty_destination_root"
       ],
       "contentLengthMayDiffer": [
         "absolute_https",
         "scheme_relative",
         "relative_no_leading_slash",
         "absolute_path_baseline",
-        "dotdot_resolved"
+        "dotdot_resolved",
+        "dotdot_leading_resolved",
+        "empty_destination_root"
       ]
     }
   },
@@ -38,6 +44,8 @@
     { "name": "scheme_relative", "method": "GET", "path": "/proto" },
     { "name": "relative_no_leading_slash", "method": "GET", "path": "/rel" },
     { "name": "absolute_path_baseline", "method": "GET", "path": "/abs-path" },
-    { "name": "dotdot_resolved", "method": "GET", "path": "/up" }
+    { "name": "dotdot_resolved", "method": "GET", "path": "/up" },
+    { "name": "dotdot_leading_resolved", "method": "GET", "path": "/up-leading" },
+    { "name": "empty_destination_root", "method": "GET", "path": "/empty" }
   ]
 }

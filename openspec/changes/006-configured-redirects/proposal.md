@@ -73,10 +73,13 @@ with the trailingSlash↔redirects compose corner.
   - `..`-bearing destinations (`a/../b`) resolve to `/b` because
     `path.posix.normalize` resolves `..` segments (with `..` above
     the absolute root silently dropped).
-  IrServe mirrors all five via `redirects::normalize_destination`,
-  which calls a local `path_posix_normalize` (consecutive-slash
-  collapse + `.`/`..` resolution) followed by the leading-slash
-  guarantee. Pinned by ORC-079 through ORC-082 + ORC-086.
+  IrServe mirrors via `redirects::normalize_destination`, which
+  calls `slasher_join_normalize` — a helper that prepends `/`
+  BEFORE `path_posix_normalize`, mirroring
+  `path.posix.normalize(path.posix.join('/', value))` exactly. The
+  same helper is used by `slasher` (the source-pattern preprocessor)
+  for parity. Pinned by ORC-079 through ORC-082, ORC-086, ORC-087,
+  ORC-088, ORC-092, ORC-093.
 
 - **`type` override (SRV-RDIR-002).** A rule's optional `type`
   field overrides the default 301 status code. Out-of-range u16
@@ -135,9 +138,3 @@ with the trailingSlash↔redirects compose corner.
   supports `:foo(\d+)` for custom per-segment regexes. Not in 6d's
   scope; if a probe surfaces a user need, escalate to a Q-NNN.
 
-- **`:name` + `!`-prefix negation combination.** Rejected at compile
-  time via `CompileError::NegatedParam`. The reference's minimatch
-  fallback for that combination treats `:name` as literal characters
-  that no real request path will match — the rule never fires there
-  either. Surfaced as a stderr warning rather than silently producing
-  a never-matching rule.

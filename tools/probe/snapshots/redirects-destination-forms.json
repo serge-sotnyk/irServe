@@ -27,6 +27,14 @@
         {
           "source": "/up",
           "destination": "a/../b"
+        },
+        {
+          "source": "/up-leading",
+          "destination": "../b"
+        },
+        {
+          "source": "/empty",
+          "destination": ""
         }
       ]
     }
@@ -132,6 +140,46 @@
         },
         "headers": {
           "location": "/b"
+        },
+        "status": 301,
+        "statusText": "Moved Permanently"
+      }
+    },
+    {
+      "name": "dotdot_leading_resolved",
+      "request": {
+        "method": "GET",
+        "mode": "fetch",
+        "path": "/up-leading"
+      },
+      "response": {
+        "body": {
+          "kind": "empty",
+          "length": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        "headers": {
+          "location": "/b"
+        },
+        "status": 301,
+        "statusText": "Moved Permanently"
+      }
+    },
+    {
+      "name": "empty_destination_root",
+      "request": {
+        "method": "GET",
+        "mode": "fetch",
+        "path": "/empty"
+      },
+      "response": {
+        "body": {
+          "kind": "empty",
+          "length": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        "headers": {
+          "location": "/"
         },
         "status": 301,
         "statusText": "Moved Permanently"

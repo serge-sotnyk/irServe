@@ -1,24 +1,42 @@
 {
   "id": "redirects-glob-source",
-  "description": "Glob `*` source crosses path segments — reference's `sourceMatches` at serve-handler/src/index.js:38-67 pre-substitutes `*` with `(.*)` then calls `pathToRegExp`, so `/dir/*` matches both `/dir/page` (one segment) and `/dir/sub/page` (multi segment). Locks the redirect-side of this behavior so a future regression on the `*`-source routing classifier shows up in the oracle. Closes Codex round 1 P1.",
+  "description": "Glob `*` source crosses path segments — reference's `sourceMatches` at serve-handler/src/index.js:38-67 pre-substitutes `*` with `(.*)` then calls `pathToRegExp`, so `/dir/*` matches both `/dir/page` (one segment) and `/dir/sub/page` (multi segment). Locks the redirect-side of this behavior so a future regression on the `*`-source routing classifier shows up in the oracle. Closes Codex round 1 P1 and round 2 P1: JS `String.prototype.replace('*', '(.*)')` replaces only the FIRST `*` — so a source like `/a/*/b/*` does NOT over-match (the trailing `*` becomes a path-to-regexp kleene modifier that doesn't fire on multi-segment trailing paths). Also covers `**`-collapse: `/dir/**` matches like `/dir/*`.",
   "fixture": {
     "files": {
       "_marker.txt": "marker\n"
     },
     "serveJson": {
       "redirects": [
-        { "source": "/dir/*", "destination": "/elsewhere" }
+        { "source": "/dir/*", "destination": "/elsewhere" },
+        { "source": "/face/**", "destination": "/double-star-hit" },
+        { "source": "/a/*/b/*", "destination": "/multi-hit" }
       ]
     }
   },
   "runner": {
     "l0": {
-      "clean": ["star_matches_single_segment", "star_matches_multi_segment"],
-      "contentLengthMayDiffer": ["star_matches_single_segment", "star_matches_multi_segment"]
+      "clean": [
+        "star_matches_single_segment",
+        "star_matches_multi_segment",
+        "double_star_matches_single",
+        "double_star_matches_multi",
+        "multi_star_no_overmatch"
+      ],
+      "contentLengthMayDiffer": [
+        "star_matches_single_segment",
+        "star_matches_multi_segment",
+        "double_star_matches_single",
+        "double_star_matches_multi",
+        "multi_star_no_overmatch"
+      ],
+      "bodyMayDiffer": ["multi_star_no_overmatch"]
     }
   },
   "requests": [
     { "name": "star_matches_single_segment", "method": "GET", "path": "/dir/page" },
-    { "name": "star_matches_multi_segment", "method": "GET", "path": "/dir/sub/page" }
+    { "name": "star_matches_multi_segment", "method": "GET", "path": "/dir/sub/page" },
+    { "name": "double_star_matches_single", "method": "GET", "path": "/face/me" },
+    { "name": "double_star_matches_multi", "method": "GET", "path": "/face/sub/page" },
+    { "name": "multi_star_no_overmatch", "method": "GET", "path": "/a/x/b/y/z" }
   ]
 }

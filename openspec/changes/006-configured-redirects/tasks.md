@@ -223,3 +223,81 @@
   --target=reference --snapshot=verify` 46/46;
   `npx -y @fission-ai/openspec@latest validate --all --strict` —
   14/14.
+
+## 5. Codex review round 2 (P1 fixes)
+
+- [x] 5.1 **P1 — multi-`*` over-match fixed.**
+  `compile_source_regex` now mirrors JS
+  `String.prototype.replace('*', '(.*)')` (first-only): the first
+  `*`-run becomes `(.*)`, subsequent `*`-runs are emitted as regex
+  literals (`\*`). Consecutive `*`s collapse to a single one
+  (so `**` still matches like `*` per the reference's
+  `serve-handler/test/integration.test.js:432` precedent —
+  `face/**` matches `/face/me`). Closes the over-match where
+  `/a/*/b/*` previously matched `/a/x/b/y/z`.
+- [x] 5.2 **P1 — `slasher` parity for source AND destination.**
+  Both `slasher` (source) and `normalize_destination` (destination)
+  now call `slasher_join_normalize`, a helper that mirrors
+  `path.posix.normalize(path.posix.join('/', value))`. The
+  join-with-`/`-first prepend is critical: a leading `..` or
+  empty input first joins to `/..` or `/` BEFORE normalization,
+  yielding `/` (`..` above root drops) rather than `/..` or `/.`.
+  Closes the source-side gap (`source: "../old"` now matches
+  `/old`) and the destination-side gap (`destination: "../b"`
+  → `Location: /b`; `destination: ""` → `Location: /`).
+- [x] 5.3 **P1 — `!` + `:name` no longer rejected.**
+  `CompileError::NegatedParam` variant removed. The classifier
+  now routes `!`-prefix sources to `Glob` regardless of `:name`
+  presence in the body, mirroring the reference's `sourceMatches`
+  fallback (path-to-regexp returns null on `!`-bearing patterns,
+  minimatch handles negation, `:name` fragments are treated as
+  literal). The rule fires for every path that does NOT literally
+  equal the slasher-normalized source.
+- [x] 5.4 New unit tests in `redirects.rs`:
+  `multi_star_source_only_first_substitutes` (P1.1),
+  `literal_source_resolves_leading_dotdot` and
+  `literal_source_resolves_dot_segment` (P1.2 source side),
+  `destination_normalize_leading_dotdot_resolves` and
+  `destination_normalize_empty_becomes_root` (P1.2 destination
+  side), `pattern_negation_combo_falls_to_glob` (P1.3, replaces
+  the prior `pattern_negation_combo_is_rejected`).
+- [x] 5.5 New probes:
+  - `tools/probe/cases/redirects-glob-source.json` extended with
+    `double_star_matches_single`, `double_star_matches_multi`,
+    `multi_star_no_overmatch` anchors. ORC-089, ORC-090, ORC-091.
+  - `tools/probe/cases/redirects-destination-forms.json` extended
+    with `dotdot_leading_resolved` (`../b` → `/b`) and
+    `empty_destination_root` (`""` → `/`) anchors. ORC-087, ORC-088.
+  - `tools/probe/cases/redirects-source-slasher.json` (NEW): two
+    anchors for source-side `slasher` parity (`../old` matching
+    `/old`; `/a/./b` matching `/a/b`). ORC-092, ORC-093.
+  - `tools/probe/cases/redirects-negation-source.json` (NEW): one
+    anchor for `!`-prefix + `:name` falling through to minimatch.
+    ORC-094.
+- [x] 5.6 Spec updates:
+  - `006-configured-redirects/specs/redirects/spec.md` — removed
+    `NegatedParam` paragraph, replaced with the minimatch-fallback
+    description; oracle list extended with ORC-084..094.
+  - `006-configured-redirects/proposal.md` — corrected
+    `normalize_destination` description (uses
+    `slasher_join_normalize`, not bare `path_posix_normalize`);
+    removed `:name + !-prefix` out-of-scope entry.
+  - `006-configured-redirects/design.md` — `CompileError` block
+    updated (no more NegatedParam); routing-classifier section
+    updated; §4.2 destination-normalization explains the
+    `slasher_join_normalize` helper.
+- [x] 5.7 `docs/reference/serve/decisions.md` — D-012 updated to
+  document the round-2 fixes (multi-`*` + slasher parity +
+  `!`+`:name` minimatch fallback).
+- [x] 5.8 `docs/reference/serve/oracle-matrix.md` — append rows
+  ORC-087 through ORC-094.
+- [x] 5.9 `docs/reference/serve/inventory.md` — SRV-RDIR-001
+  oracle list extended with new ORC IDs and probe references;
+  SRV-RDIR-003 oracle list extended with ORC-087, ORC-088.
+- [x] 5.10 Verify: `cargo test -p irserve-core redirects` 59/59
+  green (was 54); `cargo test --workspace` 150/150; `cargo test
+  --test oracle` 27 passed (was 25, +2 cases from new probes),
+  21 skipped, 0 failed; `node tools/probe/run.mjs --all
+  --target=reference --snapshot=verify` 48/48 (was 46);
+  `npx -y @fission-ai/openspec@latest validate --all --strict` —
+  14/14.

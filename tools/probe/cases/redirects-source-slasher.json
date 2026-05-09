@@ -1,0 +1,25 @@
+{
+  "id": "redirects-source-slasher",
+  "description": "Source-side slasher parity: reference's `slasher` is `path.posix.normalize(path.posix.join('/', value))` (glob-slash.js:6), so a source `../old` joins to `/../old`, normalizes to `/old`, then literal-matches request `/old`. Closes Codex round 2 P1 source-side gap. The earlier slice-1 `slasher` only prepended `/` and would have compiled this rule against `/../old`, which real requests never carry.",
+  "fixture": {
+    "files": {
+      "_marker.txt": "marker\n"
+    },
+    "serveJson": {
+      "redirects": [
+        { "source": "../old", "destination": "/new" },
+        { "source": "/a/./b", "destination": "/dot-resolved" }
+      ]
+    }
+  },
+  "runner": {
+    "l0": {
+      "clean": ["leading_dotdot_source_resolves", "dot_segment_source_resolves"],
+      "contentLengthMayDiffer": ["leading_dotdot_source_resolves", "dot_segment_source_resolves"]
+    }
+  },
+  "requests": [
+    { "name": "leading_dotdot_source_resolves", "method": "GET", "path": "/old" },
+    { "name": "dot_segment_source_resolves", "method": "GET", "path": "/a/b" }
+  ]
+}
