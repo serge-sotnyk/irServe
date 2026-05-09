@@ -366,3 +366,51 @@
   one case), 21 skipped, 0 failed; `node tools/probe/run.mjs
   --all --target=reference --snapshot=verify` 48/48; `npx -y
   @fission-ai/openspec@latest validate --all --strict` — 14/14.
+
+## 7. Codex review round 4 (P1 + P2 fixes)
+
+- [x] 7.1 **P1 — leading-dot rejection in glob fallback.**
+  globset's `*` matches dotfiles, while minimatch's default
+  (`dot: false`) does not. Round 3's `glob_fallback: Option<GlobMatcher>`
+  field was missing this constraint, so requests like
+  `/a/.x/b/y` against `/a/*/b/*` returned 301 in irserve while
+  the reference returns 404. Fixed by wrapping the matcher in a
+  new `GlobFallback` struct that carries `pattern_segments` and
+  `has_doublestar` metadata; the `matches_strict` method runs
+  globset first, then walks pattern segments alongside path
+  segments and rejects when any `*`-bearing pattern segment
+  aligns with a leading-`.` path segment.
+- [x] 7.2 **P2 — glob fallback now builds for `:name`-bearing
+  sources too.** Round 3 gated the fallback on `!has_path_param`
+  on the assumption that minimatch would never fire for `:name`
+  sources. Codex showed this was wrong: requests CAN literally
+  carry `:name` segments (URL paths permit `:` unencoded), in
+  which case the reference's minimatch falls back and emits a
+  301. The gate was removed; the fallback now builds for any
+  `*`-bearing source.
+- [x] 7.3 New unit tests in `redirects.rs`:
+  `multi_star_source_rejects_dot_segments` (P1.1: `/a/*/b/*`
+  against `/a/.x/b/y` and `/a/x/b/.y` both miss; positive
+  control kept) and `pattern_with_param_and_star_falls_back_to_glob`
+  (P2: `/a/:id/*/b/*` against literal `/a/:id/x/b/y` matches via
+  fallback; realistic `/a/foo/x/b/y` still misses).
+- [x] 7.4 New probes:
+  - `tools/probe/cases/redirects-glob-source.json` extended
+    with `multi_star_rejects_leading_dot_first` and
+    `multi_star_rejects_leading_dot_second` anchors. ORC-098,
+    ORC-099 added to oracle-matrix.
+  - `tools/probe/cases/redirects-pattern-with-multistar-fallback.json`
+    (NEW): one anchor `literal_colon_id_matches_via_minimatch`.
+    ORC-100 added.
+- [x] 7.5 D-012 in `decisions.md` extended with the round-4
+  refinements; `design.md` §8 stop-the-line item 3 updated to
+  document both refinements; `inventory.md` SRV-RDIR-001 oracle
+  list extended through ORC-100; the `006-configured-redirects`
+  delta `specs/redirects/spec.md` SRV-RDIR-001 oracle list also
+  extended.
+- [x] 7.6 Verify: `cargo test -p irserve-core redirects` 61/61
+  green (was 59); `cargo test --test oracle` 28 passed (was 27,
+  +1 case from `redirects-pattern-with-multistar-fallback`),
+  21 skipped, 0 failed; `node tools/probe/run.mjs --all
+  --target=reference --snapshot=verify` 49/49 (was 48); `npx -y
+  @fission-ai/openspec@latest validate --all --strict` — 14/14.

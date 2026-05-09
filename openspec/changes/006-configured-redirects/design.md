@@ -349,16 +349,31 @@ plan:
    Multi-`*` sources end up with a regex containing literal `\*`
    that real URLs can't match, and the reference's `sourceMatches`
    falls through to minimatch (single-segment `*` per pattern
-   element). Decision: keep `Pattern` (regex) for `:name`-bearing
-   sources, but for `*`-bearing-no-`:name` sources also store a
-   `globset::GlobMatcher` as `glob_fallback` on the `Pattern`
-   variant. At match time, try the regex first (so `:name`+`*`
-   sources still get path-to-regexp captures), fall back to the
-   glob (with a trailing-slash trim mirroring
+   element). Decision: keep `Pattern` (regex) and add a
+   `glob_fallback` field on the variant for `*`-bearing sources.
+   At match time, try the regex first (so `:name`+`*` sources
+   still get path-to-regexp captures), fall back to the glob
+   (with a trailing-slash trim mirroring
    `path.posix.resolve(requestPath)` at `index.js:41`) if the
-   regex returns no match. Pinned by `redirects-glob-source.json`:
-   ORC-091 (multi-trailing 404), ORC-095 (positive single-trailing
-   match), ORC-096 (no-trailing 404), ORC-097 (extra-middle 404).
+   regex returns no match. Codex round 4 P2 then removed the
+   gating on `!has_path_param`: the reference's minimatch
+   fallback fires for `:name`-bearing sources too when the
+   request literally carries `:name` in the corresponding
+   segment, so the fallback now builds unconditionally for any
+   `*`-bearing source. Codex round 4 P1 wrapped the
+   `GlobMatcher` in a `GlobFallback` struct with
+   `pattern_segments` + `has_doublestar` metadata; the
+   `matches_strict` method runs the globset match first then
+   applies minimatch's `dot: false` default by walking pattern
+   segments alongside path segments and rejecting when any
+   `*`-bearing pattern segment aligns with a leading-`.` path
+   segment. Pinned by `redirects-glob-source.json`: ORC-091
+   (multi-trailing 404), ORC-095 (positive single-trailing
+   match), ORC-096 (no-trailing 404), ORC-097 (extra-middle
+   404), ORC-098/ORC-099 (leading-`.` rejection per
+   minimatch `dot: false`); plus
+   `redirects-pattern-with-multistar-fallback.json#literal_colon_id_matches_via_minimatch`
+   (ORC-100, `:name`+`*` literal-`:name` minimatch hit).
 
 ## 9. Hard stops
 

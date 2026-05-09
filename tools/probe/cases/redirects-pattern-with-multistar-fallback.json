@@ -1,0 +1,23 @@
+{
+  "id": "redirects-pattern-with-multistar-fallback",
+  "description": "Codex round 4 P2: when a `:name`-bearing source ALSO has multiple `*` tokens, the reference's `sourceMatches` still falls back to minimatch on path-to-regexp miss (`serve-handler/src/index.js:47-66`). minimatch treats `:name` as literal characters, so a request that literally carries `:name` in the corresponding segment matches via the fallback. Locks this on the irserve side so the `glob_fallback` field stays unconditionally built for `*`-bearing sources.",
+  "fixture": {
+    "files": {
+      "_marker.txt": "marker\n"
+    },
+    "serveJson": {
+      "redirects": [
+        { "source": "/a/:id/*/b/*", "destination": "/hit" }
+      ]
+    }
+  },
+  "runner": {
+    "l0": {
+      "clean": ["literal_colon_id_matches_via_minimatch"],
+      "contentLengthMayDiffer": ["literal_colon_id_matches_via_minimatch"]
+    }
+  },
+  "requests": [
+    { "name": "literal_colon_id_matches_via_minimatch", "method": "GET", "path": "/a/:id/x/b/y" }
+  ]
+}

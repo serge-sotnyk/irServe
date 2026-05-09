@@ -23,7 +23,9 @@
         "multi_star_matches_single_trailing",
         "multi_star_no_overmatch_two_trailing",
         "multi_star_no_overmatch_zero_trailing",
-        "multi_star_no_overmatch_extra_middle"
+        "multi_star_no_overmatch_extra_middle",
+        "multi_star_rejects_leading_dot_first",
+        "multi_star_rejects_leading_dot_second"
       ],
       "contentLengthMayDiffer": [
         "star_matches_single_segment",
@@ -33,12 +35,16 @@
         "multi_star_matches_single_trailing",
         "multi_star_no_overmatch_two_trailing",
         "multi_star_no_overmatch_zero_trailing",
-        "multi_star_no_overmatch_extra_middle"
+        "multi_star_no_overmatch_extra_middle",
+        "multi_star_rejects_leading_dot_first",
+        "multi_star_rejects_leading_dot_second"
       ],
       "bodyMayDiffer": [
         "multi_star_no_overmatch_two_trailing",
         "multi_star_no_overmatch_zero_trailing",
-        "multi_star_no_overmatch_extra_middle"
+        "multi_star_no_overmatch_extra_middle",
+        "multi_star_rejects_leading_dot_first",
+        "multi_star_rejects_leading_dot_second"
       ]
     }
   },
@@ -50,6 +56,8 @@
     { "name": "multi_star_matches_single_trailing", "method": "GET", "path": "/a/x/b/y" },
     { "name": "multi_star_no_overmatch_two_trailing", "method": "GET", "path": "/a/x/b/y/z" },
     { "name": "multi_star_no_overmatch_zero_trailing", "method": "GET", "path": "/a/x/b" },
-    { "name": "multi_star_no_overmatch_extra_middle", "method": "GET", "path": "/a/x/y/b/z" }
+    { "name": "multi_star_no_overmatch_extra_middle", "method": "GET", "path": "/a/x/y/b/z" },
+    { "name": "multi_star_rejects_leading_dot_first", "method": "GET", "path": "/a/.x/b/y" },
+    { "name": "multi_star_rejects_leading_dot_second", "method": "GET", "path": "/a/x/b/.y" }
   ]
 }

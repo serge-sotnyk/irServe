@@ -19,7 +19,8 @@ cleanUrls capability (see SRV-ROUT-001/002).
 
 Evidence: SRV-RDIR-001 (status: verified, level: L2); oracle:
 ORC-030, ORC-084, ORC-085, ORC-089, ORC-090, ORC-091, ORC-092,
-ORC-093, ORC-094, ORC-095, ORC-096, ORC-097.
+ORC-093, ORC-094, ORC-095, ORC-096, ORC-097, ORC-098, ORC-099,
+ORC-100.
 
 Note: Redirects fire after the cleanUrls / trailingSlash redirect
 stage; see the routing capability's "Operation precedence in the
