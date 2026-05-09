@@ -4,11 +4,18 @@ use axum::body::Body;
 use axum::http::header::{HeaderValue, CONTENT_TYPE};
 use axum::http::{Method, Request, Response, StatusCode};
 
+use crate::config::ServeConfig;
 use crate::mime::mime_for;
+use crate::normalize::collapse_slashes;
 use crate::notfound::not_found_response;
 use crate::resolve::{resolve, ResolveOutcome};
 
-pub async fn dispatch(req: Request<Body>, root: &Path) -> Response<Body> {
+pub async fn dispatch(
+    req: Request<Body>,
+    root: &Path,
+    _serve_config: &ServeConfig,
+) -> Response<Body> {
+    // Phase 1–2: method gate (existing).
     if req.method() != Method::GET && req.method() != Method::HEAD {
         return Response::builder()
             .status(StatusCode::METHOD_NOT_ALLOWED)
@@ -16,7 +23,17 @@ pub async fn dispatch(req: Request<Body>, root: &Path) -> Response<Body> {
             .expect("405 response should always build");
     }
 
-    let url_path = req.uri().path().to_string();
+    // Phase 3: silent multi-slash collapse (SRV-ROUT-005).
+    let raw_path = req.uri().path();
+    let url_path = collapse_slashes(raw_path);
+
+    // Phase 4: cleanUrls 301 (Stage 6c).
+    // Phase 5: trailingSlash 301 (Stage 6b slice 2).
+    // Phase 6: configured redirects (Stage 6d).
+    // Phase 7: rewrites + --single (Stage 6e).
+    // Phase 8: cleanUrls resolution (Stage 6c).
+
+    // Phases 9–13: resolve → MIME → 404.
     let outcome = resolve(&url_path, root).await;
 
     match outcome {

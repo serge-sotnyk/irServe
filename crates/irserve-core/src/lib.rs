@@ -3,6 +3,7 @@
 pub mod config;
 mod dispatch;
 mod mime;
+mod normalize;
 mod notfound;
 mod resolve;
 mod server;

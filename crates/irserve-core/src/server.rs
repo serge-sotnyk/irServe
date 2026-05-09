@@ -7,13 +7,22 @@ use axum::http::{Request, Response};
 use axum::Router;
 use tokio::net::TcpListener;
 
+use crate::config::ServeConfig;
 use crate::dispatch::dispatch;
 use crate::{Error, ServerConfig};
 
-type SharedRoot = Arc<PathBuf>;
+struct AppState {
+    root: PathBuf,
+    serve_config: ServeConfig,
+}
+
+type SharedState = Arc<AppState>;
 
 pub async fn serve(config: ServerConfig) -> Result<(), Error> {
-    let state: SharedRoot = Arc::new(config.root);
+    let state: SharedState = Arc::new(AppState {
+        root: config.root,
+        serve_config: config.serve_config,
+    });
     let app: Router = Router::new().fallback(handler).with_state(state);
 
     if config.listens.is_empty() {
@@ -54,6 +63,6 @@ pub async fn serve(config: ServerConfig) -> Result<(), Error> {
     Ok(())
 }
 
-async fn handler(State(root): State<SharedRoot>, req: Request<Body>) -> Response<Body> {
-    dispatch(req, root.as_path()).await
+async fn handler(State(state): State<SharedState>, req: Request<Body>) -> Response<Body> {
+    dispatch(req, state.root.as_path(), &state.serve_config).await
 }

@@ -7,6 +7,12 @@
       "index.html": "<p>home</p>\n"
     }
   },
+  "runner": {
+    "l0": {
+      "clean": ["double_slash_root"],
+      "divergent": ["double_slash_segment", "internal_double_slash"]
+    }
+  },
   "requests": [
     { "name": "double_slash_root", "method": "GET", "path": "//", "mode": "raw" },
     { "name": "double_slash_segment", "method": "GET", "path": "//docs/guide.html", "mode": "raw" },
