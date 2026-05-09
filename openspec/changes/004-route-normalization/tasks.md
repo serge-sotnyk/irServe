@@ -75,25 +75,70 @@
 - [x] 3.6 `docs/reference/serve/decisions.md` — append D-010
   amending D-008's deferred-SRV list (drops SRV-ROUT-003,
   SRV-ROUT-004, SRV-ROUT-005)
-- [ ] 3.7 `README.md` — Status block: add `Stage 6b — routing
+- [x] 3.7 `README.md` — Status block: add `Stage 6b — routing
   normalization (trailingSlash, multi-slash). Done.`; Stage map row
   6b `todo` → `done`; "Try IrServe" section refresh covering the new
   observable surface
-- [ ] 3.8 Validate: `npx -y @fission-ai/openspec@latest validate
-  --all --strict` exit 0
-- [ ] 3.9 Validate: `cargo test --test oracle` green
-- [ ] 3.10 Validate: `cargo build --release` clean
-- [ ] 3.11 Validate: `git diff --stat` confirms zero `third_party/`
+- [x] 3.8 Validate: `npx -y @fission-ai/openspec@latest validate
+  --all --strict` exit 0 (12/12 — round 1 re-verified after fixes)
+- [x] 3.9 Validate: `cargo test --test oracle` green (40 cases, 14
+  passed / 26 skipped / 0 failed — round 1 re-verified after fixes)
+- [x] 3.10 Validate: `cargo build --release` clean
+- [x] 3.11 Validate: `git diff --stat` confirms zero `third_party/`
   edits and no edits to existing snapshots
 
 ## 4. Spec delta
 
 - [x] 4.1 `openspec/changes/004-route-normalization/specs/routing/
-  spec.md` — single MODIFIED for SRV-ROUT-003 extending the
-  `Evidence:` oracle list (`ORC-015, ORC-016` → `ORC-015, ORC-016,
-  ORC-068, ORC-069`) and adding an `Implementation:` paragraph; one
-  MODIFIED for SRV-ROUT-004 extending its list (`ORC-019` → `ORC-019,
-  ORC-070, ORC-071`) with the same `Implementation:` shape.
-  Behavioral text and the Scenarios are preserved verbatim.
-  SRV-ROUT-005's evidence list is unchanged (the new wiring is
-  `runner.l0`-level, not a new ORC).
+  spec.md` — three MODIFIED requirements:
+  - SRV-ROUT-003: extend `Evidence:` oracle list (`ORC-015, ORC-016`
+    → `ORC-015, ORC-016, ORC-068, ORC-069`); add `Implementation:`
+    paragraph.
+  - SRV-ROUT-004: extend `Evidence:` (`ORC-019` → `ORC-019, ORC-070,
+    ORC-071`); same `Implementation:` shape.
+  - SRV-ROUT-005: extend `Evidence:` (`ORC-025/026/027` →
+    `ORC-025/026/027, ORC-072, ORC-073, ORC-074`); requirement text
+    grows by one sentence describing the multi-slash override
+    coupling with phase 5; add `Implementation:` paragraph; two new
+    Scenarios (double-slash + encoded double-slash).
+  Behavioral Scenarios and the requirement texts for SRV-ROUT-003
+  and SRV-ROUT-004 are preserved verbatim.
+
+## 5. Round 1 fixes (Codex review)
+
+- [x] 5.1 `Cargo.toml` workspace + `crates/irserve-core/Cargo.toml`
+  — add `percent-encoding = "2"` dep
+- [x] 5.2 `crates/irserve-core/src/dispatch.rs` — call
+  `percent_decode_str(req.uri().path()).decode_utf8_lossy()` at
+  dispatcher entry; pass decoded (uncollapsed) path to phase 5;
+  collapse for phases 9–13 only (P1 + P2 fix)
+- [x] 5.3 `crates/irserve-core/src/trailing_slash.rs` — add
+  multi-slash override at the top of
+  `compute_trailing_slash_redirect`; 5 new unit tests covering the
+  override under add / strip / unset / internal `//` / root `//`
+  (P1 fix)
+- [x] 5.4 `tools/probe/cases/trailingslash-add.json` — add anchors
+  `trailing_double_slash_collapses_via_redirect` (`/about//` → 301
+  `/about/`) and `encoded_double_slash_collapses_via_redirect`
+  (`/about%2F%2F` → 301 `/about/`); extend `runner.l0.clean` and
+  `contentLengthMayDiffer`; ORC-072 / ORC-073
+- [x] 5.5 `tools/probe/cases/trailingslash-strip.json` — add anchor
+  `trailing_double_slash_collapses_via_redirect` (`/about//` → 301
+  `/about/`, NOT `/about`); ORC-074
+- [x] 5.6 Snapshots — re-record via `--snapshot=update
+  --target=reference` for both probes
+- [x] 5.7 `docs/reference/serve/oracle-matrix.md` — three new rows
+  for ORC-072 / ORC-073 / ORC-074
+- [x] 5.8 `docs/reference/serve/inventory.md` — extend SRV-ROUT-005
+  oracle list with the new ORC IDs and probe paths
+- [x] 5.9 `openspec/changes/004-route-normalization/{proposal,design}.md`
+  — document the override coupling and URL-decode invariant
+- [x] 5.10 `openspec/changes/004-route-normalization/specs/routing/spec.md`
+  — extend SRV-ROUT-005 MODIFIED delta with the override sentence,
+  new Evidence IDs, Implementation paragraph, two new Scenarios
+- [x] 5.11 Tasks 3.7–3.11 flipped to `[x]` (P3 fix)
+- [x] 5.12 Verify: `cargo test -p irserve-core` 49/49 (was 44/44 +
+  5 new override tests); `cargo test --test oracle` (40 cases, 14
+  passed / 26 skipped / 0 failed); `node tools/probe/run.mjs --all
+  --target=reference --snapshot=verify` (40/40); `npx -y
+  @fission-ai/openspec@latest validate --all --strict` (12/12)

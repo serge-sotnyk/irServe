@@ -948,8 +948,8 @@ Reference source:
 - README: absent.
 - serve-handler source: `src/index.js:158-160` (when `decodedPath.indexOf('//') > -1`, the target is the slash-collapsed path).
 - Existing test: `set 'trailingSlash' config property to any boolean and remove multiple slashes` in `test/integration.test.js`.
-- Probe: `tools/probe/cases/multislash-collapse.json` (raw-socket; verifies wire-level behavior under default config).
-- Oracle test: ORC-025, ORC-026, ORC-027 (snapshots in tools/probe/snapshots/).
+- Probe: `tools/probe/cases/multislash-collapse.json` (raw-socket; verifies wire-level behavior under default config); coupling with phase 5 also exercised by `tools/probe/cases/trailingslash-add.json` (anchors `trailing_double_slash_collapses_via_redirect`, `encoded_double_slash_collapses_via_redirect`) and `tools/probe/cases/trailingslash-strip.json` (anchor `trailing_double_slash_collapses_via_redirect`).
+- Oracle test: ORC-025, ORC-026, ORC-027, ORC-072, ORC-073, ORC-074 (snapshots in tools/probe/snapshots/).
 
 Requirement (draft):
 Consecutive slashes in the request path are collapsed to a single slash silently before subsequent routing stages. The collapse itself does NOT emit a redirect; any 301 observed for a multi-slash request comes from a later stage (cleanUrls, trailingSlash, or `redirects`) acting on the normalized path. The collapse fires regardless of whether `trailingSlash` is set.

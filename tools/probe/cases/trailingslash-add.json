@@ -1,6 +1,6 @@
 {
   "id": "trailingslash-add",
-  "description": "`serve.json: {\"trailingSlash\": true, \"cleanUrls\": false}` → extensionless, non-dotfile paths get a 301 to `path + \"/\"`. `cleanUrls` is explicitly disabled so the cleanUrls 301 (Stage 6c) cannot mask or compose with the trailingSlash redirect. The anti-redirect anchor uses `data.txt` (extension exempt, served directly) to verify phase 5 does not fire when it should not. Backs SRV-ROUT-003.",
+  "description": "`serve.json: {\"trailingSlash\": true, \"cleanUrls\": false}` → extensionless, non-dotfile paths get a 301 to `path + \"/\"`. `cleanUrls` is explicitly disabled so the cleanUrls 301 (Stage 6c) cannot mask or compose with the trailingSlash redirect. The anti-redirect anchor uses `data.txt` (extension exempt, served directly) to verify phase 5 does not fire when it should not. The double-slash anchors verify the multi-slash override from `serve-handler/src/index.js:158-160`: when trailingSlash is set and the (decoded) path contains `//`, the reference emits a 301 to the slash-collapsed form regardless of the add/strip branches — backs SRV-ROUT-005's coupling with phase 5. Backs SRV-ROUT-003 and SRV-ROUT-005.",
   "fixture": {
     "files": {
       "data.txt": "txt-payload\n",
@@ -13,13 +13,24 @@
   },
   "runner": {
     "l0": {
-      "clean": ["about_no_slash_redirects", "txt_with_extension_no_redirect"],
+      "clean": [
+        "about_no_slash_redirects",
+        "txt_with_extension_no_redirect",
+        "trailing_double_slash_collapses_via_redirect",
+        "encoded_double_slash_collapses_via_redirect"
+      ],
       "divergent": [],
-      "contentLengthMayDiffer": ["about_no_slash_redirects"]
+      "contentLengthMayDiffer": [
+        "about_no_slash_redirects",
+        "trailing_double_slash_collapses_via_redirect",
+        "encoded_double_slash_collapses_via_redirect"
+      ]
     }
   },
   "requests": [
     { "name": "about_no_slash_redirects", "method": "GET", "path": "/about" },
-    { "name": "txt_with_extension_no_redirect", "method": "GET", "path": "/data.txt" }
+    { "name": "txt_with_extension_no_redirect", "method": "GET", "path": "/data.txt" },
+    { "name": "trailing_double_slash_collapses_via_redirect", "method": "GET", "path": "/about//" },
+    { "name": "encoded_double_slash_collapses_via_redirect", "method": "GET", "path": "/about%2F%2F" }
   ]
 }

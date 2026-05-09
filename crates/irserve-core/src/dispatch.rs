@@ -3,6 +3,7 @@ use std::path::Path;
 use axum::body::Body;
 use axum::http::header::{HeaderValue, CONTENT_TYPE, LOCATION};
 use axum::http::{Method, Request, Response, StatusCode};
+use percent_encoding::percent_decode_str;
 
 use crate::config::ServeConfig;
 use crate::mime::mime_for;
@@ -24,16 +25,30 @@ pub async fn dispatch(
             .expect("405 response should always build");
     }
 
-    // Phase 3: silent multi-slash collapse (SRV-ROUT-005).
+    // Decode the URI path once at the dispatcher entry. Mirrors the
+    // reference's `decodedPath` invariant (`serve-handler/src/index.js:561`).
+    // Subsequent phases operate on this decoded form so that encoded
+    // forms like `%2F%2F` collapse identically to literal `//`.
     let raw_path = req.uri().path();
-    let url_path = collapse_slashes(raw_path);
+    let decoded_path = percent_decode_str(raw_path).decode_utf8_lossy();
 
     // Phase 4: cleanUrls 301 (Stage 6c).
 
-    // Phase 5: trailingSlash 301 (SRV-ROUT-003 / SRV-ROUT-004).
-    if let Some(target) = compute_trailing_slash_redirect(&url_path, serve_config.trailing_slash) {
+    // Phase 5: trailingSlash 301 (SRV-ROUT-003 / SRV-ROUT-004), with the
+    // multi-slash override from SRV-ROUT-005 (`index.js:158-160`).
+    // Operates on the decoded (uncollapsed) path so the override
+    // trigger is the input's `//` content.
+    if let Some(target) =
+        compute_trailing_slash_redirect(&decoded_path, serve_config.trailing_slash)
+    {
         return redirect_301(&target);
     }
+
+    // Phase 3: silent multi-slash collapse for resolve-and-onwards
+    // stages (SRV-ROUT-005, Q-006 closed). Pure pre-routing transform;
+    // never emits a redirect on its own — when `trailingSlash` is set,
+    // the redirect for `//` is emitted by phase 5 above.
+    let url_path = collapse_slashes(&decoded_path);
 
     // Phase 6: configured redirects (Stage 6d).
     // Phase 7: rewrites + --single (Stage 6e).

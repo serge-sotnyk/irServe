@@ -12,12 +12,23 @@ normalization — phases 3 and 5 of the 13-phase dispatcher.
 This change wires:
 
 - **Phase 3** — silent multi-slash collapse (SRV-ROUT-005, Q-006
-  closed). `/a//b` → `/a/b` before any routing decision; the collapse
-  itself never emits a 301.
+  closed) for routing flow when `trailingSlash` is unset. `/a//b` →
+  `/a/b` before resolve; the collapse itself never emits a 301.
 - **Phase 5** — `trailingSlash` 301 add/strip (SRV-ROUT-003,
-  SRV-ROUT-004). `Some(true)` adds `/` to extensionless non-dotfile
-  paths; `Some(false)` strips `/` (root `/` exempt because the
-  stripped target would be empty); `None` is a no-op.
+  SRV-ROUT-004), with the **multi-slash override** from
+  `serve-handler/src/index.js:158-160`: when `trailingSlash` is set
+  AND the (decoded) path contains `//`, the redirect target is the
+  slash-collapsed form regardless of the add/strip branches. This
+  coupling is essential — without it, `/test//` under `trailingSlash:
+  true` would silently route to `/test/` instead of producing the
+  301 the reference emits. `Some(true)` otherwise adds `/` to
+  extensionless non-dotfile paths; `Some(false)` strips `/` (root
+  `/` exempt because the stripped target would be empty); `None` is
+  a no-op.
+- **URL percent-decoding at dispatcher entry**, before phases 3 and
+  5. Mirrors the reference's `decodedPath` invariant (`index.js:561`)
+  so encoded `%2F%2F` decodes to `//` and participates in the
+  collapse semantics identically to literal `//`.
 
 Two new probes (`trailingslash-add`, `trailingslash-strip`) isolate
 the trailingSlash redirect from `cleanUrls` (which defaults to on in
@@ -33,16 +44,17 @@ anchors stay marked `divergent` until 6c lands phase 4.
 |---|---|---|---|
 | SRV-ROUT-003 | verified (deferred from IrServe per D-008) | verified, un-deferred from D-008 (oracle list grows: ORC-068, ORC-069) | `crates/irserve-core/src/trailing_slash.rs`; dispatcher hookup in `dispatch.rs` |
 | SRV-ROUT-004 | verified (deferred from IrServe per D-008) | verified, un-deferred from D-008 (oracle list grows: ORC-070, ORC-071) | `crates/irserve-core/src/trailing_slash.rs`; dispatcher hookup in `dispatch.rs` |
-| SRV-ROUT-005 | verified (deferred from IrServe per D-008) | verified, un-deferred from D-008 (no oracle list change — `multislash-collapse` `runner.l0` adds the `clean` partition for `target=irserve`) | `crates/irserve-core/src/normalize.rs`; dispatcher hookup in `dispatch.rs` |
+| SRV-ROUT-005 | verified (deferred from IrServe per D-008) | verified, un-deferred from D-008 (oracle list grows: ORC-072, ORC-073, ORC-074 — multi-slash override coupling with phase 5; `multislash-collapse` `runner.l0` adds the `clean` partition for `target=irserve`) | `crates/irserve-core/src/normalize.rs`; multi-slash override in `crates/irserve-core/src/trailing_slash.rs`; dispatcher hookup + URL decode in `dispatch.rs` |
 
-The change carries one MODIFIED delta on `specs/routing/spec.md` for
-SRV-ROUT-003 / SRV-ROUT-004, extending each requirement's `Evidence:`
-oracle list with the new ORC IDs and adding an `Implementation:`
-paragraph pointing at the `trailing_slash` module. The behavioral text
-and the Scenarios are preserved verbatim. SRV-ROUT-005's evidence list
-is unchanged (the new probe wiring is `runner.l0`-level, not a new
-ORC). SRV-ROUT-006 (precedence) stays deferred — phases 4, 6, 7, 8 are
-not yet implemented.
+The change carries MODIFIED deltas on `specs/routing/spec.md` for
+SRV-ROUT-003, SRV-ROUT-004, and SRV-ROUT-005, extending each
+requirement's `Evidence:` oracle list with the new ORC IDs and adding
+an `Implementation:` paragraph. SRV-ROUT-005's delta also documents
+the multi-slash override coupling with phase 5 (`index.js:158-160`):
+when `trailingSlash` is set, the silent collapse becomes a 301 to the
+collapsed form. The behavioral Scenarios are preserved verbatim.
+SRV-ROUT-006 (precedence) stays deferred — phases 4, 6, 7, 8 are not
+yet implemented.
 
 ## Scope
 
@@ -96,11 +108,13 @@ not yet implemented.
 - SRV-ROUT-006 (operation precedence): full pipeline is not yet
   observable; stays deferred to the sub-stage that lands the last
   remaining phase (6e).
-- URL percent-decoding: phase 3 currently operates on the raw URI
-  path (`req.uri().path()`). Encoded `%2F%2F` is left intact and
-  does NOT collapse. No probe asserts on encoded slashes against
-  irserve in 6b; this is tracked as an open question for 6c+ where
-  decoding becomes load-bearing for cleanUrls's `.html` matching.
+- Broader percent-decoding semantics beyond the path-collapse use
+  case (e.g. dot-segment normalization after decode, single-pass
+  symmetry under SRV-SEC-002). The decode is in place at dispatcher
+  entry, but the `traversal-encoded` and `traversal-raw-encoded`
+  probes stay reference-only (no `runner.l0` block) — wiring them
+  into the irserve-target verification is SRV-SEC-002 territory and
+  belongs in 6f.
 - Bug-for-bug content-length parity on 301 responses. axum/hyper
   emits `content-length: 0` on the empty body; the reference (Node
   http) omits it. Both responses have identical body bytes (zero).
@@ -131,13 +145,13 @@ absorbed without a new D-NNN:
 
 ## Risks and mitigations
 
-1. **Encoded-slash semantics.** Phase 3 collapses `//` literally and
-   does not decode `%2F%2F`. No 6b probe asserts on encoded slashes
-   against irserve. If a future probe (6c) shows the reference
-   collapses encoded forms via decode-then-normalize, we either move
-   URL-decode upstream of phase 3 or log a Q-NNN entry. The current
-   `traversal-encoded` and `traversal-raw-encoded` probes have no
-   `runner.l0` block so they auto-skip under `target=irserve`.
+1. **Encoded-slash semantics.** Resolved during round-1 review:
+   `percent_decode_str(req.uri().path()).decode_utf8_lossy()` runs at
+   dispatcher entry, ahead of phases 3 and 5. ORC-073 anchors the
+   `%2F%2F` → `//` → `/` collapse against `target=irserve`. The
+   `traversal-encoded` / `traversal-raw-encoded` probes still skip
+   under `target=irserve` (no `runner.l0` block); enabling them is
+   SRV-SEC-002 work for 6f.
 2. **Root-edge for `trailingSlash: false` on `/`.** The reference's
    logic (`index.js:152`) would yield an empty target string, falsy
    in JS, producing no redirect. The Rust implementation

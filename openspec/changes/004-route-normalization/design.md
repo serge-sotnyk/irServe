@@ -27,61 +27,88 @@ is now realized as follows in `dispatch.rs`:
 
 ```
 1-2. Method gate (existing)
-3.   Phase 3: normalize::collapse_slashes(req.uri().path())     [Stage 6b]
+0.   URL percent-decode at dispatcher entry (decoded_path)      [Stage 6b]
 4.   /* Phase 4: cleanUrls 301 (Stage 6c) */
 5.   Phase 5: trailing_slash::compute_trailing_slash_redirect    [Stage 6b]
         if Some(target) -> return redirect_301(&target)
+        — operates on decoded_path (uncollapsed) so the multi-slash
+          override sees the input's `//` content
+3.   Phase 3: normalize::collapse_slashes(decoded_path)         [Stage 6b]
+        — silent for resolve-and-onwards; redirect-on-collapse
+          when trailingSlash is set is emitted by phase 5 above
 6.   /* Phase 6: configured redirects (Stage 6d) */
 7.   /* Phase 7: rewrites + --single (Stage 6e) */
 8.   /* Phase 8: cleanUrls resolution (Stage 6c) */
 9-13. Resolve -> MIME -> 404 (existing)
 ```
 
+Phases 3 and 5 are coupled in the reference's `shouldRedirect`
+slashing branch (`index.js:158-160`): when `trailingSlash` is set
+AND the decoded path contains `//`, the redirect target is the
+slash-collapsed form regardless of the add/strip branches. Splitting
+"collapse silently" and "trailingSlash redirect" naively (collapse
+first, then redirect on the collapsed path) loses this coupling and
+silently routes `/test//` under `trailingSlash: true` instead of
+emitting the reference's 301 → `/test/`. The implementation therefore
+runs phase 5 on the **uncollapsed** decoded path; the silent collapse
+applies only to the path that flows into phases 9–13.
+
 Comment-stubs (not Rust code) mark the phases that are not yet
-implemented. The 6c insertion is a single function call between
-phase 3 and phase 5.
+implemented. The 6c insertion is a single function call between the
+URL-decode and phase 5.
 
 ## 3. `collapse_slashes` semantics
 
 Reference: `serve-handler/src/index.js:158-160` (`decodedPath.replace(/\/+/g, '/')`).
 
-- Input: the URI path string returned by `Request::uri().path()`. Not
-  percent-decoded.
+- Input: the **decoded** URI path (after `percent_decode_str` at
+  dispatcher entry). The function itself does not decode.
 - If the input contains no `//`, return `Cow::Borrowed(path)` (zero
   allocations on the happy path — typical case).
 - Otherwise, walk the chars and emit at most one `/` for each run of
   consecutive `/` characters; preserve all non-`/` characters.
-- The function never emits a 301; it is a pure pre-routing transform.
+- The function never emits a 301 on its own; it is a pure pre-routing
+  transform. When `trailingSlash` is set, the redirect-on-`//` is
+  emitted by `compute_trailing_slash_redirect` (which calls into this
+  function for the target string) — see §4.
 
-The collapse is silent regardless of `trailingSlash`'s value — Q-006
-closure (`oracle-matrix.md` ORC-025/026/027). `trailingSlash`
-participation in the reference's `shouldRedirect` is an
-implementation detail of the upstream code path; the observable
-contract is "collapse fires unconditionally before downstream
-stages".
+Silent-collapse behavior holds when `trailingSlash` is unset
+(SRV-ROUT-005, Q-006 closure: ORC-025). When `trailingSlash` is set,
+the same `//` instead becomes observable as a 301 (ORC-072, ORC-073,
+ORC-074); the silent path through phase 3 still runs but its output
+is shadowed by the 301 from phase 5.
 
 ## 4. `compute_trailing_slash_redirect` semantics
 
 Reference: `serve-handler/src/index.js:121-185` (`shouldRedirect`,
-slashing branch).
+slashing branch). The implementation includes the multi-slash
+override at `index.js:158-160` — when `trailingSlash` is set AND the
+decoded path contains `//`, the override unconditionally returns
+`Some(collapsed)` regardless of the add/strip branches.
 
 ```rust
-pub fn compute_trailing_slash_redirect(path: &str, cfg: Option<bool>) -> Option<String> {
+pub fn compute_trailing_slash_redirect(decoded_path: &str, cfg: Option<bool>) -> Option<String> {
     let cfg = cfg?;
-    let is_trailed = path.ends_with('/');
+
+    // Multi-slash override (`index.js:158-160`).
+    if decoded_path.contains("//") {
+        return Some(collapse_slashes(decoded_path).into_owned());
+    }
+
+    let is_trailed = decoded_path.ends_with('/');
 
     if !cfg && is_trailed {
-        if path.len() <= 1 { return None; }   // root edge: '/' would yield ''
-        return Some(path[..path.len() - 1].to_string());
+        if decoded_path.len() <= 1 { return None; }   // root edge: '/' would yield ''
+        return Some(decoded_path[..decoded_path.len() - 1].to_string());
     }
 
     if cfg && !is_trailed {
-        let basename = path.rsplit('/').next().unwrap_or("");
+        let basename = decoded_path.rsplit('/').next().unwrap_or("");
         if basename.is_empty() || basename.starts_with('.') { return None; }
         let has_extension = basename
             .char_indices().skip(1).any(|(_, c)| c == '.');
         if has_extension { return None; }
-        return Some(format!("{path}/"));
+        return Some(format!("{decoded_path}/"));
     }
 
     None
