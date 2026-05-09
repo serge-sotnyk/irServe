@@ -891,8 +891,8 @@ Reference source:
 - README: yes — serve-handler README, `trailingSlash (Boolean)` section.
 - serve-handler source: `src/index.js:145-168`.
 - Existing test: `set 'trailingSlash' config property to 'true'` in `test/integration.test.js`.
-- Probe: `tools/probe/cases/prec-cleanurls-trailing.json`.
-- Oracle test: ORC-015, ORC-016 (snapshots in tools/probe/snapshots/).
+- Probe: `tools/probe/cases/prec-cleanurls-trailing.json` (compose with cleanUrls); `tools/probe/cases/trailingslash-add.json` (pure, `cleanUrls: false`).
+- Oracle test: ORC-015, ORC-016, ORC-068, ORC-069 (snapshots in tools/probe/snapshots/).
 
 Requirement (draft):
 With `trailingSlash: true`, a request `/path` (no trailing slash, no extension, not a dotfile) is redirected with 301 to `/path/`.
@@ -920,8 +920,8 @@ Reference source:
 - README: yes — serve-handler README, `trailingSlash (Boolean)` section.
 - serve-handler source: `src/index.js:145-168`.
 - Existing test: `set 'trailingSlash' config property to 'false'` in `test/integration.test.js`.
-- Probe: `tools/probe/cases/prec-cleanurls-trailing-false.json`.
-- Oracle test: ORC-019 (snapshots in tools/probe/snapshots/).
+- Probe: `tools/probe/cases/prec-cleanurls-trailing-false.json` (compose with cleanUrls); `tools/probe/cases/trailingslash-strip.json` (pure, `cleanUrls: false`).
+- Oracle test: ORC-019, ORC-070, ORC-071 (snapshots in tools/probe/snapshots/).
 
 Requirement (draft):
 With `trailingSlash: false`, a request `/path/` (with trailing slash) is redirected with 301 to `/path`.
