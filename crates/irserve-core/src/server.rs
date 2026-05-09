@@ -7,6 +7,7 @@ use axum::http::{Request, Response};
 use axum::Router;
 use tokio::net::TcpListener;
 
+use crate::clean_urls::CleanUrlsView;
 use crate::config::ServeConfig;
 use crate::dispatch::dispatch;
 use crate::{Error, ServerConfig};
@@ -14,14 +15,17 @@ use crate::{Error, ServerConfig};
 struct AppState {
     root: PathBuf,
     serve_config: ServeConfig,
+    clean_urls_view: CleanUrlsView,
 }
 
 type SharedState = Arc<AppState>;
 
 pub async fn serve(config: ServerConfig) -> Result<(), Error> {
+    let clean_urls_view = CleanUrlsView::from_config(&config.serve_config.clean_urls)?;
     let state: SharedState = Arc::new(AppState {
         root: config.root,
         serve_config: config.serve_config,
+        clean_urls_view,
     });
     let app: Router = Router::new().fallback(handler).with_state(state);
 
@@ -64,5 +68,11 @@ pub async fn serve(config: ServerConfig) -> Result<(), Error> {
 }
 
 async fn handler(State(state): State<SharedState>, req: Request<Body>) -> Response<Body> {
-    dispatch(req, state.root.as_path(), &state.serve_config).await
+    dispatch(
+        req,
+        state.root.as_path(),
+        &state.serve_config,
+        &state.clean_urls_view,
+    )
+    .await
 }

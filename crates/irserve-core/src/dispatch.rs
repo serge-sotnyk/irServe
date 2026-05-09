@@ -5,6 +5,7 @@ use axum::http::header::{HeaderValue, CONTENT_TYPE, LOCATION};
 use axum::http::{Method, Request, Response, StatusCode};
 use percent_encoding::{percent_decode_str, utf8_percent_encode, AsciiSet, CONTROLS};
 
+use crate::clean_urls::{compute_clean_urls_redirect, CleanUrlsView};
 use crate::config::ServeConfig;
 use crate::mime::mime_for;
 use crate::normalize::collapse_slashes;
@@ -16,6 +17,7 @@ pub async fn dispatch(
     req: Request<Body>,
     root: &Path,
     serve_config: &ServeConfig,
+    clean_urls_view: &CleanUrlsView,
 ) -> Response<Body> {
     // Phase 1–2: method gate (existing).
     if req.method() != Method::GET && req.method() != Method::HEAD {
@@ -32,7 +34,15 @@ pub async fn dispatch(
     let raw_path = req.uri().path();
     let decoded_path = percent_decode_str(raw_path).decode_utf8_lossy();
 
-    // Phase 4: cleanUrls 301 (Stage 6c).
+    // Phase 4: cleanUrls 301 (SRV-ROUT-001). Runs on the decoded
+    // (uncollapsed) path, before phase 5, matching `shouldRedirect`'s
+    // ordering at `serve-handler/src/index.js:121-143`. Wins over
+    // trailingSlash, redirects, rewrites, and the existing-file
+    // pre-stat (per SRV-ROUT-006 scenario "cleanUrls 301 wins over
+    // existing-file short-circuit").
+    if let Some(target) = compute_clean_urls_redirect(&decoded_path, clean_urls_view) {
+        return redirect_301(&target);
+    }
 
     // Phase 5: trailingSlash 301 (SRV-ROUT-003 / SRV-ROUT-004), with the
     // multi-slash override from SRV-ROUT-005 (`index.js:158-160`).

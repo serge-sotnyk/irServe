@@ -17,8 +17,9 @@
   },
   "runner": {
     "l0": {
-      "clean": ["js", "json", "css", "txt", "wasm", "svg", "png", "noext", "unknownext"],
-      "divergent": ["html"]
+      "clean": ["html", "js", "json", "css", "txt", "wasm", "svg", "png", "noext", "unknownext"],
+      "divergent": [],
+      "contentLengthMayDiffer": ["html"]
     }
   },
   "requests": [

@@ -10,6 +10,13 @@
       "cleanUrls": ["/docs/**"]
     }
   },
+  "runner": {
+    "l0": {
+      "clean": ["in_scope_redirect", "out_of_scope_html_direct"],
+      "divergent": [],
+      "contentLengthMayDiffer": ["in_scope_redirect"]
+    }
+  },
   "requests": [
     { "name": "in_scope_redirect", "method": "GET", "path": "/docs/guide.html" },
     { "name": "in_scope_extensionless", "method": "GET", "path": "/docs/guide" },

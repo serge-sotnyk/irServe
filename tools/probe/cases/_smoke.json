@@ -8,8 +8,9 @@
   },
   "runner": {
     "l0": {
-      "clean": ["root"],
-      "divergent": ["index_html_redirect"]
+      "clean": ["root", "index_html_redirect"],
+      "divergent": [],
+      "contentLengthMayDiffer": ["index_html_redirect"]
     }
   },
   "requests": [

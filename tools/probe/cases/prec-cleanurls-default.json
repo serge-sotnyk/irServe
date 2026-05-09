@@ -7,6 +7,13 @@
       "about/index.html": "<p>about-index</p>\n"
     }
   },
+  "runner": {
+    "l0": {
+      "clean": ["about_html"],
+      "divergent": [],
+      "contentLengthMayDiffer": ["about_html"]
+    }
+  },
   "requests": [
     { "name": "about_no_slash", "method": "GET", "path": "/about" },
     { "name": "about_html", "method": "GET", "path": "/about.html" },
