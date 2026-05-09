@@ -44,16 +44,22 @@ enum Matcher {
         source: String,
         destination: String,
     },
-    /// Source contains glob meta-characters (`*`, `?`, `[`, `{`) but no
-    /// `:param` segments. Compiled via `globset` with
-    /// `literal_separator(true)` so a single `*` does not cross `/`
-    /// segments — matching minimatch's default. `negate` mirrors the
-    /// `!`-prefix shared with cleanUrls
+    /// Source has `?`/`[`/`{` glob meta or `!`-prefix, but no `*`
+    /// or `:param` segments. Stored as a `Vec<PatSeg>` (the same
+    /// per-segment representation as `Pattern`'s `glob_fallback`)
+    /// so minimatch's `dot: false` semantics apply uniformly.
+    /// Codex review round 6 P1: the previous implementation used
+    /// a single full-pattern globset matcher, which couldn't
+    /// enforce per-segment dot rejection — `[.]y` would
+    /// incorrectly admit a `.y` path segment because globset's
+    /// brackets don't follow minimatch's leading-dot convention.
+    /// `negate` mirrors the `!`-prefix shared with cleanUrls
     /// (`serve-handler/src/glob-slash.js:8` + `sourceMatches` →
-    /// `minimatch`). Destination is rendered verbatim — the reference's
-    /// minimatch-fallback path also does no positional substitution.
+    /// `minimatch`). Destination is rendered verbatim — the
+    /// reference's minimatch-fallback path also does no positional
+    /// substitution.
     Glob {
-        matcher: GlobMatcher,
+        segments: Vec<PatSeg>,
         negate: bool,
         destination: String,
     },
@@ -207,8 +213,67 @@ fn classify_pattern_segment(seg: &str) -> Result<PatSeg, globset::Error> {
     let glob = GlobBuilder::new(seg).literal_separator(true).build()?;
     Ok(PatSeg::Wildcard {
         matcher: glob.compile_matcher(),
-        starts_with_dot: seg.starts_with('.'),
+        starts_with_dot: segment_can_start_with_dot(seg),
     })
+}
+
+/// Returns true when at least one expansion of the segment begins
+/// with a literal `.`. Mirrors minimatch's brace expansion happening
+/// before the dot rule is applied: `{.x,y}` admits a leading-dot
+/// path segment because the `.x` alternative starts with `.`. The
+/// segment-leading `.` itself (no braces) trivially returns true.
+/// Codex review round 6 P1 — the previous implementation used a
+/// raw `seg.starts_with('.')` and missed the brace case.
+fn segment_can_start_with_dot(seg: &str) -> bool {
+    if seg.starts_with('.') {
+        return true;
+    }
+    if !seg.starts_with('{') {
+        return false;
+    }
+    let bytes = seg.as_bytes();
+    let mut depth = 0usize;
+    let mut close_idx = None;
+    for (i, &b) in bytes.iter().enumerate() {
+        if b == b'{' {
+            depth += 1;
+        } else if b == b'}' {
+            depth = depth.saturating_sub(1);
+            if depth == 0 {
+                close_idx = Some(i);
+                break;
+            }
+        }
+    }
+    let Some(close) = close_idx else {
+        return false;
+    };
+    let inner = &seg[1..close];
+    split_top_level_alternatives(inner)
+        .iter()
+        .any(|alt| segment_can_start_with_dot(alt))
+}
+
+/// Split a brace-inner string on top-level commas. Nested braces are
+/// kept intact so `{a,{b,c}}` splits to `["a", "{b,c}"]`, allowing
+/// the recursion in `segment_can_start_with_dot` to descend.
+fn split_top_level_alternatives(s: &str) -> Vec<&str> {
+    let mut parts = Vec::new();
+    let mut depth = 0usize;
+    let mut start = 0usize;
+    for (i, c) in s.char_indices() {
+        match c {
+            '{' => depth += 1,
+            '}' => depth = depth.saturating_sub(1),
+            ',' if depth == 0 => {
+                parts.push(&s[start..i]);
+                start = i + 1;
+            }
+            _ => {}
+        }
+    }
+    parts.push(&s[start..]);
+    parts
 }
 
 #[derive(Debug)]
@@ -315,39 +380,36 @@ fn compile_one(rule: &RedirectRule) -> Result<RedirectRuleCompiled, CompileError
     let matcher = if needs_pattern {
         let regex = compile_source_regex(&body)?;
         let dest_template = compile_dest_template(&normalized_dest);
-        // `*`-bearing sources need a minimatch fallback because
-        // path-to-regexp@3.3.0 doesn't recognize bare `*` and the
-        // reference's `sourceMatches` always tries minimatch on
-        // pathToRegExp miss (`index.js:47-66`). `:name`-bearing
-        // sources go to minimatch too in the reference — minimatch
-        // treats `:name` as literal characters and matches paths
-        // that literally carry `:name` segments. Codex review
-        // round 4 P2 surfaced this; the previous `!has_path_param`
-        // gate was based on the assumption that minimatch would
-        // never fire for `:name` sources, which the
-        // `redirects-pattern-with-multistar-fallback.json` probe
-        // disproved.
-        let glob_fallback = if body.contains('*') {
-            let segments: Result<Vec<PatSeg>, globset::Error> = body
-                .split('/')
-                .filter(|s| !s.is_empty())
-                .map(classify_pattern_segment)
-                .collect();
-            Some(GlobFallback {
-                segments: segments?,
-            })
-        } else {
-            None
-        };
+        // The reference's `sourceMatches` ALWAYS tries minimatch
+        // after pathToRegExp returns null (`index.js:47-66`),
+        // regardless of source shape. Codex review round 6 P2
+        // showed that even non-`*`-bearing sources need the
+        // fallback: e.g. `/a/:id/?` against `/a/:id/x` matches in
+        // the reference via minimatch's literal-`:id` semantics
+        // plus `?` as a single-char glob, but our regex compiles
+        // `?` as a literal `\?` that real URLs don't carry. Build
+        // glob_fallback for every Pattern matcher.
+        let segments: Result<Vec<PatSeg>, globset::Error> = body
+            .split('/')
+            .filter(|s| !s.is_empty())
+            .map(classify_pattern_segment)
+            .collect();
+        let glob_fallback = Some(GlobFallback {
+            segments: segments?,
+        });
         Matcher::Pattern {
             regex,
             dest_template,
             glob_fallback,
         }
     } else if has_glob_meta(&body) || negate {
-        let glob = GlobBuilder::new(&body).literal_separator(true).build()?;
+        let segments: Result<Vec<PatSeg>, globset::Error> = body
+            .split('/')
+            .filter(|s| !s.is_empty())
+            .map(classify_pattern_segment)
+            .collect();
         Matcher::Glob {
-            matcher: glob.compile_matcher(),
+            segments: segments?,
             negate,
             destination: normalized_dest,
         }
@@ -517,11 +579,22 @@ impl RedirectRuleCompiled {
                 }
             }
             Matcher::Glob {
-                matcher,
+                segments,
                 negate,
                 destination,
             } => {
-                if matcher.is_match(path) ^ negate {
+                // Trim a single trailing `/` (mirror
+                // `path.posix.resolve` per `index.js:41`) so
+                // segment splitting yields the same shape as
+                // minimatch sees.
+                let path_for_match = if path != "/" && path.ends_with('/') {
+                    &path[..path.len() - 1]
+                } else {
+                    path
+                };
+                let path_segs: Vec<&str> =
+                    path_for_match.split('/').filter(|s| !s.is_empty()).collect();
+                if match_segments(segments, &path_segs) ^ negate {
                     Some(destination.clone())
                 } else {
                     None
@@ -916,6 +989,74 @@ mod tests {
         let rules = compile(&[rule("/dir/**", "/elsewhere", None)]);
         assert!(compute_configured_redirects("/dir/page", &rules).is_some());
         assert!(compute_configured_redirects("/dir/sub/page", &rules).is_some());
+    }
+
+    #[test]
+    fn glob_bracket_segment_rejects_dot_via_segment_matcher() {
+        // Codex review round 6 P1: `Matcher::Glob` (sources with
+        // `?`/`[`/`{` glob meta and no `*`/`:name`) must use the
+        // same per-segment matcher as `Pattern`'s `glob_fallback`,
+        // not raw globset full-pattern matching. globset matches
+        // `[.]y` against `.y` (the bracket class contains `.`), but
+        // minimatch with `dot: false` rejects (the pattern segment
+        // begins with `[`, a magic char — NOT a literal `.`).
+        let rules = compile(&[rule("/g/[.]y", "/hit", None)]);
+        assert!(compute_configured_redirects("/g/.y", &rules).is_none());
+    }
+
+    #[test]
+    fn glob_negation_with_bracket_pattern_flips_correctly() {
+        // Same Glob source under `!`-prefix: `!/g/[.]y` matches
+        // every path that does NOT match `/g/[.]y` (per minimatch
+        // negation). Since `/g/.y` falls into the rejected set
+        // (the pattern doesn't admit it), the negation matches and
+        // the redirect fires.
+        let rules = compile(&[rule("!/g/[.]y", "/hit", None)]);
+        let (target, _) = compute_configured_redirects("/g/.y", &rules)
+            .expect("negation should match a path the inner pattern rejects");
+        assert_eq!(target, "/hit");
+    }
+
+    #[test]
+    fn brace_alternative_starts_with_dot_admits_leading_dot_path() {
+        // Codex review round 6 P1: brace expansion happens before
+        // the dot rule. `{.x,y}` segment expands to either `.x`
+        // (literal-leading-dot) or `y`; the `.x` alternative
+        // permits a `.x` path segment.
+        let rules = compile(&[rule("/a/*/b/{.x,y}", "/hit", None)]);
+        let (target, _) = compute_configured_redirects("/a/q/b/.x", &rules)
+            .expect("`.x` alternative inside braces should admit a `.x` path segment");
+        assert_eq!(target, "/hit");
+        // The `y` alternative also works for non-dot paths.
+        assert!(compute_configured_redirects("/a/q/b/y", &rules).is_some());
+        // A different dotfile (`.z`) doesn't match either
+        // alternative.
+        assert!(compute_configured_redirects("/a/q/b/.z", &rules).is_none());
+    }
+
+    #[test]
+    fn brace_no_dot_alternative_rejects_dot_path() {
+        // Sanity check: `{a,b}` (no dot alternative) follows the
+        // standard rule — segment starts with `{` (magic), and no
+        // alternative begins with literal `.`, so leading-dot
+        // paths are rejected.
+        let rules = compile(&[rule("/a/*/b/{x,y}", "/hit", None)]);
+        assert!(compute_configured_redirects("/a/q/b/.x", &rules).is_none());
+        assert!(compute_configured_redirects("/a/q/b/x", &rules).is_some());
+    }
+
+    #[test]
+    fn pattern_with_param_and_question_mark_falls_back_to_glob() {
+        // Codex review round 6 P2: the `glob_fallback` field now
+        // builds for any Pattern matcher, not just `*`-bearing
+        // ones. A source like `/a/:id/?` (no `*` but with `?`)
+        // would fail under regex (since `?` is treated as a
+        // literal `\?`) yet match in the reference via minimatch
+        // when the path literally carries `:id`.
+        let rules = compile(&[rule("/a/:id/?", "/hit", None)]);
+        let (target, _) = compute_configured_redirects("/a/:id/x", &rules)
+            .expect(":name + `?` should match a literal :id path via glob fallback");
+        assert_eq!(target, "/hit");
     }
 
     #[test]

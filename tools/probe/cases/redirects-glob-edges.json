@@ -1,0 +1,43 @@
+{
+  "id": "redirects-glob-edges",
+  "description": "Codex round 6 P1+P2 corners: minimatch parity for non-`*` glob sources (Glob matcher with `[`/`{`/`?`), brace-expansion happening before the dot rule, and `:name`+non-`*` glob-meta sources falling back to minimatch. Each anchor pins one boundary that the pre-round-6 implementation missed. Negation interaction is in `redirects-negation-source.json` to avoid the global-effect overlap (`!`-rules match almost all paths and would interfere with positive anchors here).",
+  "fixture": {
+    "files": {
+      "_marker.txt": "marker\n"
+    },
+    "serveJson": {
+      "redirects": [
+        { "source": "/g/[.]y", "destination": "/bracket-hit" },
+        { "source": "/a/*/b/{.x,y}", "destination": "/brace-dot-hit" },
+        { "source": "/c/*/d/{x,y}", "destination": "/brace-no-dot-hit" },
+        { "source": "/q/:id/?", "destination": "/qmark-hit" }
+      ]
+    }
+  },
+  "runner": {
+    "l0": {
+      "clean": [
+        "bracket_glob_rejects_dot",
+        "brace_dot_alternative_admits_dot",
+        "brace_no_dot_alternative_rejects_dot",
+        "param_plus_question_mark_via_minimatch"
+      ],
+      "contentLengthMayDiffer": [
+        "bracket_glob_rejects_dot",
+        "brace_dot_alternative_admits_dot",
+        "brace_no_dot_alternative_rejects_dot",
+        "param_plus_question_mark_via_minimatch"
+      ],
+      "bodyMayDiffer": [
+        "bracket_glob_rejects_dot",
+        "brace_no_dot_alternative_rejects_dot"
+      ]
+    }
+  },
+  "requests": [
+    { "name": "bracket_glob_rejects_dot", "method": "GET", "path": "/g/.y" },
+    { "name": "brace_dot_alternative_admits_dot", "method": "GET", "path": "/a/q/b/.x" },
+    { "name": "brace_no_dot_alternative_rejects_dot", "method": "GET", "path": "/c/q/d/.x" },
+    { "name": "param_plus_question_mark_via_minimatch", "method": "GET", "path": "/q/:id/x" }
+  ]
+}

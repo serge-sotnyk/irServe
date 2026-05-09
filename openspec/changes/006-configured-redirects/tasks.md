@@ -468,3 +468,58 @@
   tools/probe/run.mjs --all --target=reference --snapshot=verify`
   49/49; `npx -y @fission-ai/openspec@latest validate --all
   --strict` — 14/14.
+
+## 9. Codex review round 6 (P1 + P1 + P2 fixes)
+
+- [x] 9.1 **P1 — `Matcher::Glob` now uses the segment matcher.**
+  The round-5 segment-based `match_segments` was applied only
+  inside `Pattern`'s `glob_fallback`. `Matcher::Glob` (sources
+  with `?`/`[`/`{` glob meta and no `*`/`:name`, OR any
+  `!`-prefixed source) still ran raw `globset.is_match()` and
+  missed minimatch's `dot: false`. Refactored
+  `Matcher::Glob` to store `Vec<PatSeg>` (the same shape as
+  `GlobFallback.segments`) and call `match_segments`. The
+  `negate` XOR continues to apply on top.
+- [x] 9.2 **P1 — brace expansion before the dot rule.**
+  `classify_pattern_segment` set `starts_with_dot` from the
+  raw segment string, so `{.x,y}` (segment beginning with `{`)
+  was treated as not-dot-starting. Minimatch expands braces
+  BEFORE applying the dot rule, so the `.x` alternative is a
+  literal-leading-dot expansion that admits dot-paths. Added
+  `segment_can_start_with_dot` helper that walks brace
+  alternatives recursively (including nested braces via
+  `split_top_level_alternatives`), flipping the flag when any
+  alternative begins with literal `.`.
+- [x] 9.3 **P2 — `glob_fallback` for ALL Pattern matchers.**
+  The round-3..5 implementation gated `glob_fallback` on
+  `body.contains('*')`. Codex showed that `:name`+`?` and
+  `:name`+`{}` sources also need the fallback (the
+  reference's `sourceMatches` ALWAYS tries minimatch on
+  path-to-regexp miss, per `index.js:47-66`). Removed the
+  gate; `glob_fallback` now builds for every Pattern matcher.
+- [x] 9.4 New unit tests in `redirects.rs`:
+  `glob_bracket_segment_rejects_dot_via_segment_matcher`,
+  `glob_negation_with_bracket_pattern_flips_correctly`,
+  `brace_alternative_starts_with_dot_admits_leading_dot_path`,
+  `brace_no_dot_alternative_rejects_dot_path`,
+  `pattern_with_param_and_question_mark_falls_back_to_glob`.
+- [x] 9.5 New probes:
+  - `tools/probe/cases/redirects-glob-edges.json` (4 anchors:
+    Glob bracket dot-reject, brace-dot-alt admits, brace-no-dot
+    rejects, `:id`+`?` minimatch fallback). ORC-104..107.
+  - `tools/probe/cases/redirects-negation-bracket.json` (1
+    anchor: negation flips bracket dot rejection). ORC-108.
+    Isolated to its own probe because `!`-rules match almost
+    any path and would interfere with positive anchors.
+- [x] 9.6 D-012 in `decisions.md` extended with all three
+  round-6 fixes; `design.md` §8 stop-the-line item 5 added;
+  `inventory.md` SRV-RDIR-001 oracle list extended through
+  ORC-108; `006-configured-redirects` delta
+  `specs/redirects/spec.md` SRV-RDIR-001 oracle list also
+  extended.
+- [x] 9.7 Verify: `cargo test -p irserve-core redirects` 69/69
+  green (was 64); `cargo test --test oracle` 30 passed (was
+  28, +2 cases from new probes), 21 skipped, 0 failed; `node
+  tools/probe/run.mjs --all --target=reference --snapshot=verify`
+  51/51 (was 49); `npx -y @fission-ai/openspec@latest validate
+  --all --strict` — 14/14.

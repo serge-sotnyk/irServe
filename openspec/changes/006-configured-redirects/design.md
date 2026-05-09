@@ -393,6 +393,30 @@ plan:
    leading-dot), ORC-102 (`[.]y` doesn't), ORC-103 (`**`
    doesn't).
 
+5. **Unify Glob with the segment matcher; brace-aware
+   `starts_with_dot`; unconditional fallback (Codex round 6).**
+   Round 5 applied the segment matcher only inside `Pattern`'s
+   `glob_fallback`; `Matcher::Glob` (sources with `?`/`[`/`{`
+   glob meta and no `*`/`:name`) still used raw
+   `globset.is_match()` and missed dot rejection. Round 6 P1
+   refactored `Matcher::Glob` to store `Vec<PatSeg>` and run
+   the same `match_segments` walker. Round 6 P1 also fixed
+   `starts_with_dot`: the round-5 implementation evaluated the
+   flag from the raw segment (so `{.x,y}` looked non-dot
+   because it begins with `{`), but minimatch expands braces
+   BEFORE applying the dot rule. The new
+   `segment_can_start_with_dot` walks brace alternatives
+   recursively; any alternative starting with literal `.` flips
+   the flag. Round 6 P2 removed the `body.contains('*')` gate
+   on `glob_fallback` construction: the reference's
+   `sourceMatches` ALWAYS tries minimatch after path-to-regexp
+   returns null, regardless of source shape. So `:name`+`?` /
+   `:name`+`{}` / `:name`+`[...]` sources also need a fallback
+   for the literal-`:name` corner case. Pinned by ORC-104
+   (Glob bracket reject), ORC-105 (brace dot-alt admits),
+   ORC-106 (brace no-dot-alt rejects), ORC-107 (`:id`+`?`
+   minimatch hit), ORC-108 (negation+bracket flips correctly).
+
 ## 9. Hard stops
 
 - `third_party/` — read-only.
