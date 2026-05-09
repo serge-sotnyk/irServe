@@ -2,7 +2,7 @@ use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::path::PathBuf;
 
 use clap::{ArgAction, Parser};
-use irserve_core::{run, ServerConfig};
+use irserve_core::{run, ServeConfig, ServerConfig};
 
 #[derive(Parser)]
 #[command(
@@ -53,7 +53,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .collect();
     let root = cli.directory.canonicalize()?;
 
-    let config = ServerConfig { root, listens };
+    let config = ServerConfig {
+        root,
+        listens,
+        serve_config: ServeConfig::default(),
+    };
     run(config).await?;
     Ok(())
 }

@@ -1,5 +1,6 @@
 #![forbid(unsafe_code)]
 
+pub mod config;
 mod dispatch;
 mod mime;
 mod notfound;
@@ -9,9 +10,15 @@ mod server;
 use std::net::SocketAddr;
 use std::path::PathBuf;
 
+pub use config::{
+    load_serve_json, BoolOrGlobs, ConfigError, ConfigSource, HeaderItem, HeaderRule,
+    LoadedConfig, RedirectRule, RewriteRule, ServeConfig,
+};
+
 pub struct ServerConfig {
     pub root: PathBuf,
     pub listens: Vec<SocketAddr>,
+    pub serve_config: ServeConfig,
 }
 
 #[derive(Debug, thiserror::Error)]
