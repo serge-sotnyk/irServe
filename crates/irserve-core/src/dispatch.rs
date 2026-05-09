@@ -1,7 +1,7 @@
 use std::path::Path;
 
 use axum::body::Body;
-use axum::http::header::{HeaderValue, CONTENT_TYPE};
+use axum::http::header::{HeaderValue, CONTENT_TYPE, LOCATION};
 use axum::http::{Method, Request, Response, StatusCode};
 
 use crate::config::ServeConfig;
@@ -9,11 +9,12 @@ use crate::mime::mime_for;
 use crate::normalize::collapse_slashes;
 use crate::notfound::not_found_response;
 use crate::resolve::{resolve, ResolveOutcome};
+use crate::trailing_slash::compute_trailing_slash_redirect;
 
 pub async fn dispatch(
     req: Request<Body>,
     root: &Path,
-    _serve_config: &ServeConfig,
+    serve_config: &ServeConfig,
 ) -> Response<Body> {
     // Phase 1–2: method gate (existing).
     if req.method() != Method::GET && req.method() != Method::HEAD {
@@ -28,7 +29,12 @@ pub async fn dispatch(
     let url_path = collapse_slashes(raw_path);
 
     // Phase 4: cleanUrls 301 (Stage 6c).
-    // Phase 5: trailingSlash 301 (Stage 6b slice 2).
+
+    // Phase 5: trailingSlash 301 (SRV-ROUT-003 / SRV-ROUT-004).
+    if let Some(target) = compute_trailing_slash_redirect(&url_path, serve_config.trailing_slash) {
+        return redirect_301(&target);
+    }
+
     // Phase 6: configured redirects (Stage 6d).
     // Phase 7: rewrites + --single (Stage 6e).
     // Phase 8: cleanUrls resolution (Stage 6c).
@@ -43,6 +49,16 @@ pub async fn dispatch(
         },
         ResolveOutcome::NotFound | ResolveOutcome::EscapedRoot => not_found_response(req.headers()),
     }
+}
+
+fn redirect_301(target: &str) -> Response<Body> {
+    let location = HeaderValue::from_str(target)
+        .unwrap_or_else(|_| HeaderValue::from_static("/"));
+    Response::builder()
+        .status(StatusCode::MOVED_PERMANENTLY)
+        .header(LOCATION, location)
+        .body(Body::empty())
+        .expect("301 response should always build")
 }
 
 fn file_response(path: &Path, bytes: Vec<u8>) -> Response<Body> {

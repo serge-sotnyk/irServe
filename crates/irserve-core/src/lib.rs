@@ -7,6 +7,7 @@ mod normalize;
 mod notfound;
 mod resolve;
 mod server;
+mod trailing_slash;
 
 use std::net::SocketAddr;
 use std::path::PathBuf;
