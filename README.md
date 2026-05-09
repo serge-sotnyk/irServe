@@ -113,6 +113,42 @@ curl -i http://127.0.0.1:3010/
 
 Rust toolchain (1.81+) is required to build and test `irserve`. `cargo build` produces the bin under `target/debug/irserve(.exe)`. `cargo test --test oracle` builds the bin and shells out to `node tools/probe/run.mjs --all --target=irserve --snapshot=verify`; Node 18+ on PATH is a prerequisite (already needed for the reference oracle bundle above).
 
+## Try IrServe (strict L0)
+
+The current binary covers eight SRVs (`SRV-CLI-001/002/007/019`, `SRV-FILE-001/002/004/005`); every other capability is deferred per `D-008` and is not implemented yet (see `docs/reference/serve/decisions.md`).
+
+```bash
+mkdir -p _tmp && echo hello > _tmp/index.html
+
+# Quick dev run — no separate build step, debug profile under target/debug/
+cargo run -- --listen 3010 _tmp
+
+# Or build a release binary once and reuse it
+cargo build --release
+./target/release/irserve --listen 3010 _tmp
+
+# Either form: omit --listen to bind 3000; use `PORT=3010 ...` env;
+# pass `--listen 3010 --listen 3011 _tmp` to bind both ports.
+```
+
+Exercise it:
+
+```bash
+curl -i http://127.0.0.1:3010/                                       # 200, index.html
+curl -i http://127.0.0.1:3010/_tmp/index.html                        # 200 (no cleanUrls 301; that lands at L1)
+curl -i http://127.0.0.1:3010/missing                                # 404, text/html, "<h1>404 Not Found</h1>"
+curl -i -H 'Accept: application/json' http://127.0.0.1:3010/missing  # 404, JSON envelope verbatim
+curl -i -X POST http://127.0.0.1:3010/                               # 405
+
+./target/release/irserve --help        # exit 0
+./target/release/irserve -v            # exit 0, prints version
+./target/release/irserve a b           # exit non-zero, two positionals rejected
+./target/release/irserve --no-port-switching   # exit non-zero, deferred flag
+```
+
+What this slice does NOT do yet (all deferred to L1/L2 in Stage 6):
+`cleanUrls` and `trailingSlash`, `serve.json`, configured redirects/rewrites, directory listing, custom `404.html`, `--single` SPA fallback, `tcp://host:port` URI form, and `ETag`/`Last-Modified`/conditional GETs.
+
 ## References
 
 - [`vercel/serve`](https://github.com/vercel/serve) — reference CLI.
