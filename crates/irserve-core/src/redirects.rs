@@ -232,9 +232,21 @@ fn classify_pattern_segment(seg: &str) -> Result<PatSeg, globset::Error> {
         .chars()
         .any(|c| matches!(c, '*' | '?' | '[' | '{'));
     if !has_glob {
-        return Ok(PatSeg::Literal(seg.to_string()));
+        // Literal segment (no glob meta). De-escape `\X` so a
+        // segment like `\.x` literal-matches a `.x` path
+        // segment. Codex review round 8 P2 — minimatch and
+        // path-to-regexp both treat `\X` as literal `X`.
+        return Ok(PatSeg::Literal(de_escape(seg)));
     }
-    let glob = GlobBuilder::new(seg).literal_separator(true).build()?;
+    // `backslash_escape(true)` lets globset interpret `\X` as a
+    // literal `X` (mirrors minimatch). Without this, a Wildcard
+    // segment like `\.*` would treat `\` as a literal backslash
+    // character and never match a `.X` path. Codex review round
+    // 8 P2.
+    let glob = GlobBuilder::new(seg)
+        .literal_separator(true)
+        .backslash_escape(true)
+        .build()?;
     Ok(PatSeg::Wildcard {
         matcher: glob.compile_matcher(),
         starts_with_dot: segment_can_start_with_dot(seg),
@@ -246,10 +258,16 @@ fn classify_pattern_segment(seg: &str) -> Result<PatSeg, globset::Error> {
 /// before the dot rule is applied: `{.x,y}` admits a leading-dot
 /// path segment because the `.x` alternative starts with `.`. The
 /// segment-leading `.` itself (no braces) trivially returns true.
-/// Codex review round 6 P1 — the previous implementation used a
-/// raw `seg.starts_with('.')` and missed the brace case.
+/// Backslash-escaped leading dot (`\.` followed by anything) also
+/// counts — minimatch's `\X` is a literal `X`, and the dot rule
+/// looks at the EFFECTIVE first character (after escape
+/// processing). Codex review round 6 P1 added the brace case;
+/// round 8 P2 added the `\.` case.
 fn segment_can_start_with_dot(seg: &str) -> bool {
     if seg.starts_with('.') {
+        return true;
+    }
+    if seg.starts_with("\\.") {
         return true;
     }
     if !seg.starts_with('{') {
@@ -438,8 +456,13 @@ fn compile_one(rule: &RedirectRule) -> Result<RedirectRuleCompiled, CompileError
             destination: normalized_dest,
         }
     } else {
+        // De-escape `\X` sequences so a source like `/g/\.x`
+        // literal-matches a request path `/g/.x`. Codex review
+        // round 8 P2 — minimatch and path-to-regexp both treat
+        // `\X` as a literal `X`; our `Literal` variant compares
+        // strings directly so we strip escapes at compile time.
         Matcher::Literal {
-            source: body,
+            source: de_escape(&body),
             destination: normalized_dest,
         }
     };
@@ -546,6 +569,53 @@ fn path_posix_normalize(s: &str) -> String {
     result
 }
 
+/// Mirrors Node's `path.posix.resolve` for absolute-path inputs:
+/// runs `path_posix_normalize` (resolves `.` / `..`, collapses
+/// consecutive slashes) and then drops a single trailing `/`
+/// (except for the bare root `/`). The reference's `sourceMatches`
+/// (`serve-handler/src/index.js:41`) calls
+/// `path.posix.resolve(requestPath)` to produce the path that
+/// both pathToRegExp and minimatch see. We mirror at the top of
+/// `try_match` so all matchers see the resolved form.
+fn path_posix_resolve(path: &str) -> String {
+    let normalized = path_posix_normalize(path);
+    if normalized != "/" && normalized.ends_with('/') {
+        normalized[..normalized.len() - 1].to_string()
+    } else {
+        normalized
+    }
+}
+
+/// Strip backslash-escapes from a string. Mirrors minimatch /
+/// path-to-regexp behavior where `\X` is a literal `X` (the
+/// backslash is the escape character, not part of the literal
+/// match). Used at compile time to de-escape `Literal`-variant
+/// source bodies, so that source `\.x` literal-matches request
+/// `.x`. Codex review round 8 P2 surfaced this gap — the
+/// round-7 implementation kept the backslash in `Literal.source`
+/// and the comparison against the request path failed.
+///
+/// Wildcard-variant sources don't need this because globset's
+/// own glob compiler treats `\X` as an escape and produces the
+/// correct compiled regex; only the dot-rule check needs to
+/// look past the leading `\` (handled in
+/// `segment_can_start_with_dot`).
+fn de_escape(s: &str) -> String {
+    let mut out = String::with_capacity(s.len());
+    let mut chars = s.chars();
+    while let Some(c) = chars.next() {
+        if c == '\\' {
+            if let Some(next) = chars.next() {
+                out.push(next);
+            }
+            // Trailing `\` with nothing after: drop silently.
+        } else {
+            out.push(c);
+        }
+    }
+    out
+}
+
 /// Mirrors the truthy branch of `url.parse(dest).protocol` in Node:
 /// the destination has a protocol when it begins with a valid URL
 /// scheme followed by `:`. A scheme is `[A-Za-z][A-Za-z0-9+.\-]*`.
@@ -594,17 +664,14 @@ impl RedirectRuleCompiled {
         // Mirror `serve-handler/src/index.js:41`'s
         // `path.posix.resolve(requestPath)`. Both `pathToRegExp.exec`
         // (line 49) AND `minimatch` (line 59) operate on the
-        // resolved path — which strips a single trailing `/` (except
-        // the bare root `/`). Codex review round 7 P1.1: the
-        // round-6 implementation only trimmed in the Glob /
-        // glob_fallback branches, not before the Pattern regex, so
-        // `/a/*` against `/a/` matched in irserve while reference
-        // returned 404.
-        let path = if path != "/" && path.ends_with('/') {
-            &path[..path.len() - 1]
-        } else {
-            path
-        };
+        // resolved path. `path.posix.resolve` does more than trim
+        // a trailing slash: it ALSO resolves `.` / `..` segments
+        // and collapses consecutive slashes (Codex review round 8
+        // P1). The round-7 trim alone missed raw-mode requests
+        // like `GET /a/./x` and `GET /a/b/../x`, which the
+        // reference resolves to `/a/x` before matching.
+        let resolved = path_posix_resolve(path);
+        let path = resolved.as_str();
         match &self.matcher {
             Matcher::Literal {
                 source,
@@ -1036,6 +1103,63 @@ mod tests {
         let rules = compile(&[rule("/dir/**", "/elsewhere", None)]);
         assert!(compute_configured_redirects("/dir/page", &rules).is_some());
         assert!(compute_configured_redirects("/dir/sub/page", &rules).is_some());
+    }
+
+    #[test]
+    fn raw_dot_segment_in_path_is_resolved() {
+        // Codex review round 8 P1: reference applies
+        // `path.posix.resolve(requestPath)` before BOTH
+        // pathToRegExp and minimatch (`index.js:41`). The trim
+        // alone (round 7) wasn't enough — `.` and `..` segments
+        // also resolve. So a raw request `/a/./x` resolves to
+        // `/a/x` and matches a literal `/a/x` rule.
+        let rules = compile(&[rule("/a/x", "/hit", None)]);
+        let (target, _) = compute_configured_redirects("/a/./x", &rules)
+            .expect("`.` segment should resolve away");
+        assert_eq!(target, "/hit");
+    }
+
+    #[test]
+    fn raw_dotdot_segment_in_path_is_resolved() {
+        let rules = compile(&[rule("/a/x", "/hit", None)]);
+        let (target, _) = compute_configured_redirects("/a/b/../x", &rules)
+            .expect("`..` segment should pop the previous segment");
+        assert_eq!(target, "/hit");
+    }
+
+    #[test]
+    fn raw_dot_segment_with_param() {
+        let rules = compile(&[rule("/a/:id", "/new/:id", None)]);
+        let (target, _) = compute_configured_redirects("/a/./foo", &rules)
+            .expect("`.` segment should resolve before regex captures :id");
+        assert_eq!(target, "/new/foo");
+    }
+
+    #[test]
+    fn literal_source_de_escapes_backslash_dot() {
+        // Codex review round 8 P2: minimatch and path-to-regexp
+        // treat `\X` as a literal `X`. A source segment `\.x`
+        // should match a request path `.x`. The pre-round-8
+        // implementation kept the backslash in `Literal.source`
+        // and the comparison failed.
+        let rules = compile(&[rule("/g/\\.x", "/hit", None)]);
+        let (target, _) = compute_configured_redirects("/g/.x", &rules)
+            .expect("`\\.` source should literal-match a `.` path segment");
+        assert_eq!(target, "/hit");
+    }
+
+    #[test]
+    fn wildcard_with_escaped_dot_admits_leading_dot_path() {
+        // Source `/g/\.*` is a Wildcard segment (has `*`). The
+        // dot rule checks the EFFECTIVE first character — `\.`
+        // escapes to literal `.`, so the segment effectively
+        // starts with `.` and admits a leading-dot path.
+        // Globset's compiled regex for `\.*` matches `.X` (the
+        // backslash escapes the dot, then `*` matches anything).
+        let rules = compile(&[rule("/g/\\.*", "/hit", None)]);
+        let (target, _) = compute_configured_redirects("/g/.x", &rules)
+            .expect("`\\.*` should admit a `.x` path segment via the effective-first-char dot rule");
+        assert_eq!(target, "/hit");
     }
 
     #[test]

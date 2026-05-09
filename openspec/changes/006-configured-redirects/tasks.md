@@ -592,3 +592,61 @@
   tools/probe/run.mjs --all --target=reference --snapshot=verify`
   53/53 (was 51); `npx -y @fission-ai/openspec@latest validate
   --all --strict` — 14/14.
+
+## 11. Codex review round 8 (P1 + P2 fixes)
+
+- [x] 11.1 **P1 — full `path.posix.resolve`.** Round 7's
+  trailing-slash trim missed `.` / `..` segments. Reference
+  applies `path.posix.resolve` (`index.js:41`) which ALSO
+  resolves dot/dotdot and collapses consecutive slashes. Raw
+  requests like `/a/./x` and `/a/b/../x` resolve to `/a/x` in
+  reference and match a literal `/a/x` rule; irserve was
+  returning 404. Fix: replace the simple trim at the top of
+  `try_match` with a full `path_posix_resolve` helper
+  (`path_posix_normalize` followed by trailing-slash trim).
+- [x] 11.2 **P2 — backslash escape in source patterns.**
+  minimatch and path-to-regexp treat `\X` as a literal `X`.
+  irserve had three places that needed updates:
+  - `Matcher::Literal` compared raw bytes, so source `\.x`
+    didn't match path `.x`. Fix: `de_escape` the body at
+    compile time.
+  - `Matcher::Glob` and `Pattern.glob_fallback` use globset
+    via `classify_pattern_segment`. globset's GlobBuilder
+    interprets `\` as literal backslash by default; enabling
+    `backslash_escape(true)` makes it treat `\X` as escape.
+    Fix: chain `.backslash_escape(true)` onto the
+    GlobBuilder.
+  - `segment_can_start_with_dot` checked `seg.starts_with('.')`
+    only, missing the `\.` case. The dot rule's effective-
+    first-char treatment in minimatch looks past escape chars.
+    Fix: add a `seg.starts_with("\\.")` check.
+- [x] 11.3 New unit tests in `redirects.rs`:
+  `raw_dot_segment_in_path_is_resolved`,
+  `raw_dotdot_segment_in_path_is_resolved`,
+  `raw_dot_segment_with_param`,
+  `literal_source_de_escapes_backslash_dot`,
+  `wildcard_with_escaped_dot_admits_leading_dot_path`. Five
+  new tests bringing the redirects suite to 80.
+- [x] 11.4 New probe `tools/probe/cases/redirects-resolve-and-escape.json`
+  (5 anchors): three raw-mode anchors for `path.posix.resolve`
+  parity (`.` segment, `..` segment, `.` + `:name`); two
+  fetch-mode anchors for `\` escape parity (Literal `\.x`,
+  Wildcard `\.*` admits dotfile). Raw-mode anchors mark
+  `bodyMayDiffer` because reference's raw-mode redirect
+  responses include the HTTP/1.1 chunked encoding terminator
+  (5-byte `0\r\n\r\n`) while irserve's hyper layer uses
+  Content-Length: 0 — same divergence as `multislash-collapse`
+  per round-3 D-011 amendments. ORC-118..122 added.
+- [x] 11.5 D-012 in `decisions.md` extended with both round-8
+  fixes; `design.md` §8 stop-the-line item 7 added;
+  `inventory.md` SRV-RDIR-001 oracle list extended through
+  ORC-122 (using `ORC-084..ORC-122` shorthand);
+  `006-configured-redirects` delta `specs/redirects/spec.md`
+  SRV-RDIR-001 oracle list collapsed to the same shorthand
+  (39 anchors total — too many to enumerate inline).
+- [x] 11.6 Verify: `cargo test -p irserve-core redirects` 80/80
+  green (was 75); `cargo test --test oracle` 33 passed (was
+  32, +1 case from new probe), 21 skipped, 0 failed; `node
+  tools/probe/run.mjs --all --target=reference --snapshot=verify`
+  54/54 (was 53); `npx -y @fission-ai/openspec@latest validate
+  --all --strict` — 14/14.

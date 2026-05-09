@@ -1,0 +1,140 @@
+{
+  "$schemaVersion": 1,
+  "case": "redirects-resolve-and-escape",
+  "description": "Codex round 8 corners: (P1) full path.posix.resolve before matching — raw `.`/`..` segments in the request path resolve away. (P2) `\\.` in a source pattern is a backslash-escape of a literal `.`. minimatch's effective-first-char dot rule looks past the leading `\\`, and globset compiled with `backslash_escape(true)` mirrors the behavior. Two raw-mode requests use literal `.` and `..` segments; the rest exercise escape-prefixed source patterns.",
+  "fixture": {
+    "files": {
+      "_marker.txt": "marker\n"
+    },
+    "serveJson": {
+      "redirects": [
+        {
+          "source": "/r/x",
+          "destination": "/literal-hit"
+        },
+        {
+          "source": "/r2/:id",
+          "destination": "/param-hit/:id"
+        },
+        {
+          "source": "/g/\\.x",
+          "destination": "/escape-literal-hit"
+        },
+        {
+          "source": "/g2/\\.*",
+          "destination": "/escape-glob-hit"
+        }
+      ]
+    }
+  },
+  "serveArgs": [],
+  "volatileHeaders": [
+    "last-modified"
+  ],
+  "volatileBodies": [],
+  "requests": [
+    {
+      "name": "raw_dot_segment_resolves",
+      "request": {
+        "method": "GET",
+        "mode": "raw",
+        "path": "/r/./x"
+      },
+      "requestLine": "GET /r/./x HTTP/1.1",
+      "response": {
+        "body": {
+          "kind": "binary",
+          "length": 5,
+          "sha256": "933b971c6388d594a23fa1559825db5bec8ade2db1240aa8fc9d0c684949e8c9"
+        },
+        "headers": {
+          "location": "/literal-hit"
+        },
+        "status": 301,
+        "statusText": "Moved Permanently"
+      }
+    },
+    {
+      "name": "raw_dotdot_segment_resolves",
+      "request": {
+        "method": "GET",
+        "mode": "raw",
+        "path": "/r/b/../x"
+      },
+      "requestLine": "GET /r/b/../x HTTP/1.1",
+      "response": {
+        "body": {
+          "kind": "binary",
+          "length": 5,
+          "sha256": "933b971c6388d594a23fa1559825db5bec8ade2db1240aa8fc9d0c684949e8c9"
+        },
+        "headers": {
+          "location": "/literal-hit"
+        },
+        "status": 301,
+        "statusText": "Moved Permanently"
+      }
+    },
+    {
+      "name": "raw_dot_segment_with_param_resolves",
+      "request": {
+        "method": "GET",
+        "mode": "raw",
+        "path": "/r2/./foo"
+      },
+      "requestLine": "GET /r2/./foo HTTP/1.1",
+      "response": {
+        "body": {
+          "kind": "binary",
+          "length": 5,
+          "sha256": "933b971c6388d594a23fa1559825db5bec8ade2db1240aa8fc9d0c684949e8c9"
+        },
+        "headers": {
+          "location": "/param-hit/foo"
+        },
+        "status": 301,
+        "statusText": "Moved Permanently"
+      }
+    },
+    {
+      "name": "escape_literal_dot_in_source",
+      "request": {
+        "method": "GET",
+        "mode": "fetch",
+        "path": "/g/.x"
+      },
+      "response": {
+        "body": {
+          "kind": "empty",
+          "length": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        "headers": {
+          "location": "/escape-literal-hit"
+        },
+        "status": 301,
+        "statusText": "Moved Permanently"
+      }
+    },
+    {
+      "name": "escape_glob_with_dot_admits_dotfile",
+      "request": {
+        "method": "GET",
+        "mode": "fetch",
+        "path": "/g2/.x"
+      },
+      "response": {
+        "body": {
+          "kind": "empty",
+          "length": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        "headers": {
+          "location": "/escape-glob-hit"
+        },
+        "status": 301,
+        "statusText": "Moved Permanently"
+      }
+    }
+  ]
+}

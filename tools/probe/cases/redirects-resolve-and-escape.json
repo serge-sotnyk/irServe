@@ -1,0 +1,47 @@
+{
+  "id": "redirects-resolve-and-escape",
+  "description": "Codex round 8 corners: (P1) full path.posix.resolve before matching — raw `.`/`..` segments in the request path resolve away. (P2) `\\.` in a source pattern is a backslash-escape of a literal `.`. minimatch's effective-first-char dot rule looks past the leading `\\`, and globset compiled with `backslash_escape(true)` mirrors the behavior. Two raw-mode requests use literal `.` and `..` segments; the rest exercise escape-prefixed source patterns.",
+  "fixture": {
+    "files": {
+      "_marker.txt": "marker\n"
+    },
+    "serveJson": {
+      "redirects": [
+        { "source": "/r/x", "destination": "/literal-hit" },
+        { "source": "/r2/:id", "destination": "/param-hit/:id" },
+        { "source": "/g/\\.x", "destination": "/escape-literal-hit" },
+        { "source": "/g2/\\.*", "destination": "/escape-glob-hit" }
+      ]
+    }
+  },
+  "runner": {
+    "l0": {
+      "clean": [
+        "raw_dot_segment_resolves",
+        "raw_dotdot_segment_resolves",
+        "raw_dot_segment_with_param_resolves",
+        "escape_literal_dot_in_source",
+        "escape_glob_with_dot_admits_dotfile"
+      ],
+      "contentLengthMayDiffer": [
+        "raw_dot_segment_resolves",
+        "raw_dotdot_segment_resolves",
+        "raw_dot_segment_with_param_resolves",
+        "escape_literal_dot_in_source",
+        "escape_glob_with_dot_admits_dotfile"
+      ],
+      "bodyMayDiffer": [
+        "raw_dot_segment_resolves",
+        "raw_dotdot_segment_resolves",
+        "raw_dot_segment_with_param_resolves"
+      ]
+    }
+  },
+  "requests": [
+    { "name": "raw_dot_segment_resolves", "method": "GET", "path": "/r/./x", "mode": "raw" },
+    { "name": "raw_dotdot_segment_resolves", "method": "GET", "path": "/r/b/../x", "mode": "raw" },
+    { "name": "raw_dot_segment_with_param_resolves", "method": "GET", "path": "/r2/./foo", "mode": "raw" },
+    { "name": "escape_literal_dot_in_source", "method": "GET", "path": "/g/.x" },
+    { "name": "escape_glob_with_dot_admits_dotfile", "method": "GET", "path": "/g2/.x" }
+  ]
+}

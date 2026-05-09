@@ -443,6 +443,21 @@ plan:
    → Glob segment-matcher strict) mirrors the reference exactly.
    Pinned by ORC-109..117.
 
+7. **Full `path.posix.resolve` and backslash-escape parity
+   (Codex round 8).** P1: round-7's trailing-slash trim missed
+   `.` / `..` segments. Decision: replace with a full
+   `path_posix_resolve` helper that runs `path_posix_normalize`
+   (already implemented for destination normalization) followed
+   by the trim. Pinned by ORC-118..120. P2: minimatch and
+   path-to-regexp treat `\X` as literal `X`. Fix: (a) `de_escape`
+   Literal source bodies at compile time so `\.x` literal-matches
+   `.x`; (b) compile globset patterns with
+   `backslash_escape(true)` for Wildcard variants so `\.*` is
+   parsed with `\.` as literal `.`; (c) `segment_can_start_with_dot`
+   detects `\.` prefix as effective-leading-dot. Pinned by
+   ORC-121 (Literal escape), ORC-122 (Wildcard escape admits
+   dotfile).
+
 ## 9. Hard stops
 
 - `third_party/` — read-only.
