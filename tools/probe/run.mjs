@@ -159,7 +159,7 @@ function findDeferredL0Flag(extraArgs) {
 
 function spawnServe({ port, fixtureDir, extraArgs, target = 'reference', skipAutoListen = false, extraEnv = {} }) {
   const isIrserve = target === 'irserve';
-  const baseEnv = { ...process.env, NO_UPDATE_NOTIFIER: '1', FORCE_COLOR: '0', ...extraEnv };
+  const baseEnv = { ...process.env, NO_UPDATE_CHECK: '1', FORCE_COLOR: '0', ...extraEnv };
   let cmd;
   let args;
   if (isIrserve) {
@@ -639,13 +639,23 @@ function applyL0Filter(snap, l0) {
   const bodyMayDiffer = new Set(l0.bodyMayDiffer ?? []);
   const contentLengthMayDiffer = new Set(l0.contentLengthMayDiffer ?? []);
   const exitCodeMayDiffer = new Set(l0.exitCodeMayDiffer ?? []);
-  // The L0 partition is an explicit allow-list: only `clean` anchors are
+  // The L0 partition is a strict allow-list: only `clean` anchors are
   // compared. `divergent` is informational. Anchors absent from both lists
-  // are treated as informational too (stripped from the diff). This makes
-  // case files self-documenting about what's contractually asserted.
-  const inClean = (name) => clean.size === 0 || clean.has(name);
+  // are stripped from the diff (informational). This makes case files
+  // self-documenting about what's contractually asserted. An empty `clean`
+  // would make the case vacuously pass — guarded by the post-filter check
+  // below.
+  const inClean = (name) => clean.has(name);
   if (Array.isArray(cloned.requests)) {
+    const beforeCount = cloned.requests.length;
     cloned.requests = cloned.requests.filter((r) => !divergent.has(r.name) && inClean(r.name));
+    if (cloned.requests.length === 0 && beforeCount > 0) {
+      throw new Error(
+        `L0 filter: case has zero anchors in 'clean' (or all anchors are divergent). ` +
+          `An empty must-match set would make the case vacuously pass. ` +
+          `Either populate runner.l0.clean or remove the runner.l0 block (which skips the case under target=irserve).`
+      );
+    }
     for (const r of cloned.requests) {
       // Strip L0 extra-volatile headers entirely from both sides. We can't
       // use the existing `<volatile>` masking because if a header is present
@@ -673,7 +683,15 @@ function applyL0Filter(snap, l0) {
     }
   }
   if (Array.isArray(cloned.cli)) {
+    const beforeCount = cloned.cli.length;
     cloned.cli = cloned.cli.filter((e) => !divergent.has(e.name) && inClean(e.name));
+    if (cloned.cli.length === 0 && beforeCount > 0) {
+      throw new Error(
+        `L0 filter: CLI case has zero anchors in 'clean' (or all anchors are divergent). ` +
+          `An empty must-match set would make the case vacuously pass. ` +
+          `Either populate runner.l0.clean or remove the runner.l0 block (which skips the case under target=irserve).`
+      );
+    }
     for (const e of cloned.cli) {
       if (exitCodeMayDiffer.has(e.name)) {
         // Per ORC-062 must-match the exit code is "non-zero", not a specific
@@ -770,7 +788,7 @@ async function runCliInvocation(name, args, fixtureDir, target = 'reference') {
     const child = spawn(cmd, cmdArgs, {
       cwd: fixtureDir,
       stdio: ['ignore', 'pipe', 'pipe'],
-      env: { ...process.env, NO_UPDATE_NOTIFIER: '1', FORCE_COLOR: '0' },
+      env: { ...process.env, NO_UPDATE_CHECK: '1', FORCE_COLOR: '0' },
     });
     const stdoutChunks = [];
     const stderrChunks = [];

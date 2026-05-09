@@ -66,13 +66,15 @@
         },
         "l0": {
           "type": "object",
-          "description": "Per-anchor partition applied when running against `target=irserve`. Cases without an `l0` block are skipped under `target=irserve`.",
+          "description": "Per-anchor partition applied when running against `target=irserve`. Cases without an `l0` block are skipped under `target=irserve`. The `clean` array is REQUIRED and MUST be non-empty — an empty must-match set would make the case vacuously pass; remove the whole `l0` block instead to opt out under `target=irserve`.",
+          "required": ["clean"],
           "additionalProperties": false,
           "properties": {
             "clean": {
               "type": "array",
               "items": { "type": "string" },
-              "description": "Anchor names that must match the reference snapshot (subject to volatile-header masking and the may-differ overlays below). Anchors not in `clean` and not in `divergent` are stripped from the diff (treated as informational)."
+              "minItems": 1,
+              "description": "Anchor names that must match the reference snapshot (subject to volatile-header masking and the may-differ overlays below). Strict allow-list: anchors not in `clean` are stripped from the diff (treated as informational), regardless of whether they appear in `divergent`."
             },
             "divergent": {
               "type": "array",
