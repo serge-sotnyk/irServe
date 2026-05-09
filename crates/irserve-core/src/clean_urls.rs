@@ -11,7 +11,7 @@
 
 use std::path::Path;
 
-use globset::{GlobBuilder, GlobSet, GlobSetBuilder};
+use globset::{GlobBuilder, GlobMatcher};
 
 use crate::config::BoolOrGlobs;
 use crate::normalize::collapse_slashes;
@@ -31,16 +31,50 @@ enum Mode {
     Off,
     /// `cleanUrls: true` (default when the field is absent).
     On,
-    /// `cleanUrls: ["/docs/**", ...]`. The dispatcher emits cleanUrls
-    /// behavior only for paths that match at least one pattern.
-    Scoped(GlobSet),
+    /// `cleanUrls: ["/docs/**", "!/secret/**", ...]`. The dispatcher
+    /// emits cleanUrls behavior only when at least one pattern in
+    /// the list matches the request path; negation patterns
+    /// (`!`-prefixed) match paths that do NOT match the rest of the
+    /// pattern (mirrors minimatch's `nonegate: false` default
+    /// behavior, used by `serve-handler` via `sourceMatches` →
+    /// `minimatch`).
+    Scoped(Vec<ScopedPattern>),
+}
+
+/// One compiled cleanUrls glob with its negation flag. Mirrors
+/// minimatch's per-pattern `negate` semantics (`!`-prefix in the
+/// raw pattern, after `slasher` normalization).
+#[derive(Debug)]
+struct ScopedPattern {
+    matcher: GlobMatcher,
+    /// `true` when the user-supplied pattern began with `!` (after
+    /// `slasher`). The match result is XOR'd with this flag, so a
+    /// negation pattern matches paths that do NOT match the rest.
+    negate: bool,
+}
+
+/// One cleanUrls pattern that failed to compile. The reference's
+/// minimatch silently treats unparseable patterns as never-matching
+/// (`serve-handler` keeps running and other patterns in the list
+/// continue to work). We mirror this: invalid patterns are
+/// collected here and surfaced to the bin layer for stderr
+/// warnings; the server continues to start.
+#[derive(Debug)]
+pub struct InvalidGlob {
+    pub pattern: String,
+    pub error: globset::Error,
 }
 
 impl CleanUrlsView {
-    /// Build the view from the parsed config field. Returns the
-    /// underlying `globset::Error` if any pattern fails to compile —
-    /// the bin surfaces this at startup, not per request.
-    pub fn from_config(cfg: &Option<BoolOrGlobs>) -> Result<Self, globset::Error> {
+    /// Build the view from the parsed config field. Never fails:
+    /// invalid glob patterns are collected into the returned
+    /// `Vec<InvalidGlob>` for the bin to surface as warnings. This
+    /// matches the reference's behavior at
+    /// `serve-handler/src/index.js:38-67` (via `minimatch`), which
+    /// silently treats unparseable patterns as never-matching and
+    /// keeps the server running.
+    pub fn from_config(cfg: &Option<BoolOrGlobs>) -> (Self, Vec<InvalidGlob>) {
+        let mut invalid = Vec::new();
         let inner = match cfg {
             // SRV-ROUT-001/002 default: cleanUrls is on when the field
             // is absent, matching `serve-handler/src/index.js:273`
@@ -50,24 +84,20 @@ impl CleanUrlsView {
             Some(BoolOrGlobs::Bool(true)) => Mode::On,
             Some(BoolOrGlobs::Bool(false)) => Mode::Off,
             Some(BoolOrGlobs::Globs(patterns)) => {
-                let mut builder = GlobSetBuilder::new();
+                let mut compiled = Vec::with_capacity(patterns.len());
                 for pat in patterns {
-                    // `literal_separator(true)` mirrors minimatch's
-                    // pathname-aware `*` semantics: a single `*` does
-                    // NOT cross `/`. Without this, `/docs/*` would also
-                    // match `/docs/sub/page.html`, while the reference
-                    // (minimatch via `sourceMatches`) only lets `**`
-                    // cross segments. See
-                    // `serve-handler/src/index.js:38-67`.
-                    let glob = GlobBuilder::new(&slasher(pat))
-                        .literal_separator(true)
-                        .build()?;
-                    builder.add(glob);
+                    match compile_scoped_pattern(pat) {
+                        Ok(scoped) => compiled.push(scoped),
+                        Err(error) => invalid.push(InvalidGlob {
+                            pattern: pat.clone(),
+                            error,
+                        }),
+                    }
                 }
-                Mode::Scoped(builder.build()?)
+                Mode::Scoped(compiled)
             }
         };
-        Ok(Self { inner })
+        (Self { inner }, invalid)
     }
 
     /// `applicable(decodedPath, configEntry)` from
@@ -85,21 +115,66 @@ impl CleanUrlsView {
         match &self.inner {
             Mode::Off => false,
             Mode::On => true,
-            Mode::Scoped(set) => {
+            Mode::Scoped(patterns) => {
                 let normalized = collapse_slashes(decoded_path);
-                set.is_match(normalized.as_ref())
+                let path = normalized.as_ref();
+                // Mirrors the reference's `applicable` iteration at
+                // `index.js:261-268`: return `true` on the first
+                // pattern whose `sourceMatches` returns truthy.
+                // Negation patterns (`!`-prefixed) match paths that
+                // do NOT match the rest of the pattern, so a sole
+                // `!/secret/**` enables cleanUrls for everything
+                // outside `/secret/**`.
+                patterns
+                    .iter()
+                    .any(|p| p.matcher.is_match(path) ^ p.negate)
             }
         }
     }
 }
 
-/// Mirrors `third_party/serve-handler/src/glob-slash.js`: prepend `/`
-/// when the pattern doesn't already start with one. We don't replicate
-/// the full `path.posix.normalize` (collapsing `..` etc.) because
-/// cleanUrls patterns shouldn't carry such segments in practice; if
-/// they do, that's a methodological signal for a Q-NNN entry.
+/// Compile one user-supplied cleanUrls pattern into a
+/// `ScopedPattern`. Mirrors `slasher` from
+/// `serve-handler/src/glob-slash.js:8`: a leading `!` is preserved
+/// so it can drive negation, the rest is `path.posix.normalize`'d
+/// to ensure a leading `/`.
+fn compile_scoped_pattern(raw: &str) -> Result<ScopedPattern, globset::Error> {
+    let slashed = slasher(raw);
+    let (negate, body) = match slashed.strip_prefix('!') {
+        Some(rest) => (true, rest.to_string()),
+        None => (false, slashed),
+    };
+    let glob = GlobBuilder::new(&body)
+        .literal_separator(true)
+        .build()?;
+    Ok(ScopedPattern {
+        matcher: glob.compile_matcher(),
+        negate,
+    })
+}
+
+/// Mirrors `third_party/serve-handler/src/glob-slash.js:8` exactly:
+///
+/// ```js
+/// value.charAt(0) === '!' ? `!${normalize(value.substr(1))}` : normalize(value)
+/// ```
+///
+/// where `normalize` ensures a leading `/`. The `!`-prefix is
+/// preserved verbatim — `compile_scoped_pattern` then strips it to
+/// build the matcher and toggles the `negate` flag. We don't
+/// replicate the full `path.posix.normalize` (collapsing `..` etc.)
+/// because cleanUrls patterns shouldn't carry such segments in
+/// practice; if they do, that's a methodological signal for a
+/// Q-NNN entry.
 fn slasher(pattern: &str) -> String {
-    if pattern.starts_with('/') {
+    if let Some(rest) = pattern.strip_prefix('!') {
+        let normalized = if rest.starts_with('/') {
+            rest.to_string()
+        } else {
+            format!("/{rest}")
+        };
+        format!("!{normalized}")
+    } else if pattern.starts_with('/') {
         pattern.to_string()
     } else {
         format!("/{pattern}")
@@ -248,18 +323,27 @@ mod tests {
     use super::*;
 
     fn view_on() -> CleanUrlsView {
-        CleanUrlsView::from_config(&None).unwrap()
+        CleanUrlsView::from_config(&None).0
     }
 
     fn view_off() -> CleanUrlsView {
-        CleanUrlsView::from_config(&Some(BoolOrGlobs::Bool(false))).unwrap()
+        CleanUrlsView::from_config(&Some(BoolOrGlobs::Bool(false))).0
     }
 
     fn view_scoped(patterns: &[&str]) -> CleanUrlsView {
         let cfg = Some(BoolOrGlobs::Globs(
             patterns.iter().map(|p| (*p).to_string()).collect(),
         ));
-        CleanUrlsView::from_config(&cfg).unwrap()
+        let (view, invalid) = CleanUrlsView::from_config(&cfg);
+        // Test helper: callers that pass valid patterns should never
+        // see a non-empty `invalid` list. Tests that exercise
+        // invalid patterns explicitly use `from_config` directly.
+        assert!(
+            invalid.is_empty(),
+            "view_scoped helper saw invalid patterns; use from_config directly: {:?}",
+            invalid.iter().map(|i| &i.pattern).collect::<Vec<_>>()
+        );
+        view
     }
 
     // ----- applicable / scope --------------------------------------
@@ -342,9 +426,71 @@ mod tests {
     }
 
     #[test]
-    fn from_config_invalid_glob_is_error() {
+    fn from_config_invalid_glob_is_skipped_silently() {
+        // Reference behavior (`serve-handler/src/index.js:38-67` via
+        // `minimatch`): unparseable patterns silently never match,
+        // server keeps running. We mirror this — surface invalid
+        // patterns to the caller for warnings, but don't fail.
         let cfg = Some(BoolOrGlobs::Globs(vec!["[invalid".to_string()]));
-        assert!(CleanUrlsView::from_config(&cfg).is_err());
+        let (view, invalid) = CleanUrlsView::from_config(&cfg);
+        assert_eq!(invalid.len(), 1);
+        assert_eq!(invalid[0].pattern, "[invalid");
+        // No usable patterns remain; applicable returns false for
+        // any path (Mode::Scoped(empty)).
+        assert!(!view.applicable("/anything"));
+        assert!(!view.applicable("/index.html"));
+    }
+
+    #[test]
+    fn from_config_mixed_valid_and_invalid_keeps_valid() {
+        // One bad pattern doesn't poison the valid ones (matches the
+        // reference's per-pattern iteration; a parse failure is
+        // local to that pattern).
+        let cfg = Some(BoolOrGlobs::Globs(vec![
+            "/docs/**".to_string(),
+            "[invalid".to_string(),
+        ]));
+        let (view, invalid) = CleanUrlsView::from_config(&cfg);
+        assert_eq!(invalid.len(), 1);
+        assert!(view.applicable("/docs/page.html"));
+        assert!(!view.applicable("/blog/page.html"));
+    }
+
+    #[test]
+    fn applicable_negation_excludes_path() {
+        // `!/secret/**` is a sole-negation pattern: matches every
+        // path that does NOT match `/secret/**`. Mirrors minimatch's
+        // `nonegate: false` default + `slasher`'s `!`-preservation.
+        let v = view_scoped(&["!/secret/**"]);
+        assert!(v.applicable("/public/page.html"));
+        assert!(v.applicable("/about"));
+        assert!(v.applicable("/index.html"));
+        assert!(!v.applicable("/secret/foo"));
+        assert!(!v.applicable("/secret/sub/x.html"));
+    }
+
+    #[test]
+    fn applicable_mixed_positive_and_negation() {
+        // Reference iterates patterns and returns true on the first
+        // that matches (`sourceMatches` truthy). With both `/docs/**`
+        // and `!/secret/**`, every path either hits the positive
+        // (in /docs) or the negation (anywhere outside /secret) —
+        // only paths under /secret/ are excluded.
+        let v = view_scoped(&["/docs/**", "!/secret/**"]);
+        assert!(v.applicable("/docs/foo.html"));
+        assert!(v.applicable("/docs/sub/page.html"));
+        assert!(v.applicable("/about"));
+        assert!(!v.applicable("/secret/x"));
+        assert!(!v.applicable("/secret/sub/y.html"));
+    }
+
+    #[test]
+    fn applicable_negation_without_leading_slash_normalizes() {
+        // `!secret/**` (no leading `/`) — `slasher` produces
+        // `!/secret/**`. Behaves identically to the explicit form.
+        let v = view_scoped(&["!secret/**"]);
+        assert!(v.applicable("/about"));
+        assert!(!v.applicable("/secret/x"));
     }
 
     // ----- compute_clean_urls_redirect -----------------------------

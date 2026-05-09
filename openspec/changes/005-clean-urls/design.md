@@ -14,7 +14,7 @@ SRV-ROUT-006).
 | `crates/irserve-core/src/clean_urls.rs` | **NEW.** `CleanUrlsView` precompiled view (Off / On / Scoped(GlobSet)); `from_config` / `applicable`; `compute_clean_urls_redirect` (phase 4); `try_clean_urls_resolve` (phase 8). 19 in-module unit tests. | phases 4 + 8 |
 | `crates/irserve-core/src/dispatch.rs` | `dispatch()` signature gains `&CleanUrlsView`. Phase 4 hooked between URL-decode and phase 5; phase 8 hooked around the existing `resolve()` with pre-stat gating. `url_path_has_extension(path: &str) -> bool` helper added. | dispatcher |
 | `crates/irserve-core/src/server.rs` | `AppState` carries `clean_urls_view: CleanUrlsView` built once in `serve()` from `config.serve_config.clean_urls`. `handler` propagates the view into `dispatch`. | startup |
-| `crates/irserve-core/src/lib.rs` | `mod clean_urls;`; `Error::CleanUrlsGlob(#[from] globset::Error)` variant for startup-time invalid-glob surfacing. | n/a |
+| `crates/irserve-core/src/lib.rs` | `mod clean_urls;`. No new `Error` variant — invalid globs are non-fatal warnings, surfaced via `(CleanUrlsView, Vec<InvalidGlob>)` from `from_config` and printed to stderr by `server.rs::serve` at startup. | n/a |
 | `crates/irserve-core/src/resolve.rs` | `#[derive(Debug)]` on `ResolveOutcome` so test panics in `clean_urls.rs` can format the variant in error messages. No behavioral change. | n/a |
 | `crates/irserve-core/Cargo.toml` + `Cargo.toml` (workspace) | `globset = "0.4"` (workspace-pinned). | n/a |
 | `tools/probe/run.mjs` | `applyL0Filter`'s `bodyMayDiffer` branch now also strips `body.kind` (transport-encoding choice; see §6). | runner |
@@ -131,19 +131,31 @@ contracted 301). We reuse `crate::normalize::collapse_slashes`,
 which returns `Cow::Borrowed` on the no-`//` happy path
 (zero-allocation).
 
-Negation patterns (`!/secret/**`) are NOT yet honored. The
-reference's `slasher` preserves a leading `!` (`glob-slash.js:8`)
-and minimatch treats `!`-leading patterns as negation when
-`nonegate: false` (the default). globset has no equivalent toggle —
-a `Glob::new("!/secret/**")` matches paths whose first segment is
-the literal `!secret`. This is a real semantic divergence the
-existing probes don't exercise (the `cleanurls-array.json` fixture
-uses a plain inclusion glob, and the `serve` README's example uses
-`/!components/**` — literal `!` after the slash, not negation). If
-a real-world divergence surfaces, capture as Q-NNN and either
-implement `!`-prefix handling manually (track inclusion vs exclusion
-sets and short-circuit on first match in the order the user supplied)
-or record an `adapted` D-NNN.
+Negation patterns (`!/secret/**`) ARE honored, mirroring minimatch's
+per-pattern `nonegate: false` semantics. globset has no equivalent
+toggle, so we implement negation manually: `slasher` preserves a
+leading `!` (mirrors `glob-slash.js:8`), `compile_scoped_pattern`
+strips the `!` before building the matcher and stores `negate: true`
+on the resulting `ScopedPattern`. `applicable` then iterates patterns
+and evaluates `matcher.is_match(path) ^ negate` per pattern, returning
+`true` on the first truthy result (mirrors `applicable`'s for-loop
+at `index.js:261-268`). A sole `!/secret/**` therefore enables
+cleanUrls for every path outside `/secret/**`, matching the
+reference. Mixed positive/negation lists like
+`["/docs/**", "!/secret/**"]` work as expected: `/docs/foo` hits the
+positive, `/about` hits the negation, `/secret/x` hits neither.
+
+Invalid glob patterns (e.g. `cleanUrls: ["[unclosed"]`) are NOT
+fatal. `from_config` returns `(CleanUrlsView, Vec<InvalidGlob>)`
+rather than a `Result`: unparseable patterns are collected into
+the warnings vector and the server keeps running, mirroring the
+reference's silent-skip behavior (minimatch silently treats
+unparseable patterns as never-matching at `index.js:38-67`). The
+bin layer (`server.rs::serve`) emits one stderr warning per
+skipped pattern so users notice typos. Backed by ORC-078
+(`cases/cleanurls-invalid-glob.json#html_no_redirect`); the
+unit test `from_config_invalid_glob_is_skipped_silently` pins
+the policy.
 
 `globset` precompiles the patterns once; per-request matching is
 allocation-free batch matching, plus the `Cow::Borrowed` happy path

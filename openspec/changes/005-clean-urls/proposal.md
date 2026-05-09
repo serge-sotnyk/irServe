@@ -36,11 +36,16 @@ This change wires:
   shadowing a real `/foo.css` via a `/foo.css.html` fallback.
 
 Both `cleanUrls: bool` and `cleanUrls: string[]` (globs) are
-implemented in this change. The array form is precompiled once at
-server start into a `globset::GlobSet`, mirroring the reference's
-`applicable()` helper at `index.js:256-274`. Invalid glob patterns
-surface as a startup error (new `Error::CleanUrlsGlob` variant)
-rather than per-request.
+implemented in this change, including minimatch-style negation
+patterns (`!`-prefix; mirrors `slasher` at `glob-slash.js:8` plus
+`nonegate: false` minimatch behavior). The array form is precompiled
+once at server start into a `Vec<ScopedPattern>`, where each
+pattern carries a `negate: bool` flag — `applicable` evaluates
+`matcher.is_match(path) ^ negate` per pattern and short-circuits on
+the first truthy result, mirroring the reference's iteration at
+`index.js:261-268`. Invalid glob patterns are silently skipped
+with a stderr warning (server keeps running), mirroring the
+reference's behavior at `index.js:38-67` via `minimatch`.
 
 The compose probes `prec-cleanurls-trailing.json` and
 `prec-cleanurls-trailing-false.json` — which were
@@ -109,8 +114,9 @@ without renumbering).
   precompiled `clean_urls_view`; `handler` propagates it into
   `dispatch`. The view is built once in `serve()` from
   `config.serve_config.clean_urls`.
-- `crates/irserve-core/src/lib.rs` — `mod clean_urls;` and
-  `Error::CleanUrlsGlob(#[from] globset::Error)` variant.
+- `crates/irserve-core/src/lib.rs` — `mod clean_urls;`. (No
+  `Error` variant: invalid globs are non-fatal warnings surfaced
+  via `(CleanUrlsView, Vec<InvalidGlob>)` from `from_config`.)
 - `crates/irserve-core/src/resolve.rs` — `#[derive(Debug)]` on
   `ResolveOutcome` so test panics in `clean_urls.rs` can format it.
 - `crates/irserve-core/Cargo.toml` + workspace `Cargo.toml` —
@@ -198,7 +204,7 @@ were absorbed without a new D-NNN entry:
 ## Risks and mitigations
 
 1. **Glob library semantics differ from minimatch.** `globset` is a
-   Rust glob library; `serve-handler` uses `minimatch` (Node). Two
+   Rust glob library; `serve-handler` uses `minimatch` (Node). Four
    alignments are required so the array-form scope check matches
    the reference:
    (a) `GlobBuilder::new(...).literal_separator(true)` so `*` does
@@ -210,27 +216,42 @@ were absorbed without a new D-NNN entry:
    `sourceMatches` at `index.js:38-67`. Without this, raw-mode
    requests like `GET //docs/guide.html` miss otherwise-matching
    `/docs/**` globs.
-   Both alignments landed in Codex review round 1 (P1 fix); the
-   regressions are pinned by `applicable_single_star_does_not_cross_slash`,
-   `applicable_double_star_crosses_segments`, and
-   `applicable_normalizes_double_slash_path` in the `clean_urls`
-   unit tests, plus their phase-4 counterparts
-   `redirect_scope_single_star_does_not_match_nested` and
-   `redirect_scope_double_slash_path_normalizes`. Negation patterns
-   (`!`-prefix per `slasher` + minimatch) are NOT yet honored —
-   globset has no equivalent. No probe currently exercises them; if
-   a real-world divergence surfaces, record a Q-NNN.
+   (c) Negation patterns (`!`-prefix). `slasher` preserves the
+   `!` (mirrors `glob-slash.js:8`); patterns are stored as
+   `Vec<ScopedPattern>` with a per-pattern `negate: bool`;
+   `applicable` evaluates `matcher.is_match(path) ^ negate` per
+   pattern and short-circuits on the first truthy result, mirroring
+   minimatch's `nonegate: false` plus `applicable`'s for-loop at
+   `index.js:261-268`. A sole `!/secret/**` thus enables cleanUrls
+   for every path outside `/secret/**`.
+   (d) Invalid patterns are silently skipped (server keeps running)
+   rather than fatal. `from_config` returns `(Self, Vec<InvalidGlob>)`;
+   the bin emits stderr warnings per skipped pattern. Mirrors the
+   reference's silent-never-match behavior at `index.js:38-67` via
+   `minimatch`.
+   Alignments (a) and (b) landed in Codex review round 1; (c) and
+   (d) landed in round 2 with backing probes ORC-077
+   (`cleanurls-negation`, 4 anchors covering pure-negation include
+   and exclude legs) and ORC-078 (`cleanurls-invalid-glob#html_no_redirect`,
+   server-stays-running anchor). Regressions are pinned by 7 unit
+   tests in `clean_urls::tests`: `applicable_single_star_does_not_cross_slash`,
+   `applicable_double_star_crosses_segments`,
+   `applicable_normalizes_double_slash_path`,
+   `applicable_negation_excludes_path`,
+   `applicable_mixed_positive_and_negation`,
+   `from_config_invalid_glob_is_skipped_silently`,
+   `from_config_mixed_valid_and_invalid_keeps_valid`.
 2. **`/index.html` → `/index` vs `/`.** The reference regex
    `(\.html|\/index)$/g` does a single-pass replace, yielding
    `/index` (not `/`). The existing snapshot `_smoke#index_html_redirect`
    pins `Location: /index`, confirming single-pass semantics.
    Implementation uses ordered `strip_suffix` calls; tested
    explicitly at `clean_urls.rs::redirect_index_html_strips_only_html_suffix`.
-3. **Empty array `cleanUrls: []`.** `globset::GlobSet::is_match`
-   returns `false` for an empty set, so `applicable()` returns
-   `false` for all paths — equivalent to `cleanUrls: false`. This
-   matches the reference's `applicable()` which iterates an empty
-   array and returns `false`.
+3. **Empty array `cleanUrls: []`.** `Mode::Scoped(Vec::new())`
+   makes `applicable.iter().any(...)` return `false` for all paths
+   — equivalent to `cleanUrls: false`. Matches the reference's
+   `applicable()` iteration which returns `false` on an empty
+   array.
 4. **Path traversal via `<P>.html` candidates.** `try_clean_urls_resolve`
    canonicalizes each candidate and checks `starts_with(root)` (same
    guard `resolve.rs` uses). Any path-traversal attempt via cleanUrls

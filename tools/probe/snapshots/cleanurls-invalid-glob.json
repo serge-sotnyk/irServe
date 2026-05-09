@@ -1,0 +1,48 @@
+{
+  "$schemaVersion": 1,
+  "case": "cleanurls-invalid-glob",
+  "description": "`cleanUrls` with an unparseable glob pattern. The reference's minimatch silently treats unparseable patterns as never-matching and the server keeps running (`serve-handler/src/index.js:38-67` via `minimatch`); other patterns in the list, if any, continue to work. IrServe mirrors this graceful degradation: invalid patterns are skipped with a stderr warning, server starts, and `applicable` returns false for the invalid-only configuration so neither phase 4 (cleanUrls 301) nor phase 8 (extensionless resolution) fires. Backs SRV-ROUT-001's array-form scope. Closes Codex review round 2 P2.\n\nNote: this probe only requests `/page.html` (a path with an extension), not `/`. Under `cleanUrls=false` (or the equivalent invalid-only array), the reference does NOT auto-resolve `<dir>/index.html` for directory requests — `findRelated` is gated on `cleanUrl || rewrittenPath` at `index.js:620`, so a `GET /` falls through to `renderDirectory` which emits an HTML listing instead. That broader directory-listing-vs-index behavior is SRV-DLST-* territory (Stage 6g) and is intentionally outside this probe's contract; we exercise only the path that proves invalid patterns don't crash the server and don't fire the cleanUrls 301.",
+  "fixture": {
+    "files": {
+      "index.html": "<p>home</p>\n",
+      "page.html": "<p>page</p>\n"
+    },
+    "serveJson": {
+      "cleanUrls": [
+        "[invalid"
+      ]
+    }
+  },
+  "serveArgs": [],
+  "volatileHeaders": [
+    "last-modified"
+  ],
+  "volatileBodies": [],
+  "requests": [
+    {
+      "name": "html_no_redirect",
+      "request": {
+        "method": "GET",
+        "mode": "fetch",
+        "path": "/page.html"
+      },
+      "response": {
+        "body": {
+          "kind": "text",
+          "length": 12,
+          "sha256": "0b9fee13e1593a935a9f445a20b571c4714324cdf9379d60d118f4eac4138e20",
+          "preview": "<p>page</p>\n"
+        },
+        "headers": {
+          "accept-ranges": "bytes",
+          "content-length": "12",
+          "content-type": "text/html; charset=utf-8",
+          "etag": "\"58a0bfb73ec23809afeb318e37c904dd7e1d46d6\"",
+          "vary": "Accept-Encoding"
+        },
+        "status": 200,
+        "statusText": "OK"
+      }
+    }
+  ]
+}

@@ -12,7 +12,7 @@ matched HTML suffix and collapse any resulting `//` to `/`. The
 `cleanUrls` is configured as an array of globs, only matching paths
 SHALL receive the redirect.
 
-Evidence: SRV-ROUT-001 (status: verified, level: L2); oracle: ORC-002, ORC-012, ORC-017, ORC-020, ORC-021, ORC-023, ORC-026, ORC-027.
+Evidence: SRV-ROUT-001 (status: verified, level: L2); oracle: ORC-002, ORC-012, ORC-017, ORC-020, ORC-021, ORC-023, ORC-026, ORC-027, ORC-077 (negation pattern, `cases/cleanurls-negation.json`), ORC-078 (invalid-glob graceful degradation, `cases/cleanurls-invalid-glob.json#html_no_redirect`).
 
 Implementation: `crates/irserve-core/src/clean_urls.rs::compute_clean_urls_redirect`
 mirrors the cleanUrls branch of `serve-handler/src/index.js:121-143`'s
@@ -26,11 +26,14 @@ stripped result mirrors `index.js:137` (`decodedPath.replace(/\/+/g,
 the path (mirrors `index.js:119`'s `ensureSlashStart`).
 
 Scope (`cleanUrls` array form) is precompiled at server start into
-a `globset::GlobSet` via `CleanUrlsView::from_config`, mirroring
-the reference's `applicable()` helper at `index.js:256-274`. Pattern
-normalization mirrors `slasher` from `serve-handler/src/glob-slash.js`:
-patterns without a leading `/` get one prepended before
-`GlobBuilder::new`. Globs are built with
+a `Vec<ScopedPattern>` via `CleanUrlsView::from_config`, mirroring
+the reference's `applicable()` helper at `index.js:256-274`. Each
+`ScopedPattern` carries a `negate: bool` for the minimatch-style
+`!`-prefix negation. Pattern normalization mirrors `slasher` from
+`serve-handler/src/glob-slash.js:8`: a leading `!` is preserved
+(then stripped by `compile_scoped_pattern` after toggling
+`negate=true`); the rest is `path.posix.normalize`'d to a leading
+`/` before reaching `GlobBuilder::new`. Globs are built with
 `GlobBuilder::new(...).literal_separator(true)` so `*` does NOT
 cross `/` (matching minimatch's pathname-aware semantics — the
 reference's `sourceMatches` calls minimatch). The request path is
@@ -38,9 +41,14 @@ also normalized via `collapse_slashes` inside `applicable` before
 `is_match`, mirroring `path.posix.resolve(requestPath)` inside
 `sourceMatches` at `index.js:38-67`, so raw-mode requests like
 `GET //docs/guide.html` participate correctly in `/docs/**` scope
-checks. Invalid glob patterns surface as a startup error
-(`Error::CleanUrlsGlob`) rather than per-request. Negation patterns
-(`!`-prefix) are NOT yet honored; no current probe exercises them.
+checks. `applicable` evaluates `matcher.is_match(path) ^ negate`
+per pattern and short-circuits on the first truthy result, mirroring
+minimatch's `nonegate: false` plus `applicable`'s for-loop at
+`index.js:261-268`. A sole `!/secret/**` therefore enables cleanUrls
+for every path outside `/secret/**`. Invalid glob patterns are
+silently skipped with a stderr warning emitted from
+`server.rs::serve` (server keeps running), mirroring the reference's
+behavior at `index.js:38-67` via `minimatch`.
 
 The redirect target passes through `dispatch.rs::encode_uri_target`
 (unchanged from 6b) for `Location`-header encoding, so SPACEs
@@ -75,7 +83,7 @@ The server SHALL resolve an extensionless request by trying
 `<P>/index.html` first and `<P>.html` second, serving the first
 that exists with status 200, when `cleanUrls` is enabled.
 
-Evidence: SRV-ROUT-002 (status: verified, level: L2); oracle: ORC-013, ORC-014, ORC-022, ORC-024.
+Evidence: SRV-ROUT-002 (status: verified, level: L2); oracle: ORC-013, ORC-014, ORC-022, ORC-024, ORC-077 (negation-pattern resolution, `cases/cleanurls-negation.json#public_extensionless_resolves` + `#secret_extensionless_miss`).
 
 Note: Index-first order is probe-confirmed (Q-005 closed by
 `prec-cleanurls-default`: with both `/about.html` and

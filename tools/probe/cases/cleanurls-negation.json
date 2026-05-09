@@ -1,0 +1,33 @@
+{
+  "id": "cleanurls-negation",
+  "description": "`cleanUrls` array form with a negation pattern. `!/secret/**` enables cleanUrls (extension stripping + extensionless resolution) for every path that does NOT match `/secret/**`, mirroring `slasher`'s `!`-preservation at `serve-handler/src/glob-slash.js:8` plus minimatch's per-pattern negate semantics with `nonegate: false` (the default at `serve-handler/src/index.js:59`). Backs SRV-ROUT-001 (array-form 301 scope, negation form) and SRV-ROUT-002 (extensionless resolution under negation). Closes Codex review round 2 P1.",
+  "fixture": {
+    "files": {
+      "public/page.html": "<p>public</p>\n",
+      "secret/page.html": "<p>secret</p>\n",
+      "index.html": "<p>home</p>\n"
+    },
+    "serveJson": {
+      "cleanUrls": ["!/secret/**"]
+    }
+  },
+  "runner": {
+    "l0": {
+      "clean": [
+        "public_html_redirect",
+        "public_extensionless_resolves",
+        "secret_html_direct",
+        "secret_extensionless_miss"
+      ],
+      "divergent": [],
+      "bodyMayDiffer": ["secret_extensionless_miss"],
+      "contentLengthMayDiffer": ["public_html_redirect"]
+    }
+  },
+  "requests": [
+    { "name": "public_html_redirect", "method": "GET", "path": "/public/page.html" },
+    { "name": "public_extensionless_resolves", "method": "GET", "path": "/public/page" },
+    { "name": "secret_html_direct", "method": "GET", "path": "/secret/page.html" },
+    { "name": "secret_extensionless_miss", "method": "GET", "path": "/secret/page" }
+  ]
+}

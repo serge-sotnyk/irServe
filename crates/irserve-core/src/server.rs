@@ -21,7 +21,19 @@ struct AppState {
 type SharedState = Arc<AppState>;
 
 pub async fn serve(config: ServerConfig) -> Result<(), Error> {
-    let clean_urls_view = CleanUrlsView::from_config(&config.serve_config.clean_urls)?;
+    // Mirrors the reference's behavior at
+    // `serve-handler/src/index.js:38-67` (via `minimatch`): invalid
+    // cleanUrls glob patterns are silently treated as never-matching
+    // and the server keeps running. Surface a stderr warning per
+    // skipped pattern so users notice the typo.
+    let (clean_urls_view, invalid_globs) =
+        CleanUrlsView::from_config(&config.serve_config.clean_urls);
+    for inv in &invalid_globs {
+        eprintln!(
+            "warning: cleanUrls pattern {:?} skipped (invalid glob): {}",
+            inv.pattern, inv.error
+        );
+    }
     let state: SharedState = Arc::new(AppState {
         root: config.root,
         serve_config: config.serve_config,

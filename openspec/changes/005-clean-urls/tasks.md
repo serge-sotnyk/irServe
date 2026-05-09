@@ -114,6 +114,97 @@
   40/40; `npx -y @fission-ai/openspec@latest validate --all
   --strict` clean
 
+## 4. Codex review round 1 — P1 + P2 fixes
+
+- [x] 4.1 `crates/irserve-core/src/clean_urls.rs` — switch glob
+  build from `Glob::new` to `GlobBuilder::new(...).literal_separator(true).build()`
+  so `*` does NOT cross `/` (mirrors minimatch's pathname-aware
+  default; confirmed divergence with reference for `/docs/*` vs
+  `/docs/sub/page.html`)
+- [x] 4.2 `crates/irserve-core/src/clean_urls.rs::CleanUrlsView::applicable`
+  — collapse `//` in the request path before `is_match`, mirroring
+  `path.posix.resolve(requestPath)` inside `sourceMatches` at
+  `serve-handler/src/index.js:38-67`. Reuse
+  `crate::normalize::collapse_slashes` (Cow-borrowing zero-alloc on
+  the no-`//` happy path)
+- [x] 4.3 Removed the local `collapse_consecutive_slashes` helper
+  in favor of `crate::normalize::collapse_slashes` (single source
+  of truth for slash collapse)
+- [x] 4.4 Added 5 regression tests:
+  `applicable_single_star_does_not_cross_slash`,
+  `applicable_double_star_crosses_segments`,
+  `applicable_normalizes_double_slash_path`,
+  `redirect_scope_single_star_does_not_match_nested`,
+  `redirect_scope_double_slash_path_normalizes`
+- [x] 4.5 `docs/reference/serve/oracle-matrix.md` ORC-017 — fix
+  `Location: /about/` → `Location: /about` (matches the canonical
+  snapshot at `tools/probe/snapshots/prec-cleanurls-trailing.json#about_html`;
+  cleanUrls strip wins over the trailingSlash add per the
+  phase-4-before-5 coupling at `index.js:130-133`)
+- [x] 4.6 Updated design.md, proposal.md, spec delta to reflect
+  the actual semantics (literal_separator, path normalization,
+  honest divergence note on negation patterns)
+
+## 5. Codex review round 2 — P1 + P2 fixes
+
+- [x] 5.1 `crates/irserve-core/src/clean_urls.rs` —
+  `slasher` extended to preserve `!`-prefix verbatim (mirrors
+  `serve-handler/src/glob-slash.js:8`); `Mode::Scoped` storage
+  changed from `GlobSet` to `Vec<ScopedPattern>` where each
+  pattern carries a `negate: bool`. `applicable` iterates and
+  evaluates `matcher.is_match(path) ^ negate`, returning `true`
+  on the first truthy result (mirrors minimatch's `nonegate:
+  false` plus `applicable`'s for-loop at `index.js:261-268`).
+- [x] 5.2 `crates/irserve-core/src/clean_urls.rs::from_config` —
+  signature changed from `Result<Self, globset::Error>` to
+  `(Self, Vec<InvalidGlob>)`. Unparseable patterns are collected
+  into the warnings vector (server keeps running), mirroring the
+  reference's silent-never-match behavior at `index.js:38-67` via
+  `minimatch`. New public type `InvalidGlob { pattern, error }`.
+- [x] 5.3 `crates/irserve-core/src/lib.rs` — removed
+  `Error::CleanUrlsGlob` variant (no longer needed; invalid globs
+  are non-fatal).
+- [x] 5.4 `crates/irserve-core/src/server.rs::serve` — emits one
+  `eprintln!` warning per skipped invalid pattern at startup so
+  users notice typos.
+- [x] 5.5 Added 4 unit tests in `clean_urls::tests`:
+  `applicable_negation_excludes_path` (sole-negation pattern),
+  `applicable_mixed_positive_and_negation` (combined include +
+  exclude),
+  `applicable_negation_without_leading_slash_normalizes`
+  (`!secret/**` → `!/secret/**`),
+  `from_config_invalid_glob_is_skipped_silently`,
+  `from_config_mixed_valid_and_invalid_keeps_valid`. Existing
+  `from_config_invalid_glob_is_error` was renamed to
+  `from_config_invalid_glob_is_skipped_silently` to reflect the
+  new policy.
+- [x] 5.6 New probe `tools/probe/cases/cleanurls-negation.json`
+  (4 anchors): `public_html_redirect`, `public_extensionless_resolves`,
+  `secret_html_direct`, `secret_extensionless_miss`. Backs
+  ORC-077.
+- [x] 5.7 New probe `tools/probe/cases/cleanurls-invalid-glob.json`
+  (1 anchor: `html_no_redirect`). Backs ORC-078. Note in case
+  description that `GET /` is intentionally NOT exercised — under
+  `cleanUrls=false` (or invalid-only array) the reference renders
+  a directory listing instead of `index.html` for `/` (`findRelated`
+  is gated on `cleanUrl || rewrittenPath` at `index.js:620`); that
+  broader directory-vs-index behavior is SRV-DLST-* territory
+  (Stage 6g).
+- [x] 5.8 Snapshots recorded for both new probes via
+  `node tools/probe/run.mjs <id> --target=reference --snapshot=update`.
+- [x] 5.9 `docs/reference/serve/oracle-matrix.md` — added ORC-077
+  and ORC-078 rows under L2 routing.
+- [x] 5.10 `docs/reference/serve/decisions.md` — D-011 amended
+  with round-1 + round-2 fix summary.
+- [x] 5.11 design.md, proposal.md, spec delta — refreshed to
+  describe negation handling and invalid-glob silent-skip
+  semantics.
+- [x] 5.12 Verify: `cargo test --workspace` 92/92 unit tests
+  green; `cargo test --test oracle` 20/42 against irserve (was
+  18/40; +2 from the new probes), 22 skipped, 0 failed; reference
+  42/42; `npx -y @fission-ai/openspec@latest validate --all
+  --strict` 13/13 clean.
+
 ## Hard stops (per template)
 
 - `third_party/` is read-only.

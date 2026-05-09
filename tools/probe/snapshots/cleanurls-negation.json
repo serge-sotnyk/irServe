@@ -1,0 +1,116 @@
+{
+  "$schemaVersion": 1,
+  "case": "cleanurls-negation",
+  "description": "`cleanUrls` array form with a negation pattern. `!/secret/**` enables cleanUrls (extension stripping + extensionless resolution) for every path that does NOT match `/secret/**`, mirroring `slasher`'s `!`-preservation at `serve-handler/src/glob-slash.js:8` plus minimatch's per-pattern negate semantics with `nonegate: false` (the default at `serve-handler/src/index.js:59`). Backs SRV-ROUT-001 (array-form 301 scope, negation form) and SRV-ROUT-002 (extensionless resolution under negation). Closes Codex review round 2 P1.",
+  "fixture": {
+    "files": {
+      "public/page.html": "<p>public</p>\n",
+      "secret/page.html": "<p>secret</p>\n",
+      "index.html": "<p>home</p>\n"
+    },
+    "serveJson": {
+      "cleanUrls": [
+        "!/secret/**"
+      ]
+    }
+  },
+  "serveArgs": [],
+  "volatileHeaders": [
+    "last-modified"
+  ],
+  "volatileBodies": [],
+  "requests": [
+    {
+      "name": "public_html_redirect",
+      "request": {
+        "method": "GET",
+        "mode": "fetch",
+        "path": "/public/page.html"
+      },
+      "response": {
+        "body": {
+          "kind": "empty",
+          "length": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        "headers": {
+          "location": "/public/page"
+        },
+        "status": 301,
+        "statusText": "Moved Permanently"
+      }
+    },
+    {
+      "name": "public_extensionless_resolves",
+      "request": {
+        "method": "GET",
+        "mode": "fetch",
+        "path": "/public/page"
+      },
+      "response": {
+        "body": {
+          "kind": "text",
+          "length": 14,
+          "sha256": "db946e23a0d64e7b1932e987483515581c8c420b2c4504c67663330ffdc6d15b",
+          "preview": "<p>public</p>\n"
+        },
+        "headers": {
+          "accept-ranges": "bytes",
+          "content-length": "14",
+          "content-type": "text/html; charset=utf-8",
+          "etag": "\"662607bc30a6470aa5875e0452a886154d1bfba1\"",
+          "vary": "Accept-Encoding"
+        },
+        "status": 200,
+        "statusText": "OK"
+      }
+    },
+    {
+      "name": "secret_html_direct",
+      "request": {
+        "method": "GET",
+        "mode": "fetch",
+        "path": "/secret/page.html"
+      },
+      "response": {
+        "body": {
+          "kind": "text",
+          "length": 14,
+          "sha256": "6e073ad1376cfbcc36c00533a34a9ac5874d3e2b2fa3f4e24a1488ec1859d8b8",
+          "preview": "<p>secret</p>\n"
+        },
+        "headers": {
+          "accept-ranges": "bytes",
+          "content-length": "14",
+          "content-type": "text/html; charset=utf-8",
+          "etag": "\"e6c9476a724d6f29969e6452449cb4407cdbbb91\"",
+          "vary": "Accept-Encoding"
+        },
+        "status": 200,
+        "statusText": "OK"
+      }
+    },
+    {
+      "name": "secret_extensionless_miss",
+      "request": {
+        "method": "GET",
+        "mode": "fetch",
+        "path": "/secret/page"
+      },
+      "response": {
+        "body": {
+          "kind": "text",
+          "length": 1641,
+          "sha256": "8c45c679f40c3f81c111fbf2398d568189c3ab34d8a9704ad225cd8efe1b819f",
+          "preview": "<!DOCTYPE html><head> <meta name=\"viewport\" content=\"width=device-width, initial-scale=1, user-scalable=no\"/> <style> body { margin: 0; font-family: -apple-system, BlinkMacSystemFont, \"Segoe UI\", \"Rob"
+        },
+        "headers": {
+          "content-type": "text/html; charset=utf-8",
+          "vary": "Accept-Encoding"
+        },
+        "status": 404,
+        "statusText": "Not Found"
+      }
+    }
+  ]
+}

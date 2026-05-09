@@ -28,8 +28,6 @@ pub struct ServerConfig {
 pub enum Error {
     #[error("io error: {0}")]
     Io(#[from] std::io::Error),
-    #[error("invalid `cleanUrls` glob in serve.json: {0}")]
-    CleanUrlsGlob(#[from] globset::Error),
 }
 
 pub async fn run(config: ServerConfig) -> Result<(), Error> {
