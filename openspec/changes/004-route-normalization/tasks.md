@@ -189,3 +189,35 @@
   --target=reference --snapshot=verify` (40/40); `npx -y
   @fission-ai/openspec@latest validate --all --strict` (12/12);
   `cargo build --release` clean
+
+## 7. Round 3 fixes (Codex review)
+
+- [x] 7.1 `docs/reference/serve/decisions.md` — append a deferral
+  paragraph to D-010 (P2 fix): malformed percent-escape rejection
+  (e.g. `/bad%zz` → 400) is SRV-SEC-001 territory and stays
+  reference-only via the existing no-`runner.l0` block on
+  `traversal-raw-encoded` (ORC-041). Document the observable
+  consequence under `trailingSlash: true`: irserve passes the
+  literal `%zz` through `decode_utf8_lossy`, phase 5 appends `/`,
+  `encode_uri_target` re-encodes `%` to `%25`, and the response
+  is `301 Location: /bad%25zz/`; the reference returns 400. The
+  divergence is bounded — strict decoding belongs to 6f.
+- [x] 7.2 `openspec/changes/004-route-normalization/proposal.md`
+  — replace the stale "Location set verbatim" sentence (P3 fix)
+  with the round-2 truth: `redirect_301` runs the target through
+  `encode_uri_target` before the `HeaderValue`. Also flesh out
+  the dispatcher description to reflect the round-1 wiring
+  (decode at entry; phase 5 on uncollapsed; phase 3 silent for
+  resolve flow).
+- [x] 7.3 No code changes; no probe changes; no spec-delta
+  changes. The strict-decode promotion lands in 6f together with
+  enabling `runner.l0` on `traversal-encoded` /
+  `traversal-raw-encoded`.
+- [x] 7.4 Verify: `cargo test -p irserve-core` 56/56 (no new
+  tests; no behavior change); `cargo test --test oracle` (40
+  cases, 14 passed / 26 skipped / 0 failed — `traversal-raw-encoded`
+  still auto-skips under `target=irserve` per the deferral);
+  `node tools/probe/run.mjs --all --target=reference
+  --snapshot=verify` (40/40); `npx -y
+  @fission-ai/openspec@latest validate --all --strict` (12/12);
+  `cargo build --release` clean

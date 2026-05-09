@@ -75,10 +75,14 @@ yet implemented.
   unit tests cover add / strip / no-op / dotfile / extension /
   dotfile-with-extension / root-edge / nested.
 - `crates/irserve-core/src/dispatch.rs` — `dispatch()` signature gains
-  `&ServeConfig`; phases 3 and 5 hooked in. Explicit comment-stubs
-  mark phases 4, 6, 7, 8 for the upcoming sub-stages so the 6c
-  insertion is a one-line addition. `redirect_301(target)` helper
-  builds the 301 response with `Location` set verbatim.
+  `&ServeConfig`; URL percent-decode at entry; phase 5 on the
+  uncollapsed decoded path (multi-slash override included); phase 3
+  silent collapse for resolve flow. Explicit comment-stubs mark
+  phases 4, 6, 7, 8 for the upcoming sub-stages so the 6c insertion
+  is a one-line addition. `redirect_301(target)` runs the target
+  through `encode_uri_target` (an `encodeURI`-equivalent built on
+  `percent_encoding::utf8_percent_encode`) before constructing the
+  `Location` header — mirrors `serve-handler/src/index.js:586`.
 - `crates/irserve-core/src/server.rs` — `AppState` carries both `root`
   and `serve_config`; `handler` propagates both into `dispatch`.
 - `crates/irserve-core/src/lib.rs` — registers `mod normalize` and
