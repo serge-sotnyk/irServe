@@ -623,8 +623,13 @@ function canonicalJson(value) {
 // L0 mode preprocessor: when running against irserve, apply the case's
 // per-anchor L0 partition to BOTH sides of the snapshot before diffing.
 //   * remove `divergent` anchors entirely (informational only)
-//   * for `bodyMayDiffer` anchors, strip body.length / body.sha256 / body.preview
-//     (and content-length, since body length implies content-length)
+//   * for `bodyMayDiffer` anchors, strip body.kind / body.length / body.sha256 /
+//     body.preview (and content-length, since body length implies content-length).
+//     `body.kind` is included because raw-mode probes capture HTTP/1.1
+//     chunked-encoding terminators (`0\r\n\r\n`) as a 5-byte "binary" body
+//     against Node's reference, while irserve's hyper layer uses
+//     `Content-Length: 0` for the same empty 301 — a transport-encoding
+//     choice, not an application-body divergence.
 //   * for `contentLengthMayDiffer` anchors, strip only the content-length
 //     header (transport detail; body bytes still must-match)
 //   * for `exitCodeMayDiffer` anchors (CLI entries), assert both sides are
@@ -668,6 +673,7 @@ function applyL0Filter(snap, l0) {
       }
       if (bodyMayDiffer.has(r.name) && r.response?.body) {
         const b = r.response.body;
+        if ('kind' in b) delete b.kind;
         if ('length' in b) delete b.length;
         if ('sha256' in b) delete b.sha256;
         if ('preview' in b) delete b.preview;

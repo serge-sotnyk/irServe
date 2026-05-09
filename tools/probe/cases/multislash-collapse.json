@@ -9,8 +9,9 @@
   },
   "runner": {
     "l0": {
-      "clean": ["double_slash_root"],
-      "divergent": ["double_slash_segment", "internal_double_slash"]
+      "clean": ["double_slash_root", "double_slash_segment", "internal_double_slash"],
+      "divergent": [],
+      "bodyMayDiffer": ["double_slash_segment", "internal_double_slash"]
     }
   },
   "requests": [

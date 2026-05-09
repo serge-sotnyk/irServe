@@ -10,6 +10,13 @@
       "trailingSlash": false
     }
   },
+  "runner": {
+    "l0": {
+      "clean": ["about_no_slash", "about_html", "about_with_slash"],
+      "divergent": [],
+      "contentLengthMayDiffer": ["about_html", "about_with_slash"]
+    }
+  },
   "requests": [
     { "name": "about_no_slash", "method": "GET", "path": "/about" },
     { "name": "about_html", "method": "GET", "path": "/about.html" },

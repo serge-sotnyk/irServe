@@ -21,6 +21,7 @@ Concretely: take `vercel/serve` (a small but real Node.js static file server), r
 - **Stage 5b — Rust scaffold + first vertical slice.** Done.
 - **Stage 6a — `serve.json` loader.** Done.
 - **Stage 6b — routing normalization (trailingSlash, multi-slash).** Done.
+- **Stage 6c — cleanUrls (301 + extensionless resolution).** Done.
 
 Rust code lives under `crates/irserve` (the bin) and `crates/irserve-core` (the lib). The first slice (Stage 5b) is strict-L0: eight SRVs (`SRV-CLI-001/002/007/019`, `SRV-FILE-001/002/004/005`). Stage 6a un-defers SRV-CFG-001, SRV-CFG-002, and SRV-CLI-009 (`-c/--config`); the remaining capabilities are still deferred per `D-008`/`D-009`.
 
@@ -56,7 +57,7 @@ The methodology runs in nine stages. Status is updated when entering or completi
 | 5b | Rust scaffold + first vertical slice | `Cargo.toml` + `tests/oracle/` + first crate code | done |
 | 6a | `serve.json` loader | `openspec/changes/003-load-serve-json` | done |
 | 6b | Routing normalization (trailingSlash, multi-slash) | `openspec/changes/004-route-normalization` | done |
-| 6c | cleanUrls (301 + extensionless resolution) | `openspec/changes/005-clean-urls` | todo |
+| 6c | cleanUrls (301 + extensionless resolution) | `openspec/changes/005-clean-urls` | done |
 | 6d | Configured redirects | `openspec/changes/006-configured-redirects` | todo |
 | 6e | Configured rewrites + `--single` SPA fallback | `openspec/changes/007-configured-rewrites` | todo |
 | 6f | Custom error pages, full L2 security, custom response headers | `openspec/changes/008-error-pages-and-security` | todo |
@@ -124,9 +125,9 @@ curl -i http://127.0.0.1:3010/
 
 Rust toolchain (1.81+) is required to build and test `irserve`. `cargo build` produces the bin under `target/debug/irserve(.exe)`. `cargo test --test oracle` builds the bin and shells out to `node tools/probe/run.mjs --all --target=irserve --snapshot=verify`; Node 18+ on PATH is a prerequisite (already needed for the reference oracle bundle above).
 
-## Try IrServe (post-6b)
+## Try IrServe (post-6c)
 
-The current binary covers the Stage-5b strict-L0 SRVs (`SRV-CLI-001/002/007/019`, `SRV-FILE-001/002/004/005`), the Stage-6a `serve.json` loader surface (`SRV-CFG-001`, `SRV-CFG-002`, `SRV-CLI-009`), and the Stage-6b routing normalization phases (`SRV-ROUT-003` `trailingSlash` add, `SRV-ROUT-004` `trailingSlash` strip, `SRV-ROUT-005` silent multi-slash collapse). Per-field behavior beyond `public` and `trailingSlash` (cleanUrls, redirects, rewrites, headers, listings, etc.) is parsed into the typed configuration but not yet observable; remaining capabilities are deferred per `D-008`/`D-009`/`D-010` (see `docs/reference/serve/decisions.md`).
+The current binary covers the Stage-5b strict-L0 SRVs (`SRV-CLI-001/002/007/019`, `SRV-FILE-001/002/004/005`), the Stage-6a `serve.json` loader surface (`SRV-CFG-001`, `SRV-CFG-002`, `SRV-CLI-009`), the Stage-6b routing normalization phases (`SRV-ROUT-003` `trailingSlash` add, `SRV-ROUT-004` `trailingSlash` strip, `SRV-ROUT-005` silent multi-slash collapse), and the Stage-6c `cleanUrls` phases (`SRV-ROUT-001` `.html`/`/index` 301, `SRV-ROUT-002` extensionless `<P>/index.html`-then-`<P>.html` resolution; both `bool` and `string[]` glob forms). Per-field behavior beyond `public`, `trailingSlash`, and `cleanUrls` (configured redirects, rewrites, headers, listings, etc.) is parsed into the typed configuration but not yet observable; remaining capabilities are deferred per `D-008`/`D-009`/`D-010`/`D-011` (see `docs/reference/serve/decisions.md`).
 
 ```bash
 mkdir -p _tmp && echo hello > _tmp/index.html
@@ -146,10 +147,21 @@ Exercise it:
 
 ```bash
 curl -i http://127.0.0.1:3010/                                       # 200, index.html
-curl -i http://127.0.0.1:3010/_tmp/index.html                        # 200 (no cleanUrls 301; that lands at 6c)
+curl -i http://127.0.0.1:3010/index.html                             # 301, Location: /index   (cleanUrls default)
 curl -i http://127.0.0.1:3010/missing                                # 404, text/html, "<h1>404 Not Found</h1>"
 curl -i -H 'Accept: application/json' http://127.0.0.1:3010/missing  # 404, JSON envelope verbatim
 curl -i -X POST http://127.0.0.1:3010/                               # 405
+
+# cleanUrls extensionless resolution (default cleanUrls=true).
+# echo '<p>about</p>' > _tmp/about.html
+curl -i http://127.0.0.1:3010/about.html                             # 301, Location: /about
+curl -i http://127.0.0.1:3010/about                                  # 200, body of about.html
+
+# cleanUrls array form (scope via globs):
+# In _tmp create serve.json: {"cleanUrls": ["/docs/**"]}
+# mkdir _tmp/docs _tmp/blog && echo guide > _tmp/docs/guide.html && echo post > _tmp/blog/post.html
+curl -i http://127.0.0.1:3010/docs/guide.html                        # 301, Location: /docs/guide
+curl -i http://127.0.0.1:3010/blog/post.html                         # 200 (out of scope; served direct)
 
 # Multi-slash collapse (silent; no redirect):
 curl -i 'http://127.0.0.1:3010///'                                   # 200, index.html (path collapses to /)
@@ -166,7 +178,7 @@ curl -i http://127.0.0.1:3010/about/                                 # 301, Loca
 ```
 
 What is NOT yet observable (still deferred to the remaining Stage 6 sub-stages):
-`cleanUrls` (6c), configured redirects (6d) / rewrites and `--single` SPA fallback (6e), custom `<status>.html` and the full L2 security surface (6f), directory listing (6g), `tcp://host:port` URI form and the rest of the CLI fill-in (6h), and `ETag`/`Last-Modified`/conditional GETs (Stage 7+).
+configured redirects (6d) / rewrites and `--single` SPA fallback (6e), custom `<status>.html` and the full L2 security surface (6f), directory listing (6g), `tcp://host:port` URI form and the rest of the CLI fill-in (6h), and `ETag`/`Last-Modified`/conditional GETs (Stage 7+).
 
 ## References
 
