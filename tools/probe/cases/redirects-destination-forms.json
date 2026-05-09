@@ -1,0 +1,39 @@
+{
+  "id": "redirects-destination-forms",
+  "description": "Q-007: how serve-handler renders the Location header for the three destination forms — absolute URL (https://...), scheme-relative (//host/...), and a leading-slashless relative path (foo/bar). The reference's `toTarget` at serve-handler/src/index.js:69-89 picks `slasher(destination)` when `url.parse(destination).protocol` is falsy, otherwise passes the destination through verbatim. This probe pins each branch with a snapshot.",
+  "fixture": {
+    "files": {
+      "_marker.txt": "marker\n"
+    },
+    "serveJson": {
+      "redirects": [
+        { "source": "/abs", "destination": "https://example.com/x" },
+        { "source": "/proto", "destination": "//example.com/x" },
+        { "source": "/rel", "destination": "foo/bar" },
+        { "source": "/abs-path", "destination": "/foo/bar" }
+      ]
+    }
+  },
+  "runner": {
+    "l0": {
+      "clean": [
+        "absolute_https",
+        "scheme_relative",
+        "relative_no_leading_slash",
+        "absolute_path_baseline"
+      ],
+      "contentLengthMayDiffer": [
+        "absolute_https",
+        "scheme_relative",
+        "relative_no_leading_slash",
+        "absolute_path_baseline"
+      ]
+    }
+  },
+  "requests": [
+    { "name": "absolute_https", "method": "GET", "path": "/abs" },
+    { "name": "scheme_relative", "method": "GET", "path": "/proto" },
+    { "name": "relative_no_leading_slash", "method": "GET", "path": "/rel" },
+    { "name": "absolute_path_baseline", "method": "GET", "path": "/abs-path" }
+  ]
+}

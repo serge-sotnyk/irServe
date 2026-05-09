@@ -70,8 +70,8 @@ Resolution: closed by snapshot `tools/probe/snapshots/multislash-collapse.json`.
 Affected area: redirects (SRV-RDIR-003)
 Suspected behavior: Absolute URLs (`https://example.com/x`) are passed through; scheme-relative (`//example.com/x`) and relative paths are normalized via `slasher`.
 How to verify:
-- Probe: configure a redirect to each form and observe `Location` header.
-Resolution: open.
+- Probe `tools/probe/cases/redirects-destination-forms.json` (4 anchors: `absolute_https`, `scheme_relative`, `relative_no_leading_slash`, `absolute_path_baseline`).
+Resolution: closed by snapshot `tools/probe/snapshots/redirects-destination-forms.json`. ORC-079, ORC-080, ORC-081, ORC-082. The reference's destination-side `slasher` (`serve-handler/src/index.js:80`, `protocol ? destination : slasher(destination)`) is `glob-slash`'s `path.posix.normalize` plus a leading-slash guarantee. Absolute URLs (those whose `url.parse(...).protocol` is truthy) skip normalization and pass through verbatim. Everything else goes through `slasher`. The surprising part: `path.posix.normalize` collapses consecutive slashes, so a scheme-relative `//example.com/x` is normalized to `/example.com/x` and emitted as a same-origin redirect, not as a true scheme-relative URL. Relative paths (`foo/bar`) get a leading `/` (→ `/foo/bar`); absolute paths (`/foo/bar`) pass through unchanged. IrServe mirrors all four exactly via `crates/irserve-core/src/redirects.rs::normalize_destination`. SRV-RDIR-003 is promoted from `accepted` to `verified`.
 
 ## Q-008: Directory listing JSON shape — is it part of the contract?
 

@@ -1083,7 +1083,7 @@ Open questions:
 
 #### SRV-RDIR-003: External-URL redirect destinations are honored
 
-Status: accepted
+Status: verified
 Area: redirects
 Compatibility level: 2
 Priority: P2
@@ -1092,17 +1092,17 @@ Reference source:
 - README: yes — serve-handler README: "you can use this option ... to a different one (or even an external URL)".
 - serve-handler source: `src/index.js:79-89` — `protocol`-aware destination handling skips `slasher` for absolute URLs.
 - Existing test: absent (implicit in the README; not flagged in test names).
-- Probe: not run.
-- Oracle test: planned.
+- Probe: `tools/probe/cases/redirects-destination-forms.json` (4 anchors covering absolute URL, scheme-relative, relative-no-leading-slash, absolute-path baseline).
+- Oracle test: ORC-079, ORC-080, ORC-081, ORC-082.
 
-Requirement (draft):
-A `destination` whose value parses as a URL with a non-empty protocol (e.g. `https://example.com/x`) is used verbatim as the `Location` header value (`encodeURI` is still applied).
+Requirement:
+A `destination` whose value parses as a URL with a non-empty protocol (e.g. `https://example.com/x`) is used verbatim as the `Location` header value (`encodeURI` is still applied). Destinations without a protocol go through `path.posix.normalize` + leading-slash guarantee (`glob-slash.slasher`), which collapses consecutive slashes — so `//example.com/x` becomes `/example.com/x` (same-origin redirect, not a true scheme-relative URL).
 
 Compatibility notes:
-- L2 priority. Verify in oracle.
+- L2 priority. Q-007 closed by `tools/probe/snapshots/redirects-destination-forms.json`.
 
 Open questions:
-- Q-007 (exact handling of relative-to-root vs scheme-relative destinations).
+- None.
 
 ### RWRT
 

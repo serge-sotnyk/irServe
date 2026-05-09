@@ -1,0 +1,25 @@
+{
+  "id": "prec-trailing-redirects",
+  "description": "Precedence test: when both `trailingSlash` and `redirects` could fire on the same source path, which wins? Reference's `shouldRedirect` orders trailingSlash (lines 145-168) BEFORE the redirects loop (lines 172-182), so the trailingSlash 301 fires first and the configured redirect is never reached. Closes one corner of SRV-ROUT-006 left open at the end of Stage 6c.",
+  "fixture": {
+    "files": {
+      "_marker.txt": "marker\n"
+    },
+    "serveJson": {
+      "trailingSlash": true,
+      "cleanUrls": false,
+      "redirects": [
+        { "source": "/face/mask", "destination": "/elsewhere" }
+      ]
+    }
+  },
+  "runner": {
+    "l0": {
+      "clean": ["trailing_add_wins_over_redirect"],
+      "contentLengthMayDiffer": ["trailing_add_wins_over_redirect"]
+    }
+  },
+  "requests": [
+    { "name": "trailing_add_wins_over_redirect", "method": "GET", "path": "/face/mask" }
+  ]
+}

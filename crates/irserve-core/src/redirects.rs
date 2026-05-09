@@ -24,6 +24,7 @@ use globset::{GlobBuilder, GlobMatcher};
 use percent_encoding::{utf8_percent_encode, AsciiSet, CONTROLS};
 
 use crate::config::RedirectRule;
+use crate::normalize::collapse_slashes;
 
 /// Precompiled redirect rule. Built once at server start so the
 /// dispatcher can do per-request matching without recompiling globs.
@@ -161,6 +162,7 @@ fn compile_one(rule: &RedirectRule) -> Result<RedirectRuleCompiled, CompileError
         Some(rest) => (true, rest.to_string()),
         None => (false, slashed),
     };
+    let normalized_dest = normalize_destination(&rule.destination);
     let matcher = if has_path_param(&body) {
         // `:name` segments route to the regex-based matcher first,
         // mirroring `sourceMatches`'s `pathToRegExp` pre-pass at
@@ -172,7 +174,7 @@ fn compile_one(rule: &RedirectRule) -> Result<RedirectRuleCompiled, CompileError
             return Err(CompileError::NegatedParam);
         }
         let regex = compile_source_regex(&body)?;
-        let dest_template = compile_dest_template(&rule.destination);
+        let dest_template = compile_dest_template(&normalized_dest);
         Matcher::Pattern {
             regex,
             dest_template,
@@ -185,18 +187,75 @@ fn compile_one(rule: &RedirectRule) -> Result<RedirectRuleCompiled, CompileError
         Matcher::Glob {
             matcher: glob.compile_matcher(),
             negate,
-            destination: rule.destination.clone(),
+            destination: normalized_dest,
         }
     } else {
         Matcher::Literal {
             source: body,
-            destination: rule.destination.clone(),
+            destination: normalized_dest,
         }
     };
     Ok(RedirectRuleCompiled {
         matcher,
         status_code: rule.kind,
     })
+}
+
+/// Mirrors the destination-side branch of
+/// `serve-handler/src/index.js:80`:
+///
+/// ```js
+/// const normalizedDest = protocol ? destination : slasher(destination);
+/// ```
+///
+/// where `slasher` is `glob-slash`'s `path.posix.normalize` +
+/// leading-slash guarantee. This is what gives the reference its
+/// surprising Q-007 behavior: `//example.com/x` collapses to
+/// `/example.com/x` (the `//` is folded by `path.posix.normalize`,
+/// not preserved as a scheme-relative URL). We mirror exactly,
+/// pinned by `tools/probe/snapshots/redirects-destination-forms.json`.
+///
+/// We approximate `path.posix.normalize` with `collapse_slashes` —
+/// fuller normalization (`.`/`..` resolution) is not implemented
+/// because real-world redirect destinations don't carry those
+/// segments; if a divergence surfaces, escalate to a Q-NNN.
+fn normalize_destination(dest: &str) -> String {
+    if has_protocol(dest) {
+        return dest.to_string();
+    }
+    let collapsed = collapse_slashes(dest);
+    if collapsed.starts_with('/') {
+        collapsed.into_owned()
+    } else {
+        format!("/{collapsed}")
+    }
+}
+
+/// Mirrors the truthy branch of `url.parse(dest).protocol` in Node:
+/// the destination has a protocol when it begins with a valid URL
+/// scheme followed by `:`. A scheme is `[A-Za-z][A-Za-z0-9+.\-]*`.
+///
+/// `:name` template tokens never start at offset 0 (the `:` would
+/// have an empty scheme prefix), so this check coexists with the
+/// destination template parser without ambiguity. Likewise a path
+/// like `/old/:id` has a non-alphabetic char before its first `:`,
+/// so it also reads as protocol-less.
+fn has_protocol(dest: &str) -> bool {
+    let Some(idx) = dest.find(':') else {
+        return false;
+    };
+    let scheme = &dest[..idx];
+    if scheme.is_empty() {
+        return false;
+    }
+    let mut chars = scheme.chars();
+    let Some(first) = chars.next() else {
+        return false;
+    };
+    if !first.is_ascii_alphabetic() {
+        return false;
+    }
+    chars.all(|c| c.is_ascii_alphanumeric() || c == '+' || c == '-' || c == '.')
 }
 
 /// Phase 6: walk the compiled rules in order, return the first matching
@@ -770,5 +829,79 @@ mod tests {
         assert!(!has_path_param("/foo:"));
         assert!(!has_path_param("/a:/b"));
         assert!(!has_path_param("/no-params"));
+    }
+
+    // ----- destination normalization (Q-007) -----------------------
+
+    #[test]
+    fn destination_normalize_passes_absolute_url_through() {
+        let rules = compile(&[rule("/abs", "https://example.com/x", None)]);
+        let (target, _) = compute_configured_redirects("/abs", &rules).unwrap();
+        assert_eq!(target, "https://example.com/x");
+    }
+
+    #[test]
+    fn destination_normalize_collapses_scheme_relative() {
+        // Q-007 surprise: reference's `slasher(destination)` is
+        // `path.posix.normalize`, which folds `//host/x` to `/host/x`.
+        // Pinned by `tools/probe/snapshots/redirects-destination-forms.json`
+        // anchor `scheme_relative`.
+        let rules = compile(&[rule("/proto", "//example.com/x", None)]);
+        let (target, _) = compute_configured_redirects("/proto", &rules).unwrap();
+        assert_eq!(target, "/example.com/x");
+    }
+
+    #[test]
+    fn destination_normalize_prepends_slash_to_relative() {
+        let rules = compile(&[rule("/rel", "foo/bar", None)]);
+        let (target, _) = compute_configured_redirects("/rel", &rules).unwrap();
+        assert_eq!(target, "/foo/bar");
+    }
+
+    #[test]
+    fn destination_normalize_passes_absolute_path_through() {
+        let rules = compile(&[rule("/abs-path", "/foo/bar", None)]);
+        let (target, _) = compute_configured_redirects("/abs-path", &rules).unwrap();
+        assert_eq!(target, "/foo/bar");
+    }
+
+    #[test]
+    fn destination_normalize_keeps_pattern_template_intact() {
+        // `/old/:id` doesn't have a URL scheme before its first `:`
+        // (the prefix `/old/` contains `/`), so normalization runs.
+        // It should still produce a usable Pattern destination.
+        let rules = compile(&[rule("/old/:id", "/new/:id", None)]);
+        let (target, _) = compute_configured_redirects("/old/12", &rules).unwrap();
+        assert_eq!(target, "/new/12");
+    }
+
+    #[test]
+    fn destination_normalize_keeps_pattern_under_https() {
+        // A Pattern destination starting with `https://` carries a
+        // protocol, so normalization is a no-op; the pattern's `:id`
+        // (later in the string) is still parsed by the template
+        // compiler.
+        let rules = compile(&[rule("/old/:id", "https://example.com/items/:id", None)]);
+        let (target, _) = compute_configured_redirects("/old/42", &rules).unwrap();
+        assert_eq!(target, "https://example.com/items/42");
+    }
+
+    // ----- has_protocol helper ------------------------------------
+
+    #[test]
+    fn has_protocol_recognizes_common_schemes() {
+        assert!(has_protocol("http://example.com"));
+        assert!(has_protocol("https://example.com"));
+        assert!(has_protocol("ftp://example.com"));
+        assert!(has_protocol("mailto:foo@bar"));
+    }
+
+    #[test]
+    fn has_protocol_rejects_scheme_relative_and_paths() {
+        assert!(!has_protocol("//example.com"));
+        assert!(!has_protocol("/foo/bar"));
+        assert!(!has_protocol("foo/bar"));
+        assert!(!has_protocol(":id/foo"));
+        assert!(!has_protocol("/old/:id"));
     }
 }

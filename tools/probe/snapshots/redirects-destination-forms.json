@@ -1,0 +1,117 @@
+{
+  "$schemaVersion": 1,
+  "case": "redirects-destination-forms",
+  "description": "Q-007: how serve-handler renders the Location header for the three destination forms — absolute URL (https://...), scheme-relative (//host/...), and a leading-slashless relative path (foo/bar). The reference's `toTarget` at serve-handler/src/index.js:69-89 picks `slasher(destination)` when `url.parse(destination).protocol` is falsy, otherwise passes the destination through verbatim. This probe pins each branch with a snapshot.",
+  "fixture": {
+    "files": {
+      "_marker.txt": "marker\n"
+    },
+    "serveJson": {
+      "redirects": [
+        {
+          "source": "/abs",
+          "destination": "https://example.com/x"
+        },
+        {
+          "source": "/proto",
+          "destination": "//example.com/x"
+        },
+        {
+          "source": "/rel",
+          "destination": "foo/bar"
+        },
+        {
+          "source": "/abs-path",
+          "destination": "/foo/bar"
+        }
+      ]
+    }
+  },
+  "serveArgs": [],
+  "volatileHeaders": [
+    "last-modified"
+  ],
+  "volatileBodies": [],
+  "requests": [
+    {
+      "name": "absolute_https",
+      "request": {
+        "method": "GET",
+        "mode": "fetch",
+        "path": "/abs"
+      },
+      "response": {
+        "body": {
+          "kind": "empty",
+          "length": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        "headers": {
+          "location": "https://example.com/x"
+        },
+        "status": 301,
+        "statusText": "Moved Permanently"
+      }
+    },
+    {
+      "name": "scheme_relative",
+      "request": {
+        "method": "GET",
+        "mode": "fetch",
+        "path": "/proto"
+      },
+      "response": {
+        "body": {
+          "kind": "empty",
+          "length": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        "headers": {
+          "location": "/example.com/x"
+        },
+        "status": 301,
+        "statusText": "Moved Permanently"
+      }
+    },
+    {
+      "name": "relative_no_leading_slash",
+      "request": {
+        "method": "GET",
+        "mode": "fetch",
+        "path": "/rel"
+      },
+      "response": {
+        "body": {
+          "kind": "empty",
+          "length": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        "headers": {
+          "location": "/foo/bar"
+        },
+        "status": 301,
+        "statusText": "Moved Permanently"
+      }
+    },
+    {
+      "name": "absolute_path_baseline",
+      "request": {
+        "method": "GET",
+        "mode": "fetch",
+        "path": "/abs-path"
+      },
+      "response": {
+        "body": {
+          "kind": "empty",
+          "length": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        "headers": {
+          "location": "/foo/bar"
+        },
+        "status": 301,
+        "statusText": "Moved Permanently"
+      }
+    }
+  ]
+}
