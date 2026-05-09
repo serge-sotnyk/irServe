@@ -2,7 +2,7 @@ use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::path::PathBuf;
 
 use clap::{ArgAction, Parser};
-use irserve_core::{run, ServeConfig, ServerConfig};
+use irserve_core::{load_serve_json, run, ServerConfig};
 
 #[derive(Parser)]
 #[command(
@@ -25,6 +25,9 @@ struct Cli {
 
     #[arg(short = 'n', long = "no-clipboard")]
     no_clipboard: bool,
+
+    #[arg(short = 'c', long = "config", value_name = "PATH")]
+    config: Option<PathBuf>,
 
     #[arg(value_name = "DIRECTORY", default_value = ".")]
     directory: PathBuf,
@@ -51,12 +54,28 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .into_iter()
         .map(|p| SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), p))
         .collect();
+
+    let loaded = load_serve_json(&cli.directory, cli.config.as_deref())?;
+    if let Some(loaded) = &loaded {
+        use irserve_core::ConfigSource::*;
+        match loaded.source {
+            NowJson => eprintln!(
+                "warning: `now.json` is deprecated; please use `serve.json`"
+            ),
+            PackageJson => eprintln!(
+                "warning: configuration via `package.json#static` is deprecated; please use `serve.json`"
+            ),
+            ServeJson | Explicit => {}
+        }
+    }
+    let serve_config = loaded.map(|l| l.config).unwrap_or_default();
+
     let root = cli.directory.canonicalize()?;
 
     let config = ServerConfig {
         root,
         listens,
-        serve_config: ServeConfig::default(),
+        serve_config,
     };
     run(config).await?;
     Ok(())
