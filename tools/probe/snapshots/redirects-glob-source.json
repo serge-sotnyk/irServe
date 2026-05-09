@@ -1,0 +1,65 @@
+{
+  "$schemaVersion": 1,
+  "case": "redirects-glob-source",
+  "description": "Glob `*` source crosses path segments — reference's `sourceMatches` at serve-handler/src/index.js:38-67 pre-substitutes `*` with `(.*)` then calls `pathToRegExp`, so `/dir/*` matches both `/dir/page` (one segment) and `/dir/sub/page` (multi segment). Locks the redirect-side of this behavior so a future regression on the `*`-source routing classifier shows up in the oracle. Closes Codex round 1 P1.",
+  "fixture": {
+    "files": {
+      "_marker.txt": "marker\n"
+    },
+    "serveJson": {
+      "redirects": [
+        {
+          "source": "/dir/*",
+          "destination": "/elsewhere"
+        }
+      ]
+    }
+  },
+  "serveArgs": [],
+  "volatileHeaders": [
+    "last-modified"
+  ],
+  "volatileBodies": [],
+  "requests": [
+    {
+      "name": "star_matches_single_segment",
+      "request": {
+        "method": "GET",
+        "mode": "fetch",
+        "path": "/dir/page"
+      },
+      "response": {
+        "body": {
+          "kind": "empty",
+          "length": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        "headers": {
+          "location": "/elsewhere"
+        },
+        "status": 301,
+        "statusText": "Moved Permanently"
+      }
+    },
+    {
+      "name": "star_matches_multi_segment",
+      "request": {
+        "method": "GET",
+        "mode": "fetch",
+        "path": "/dir/sub/page"
+      },
+      "response": {
+        "body": {
+          "kind": "empty",
+          "length": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        "headers": {
+          "location": "/elsewhere"
+        },
+        "status": 301,
+        "statusText": "Moved Permanently"
+      }
+    }
+  ]
+}

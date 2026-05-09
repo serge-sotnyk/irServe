@@ -1,7 +1,7 @@
 {
   "$schemaVersion": 1,
   "case": "redirects-destination-forms",
-  "description": "Q-007: how serve-handler renders the Location header for the three destination forms — absolute URL (https://...), scheme-relative (//host/...), and a leading-slashless relative path (foo/bar). The reference's `toTarget` at serve-handler/src/index.js:69-89 picks `slasher(destination)` when `url.parse(destination).protocol` is falsy, otherwise passes the destination through verbatim. This probe pins each branch with a snapshot.",
+  "description": "Q-007: how serve-handler renders the Location header for the destination forms — absolute URL (https://...), scheme-relative (//host/...), leading-slashless relative path (foo/bar), absolute path (/foo/bar), and a destination with `..` segments. The reference's `toTarget` at serve-handler/src/index.js:69-89 picks `slasher(destination)` when `url.parse(destination).protocol` is falsy, otherwise passes the destination through verbatim. `slasher` is `path.posix.normalize(path.posix.join('/', value))` (glob-slash.js:6), so consecutive slashes collapse AND `..` segments resolve. This probe pins each branch with a snapshot.",
   "fixture": {
     "files": {
       "_marker.txt": "marker\n"
@@ -23,6 +23,10 @@
         {
           "source": "/abs-path",
           "destination": "/foo/bar"
+        },
+        {
+          "source": "/up",
+          "destination": "a/../b"
         }
       ]
     }
@@ -108,6 +112,26 @@
         },
         "headers": {
           "location": "/foo/bar"
+        },
+        "status": 301,
+        "statusText": "Moved Permanently"
+      }
+    },
+    {
+      "name": "dotdot_resolved",
+      "request": {
+        "method": "GET",
+        "mode": "fetch",
+        "path": "/up"
+      },
+      "response": {
+        "body": {
+          "kind": "empty",
+          "length": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        "headers": {
+          "location": "/b"
         },
         "status": 301,
         "statusText": "Moved Permanently"

@@ -1,0 +1,24 @@
+{
+  "id": "redirects-glob-source",
+  "description": "Glob `*` source crosses path segments — reference's `sourceMatches` at serve-handler/src/index.js:38-67 pre-substitutes `*` with `(.*)` then calls `pathToRegExp`, so `/dir/*` matches both `/dir/page` (one segment) and `/dir/sub/page` (multi segment). Locks the redirect-side of this behavior so a future regression on the `*`-source routing classifier shows up in the oracle. Closes Codex round 1 P1.",
+  "fixture": {
+    "files": {
+      "_marker.txt": "marker\n"
+    },
+    "serveJson": {
+      "redirects": [
+        { "source": "/dir/*", "destination": "/elsewhere" }
+      ]
+    }
+  },
+  "runner": {
+    "l0": {
+      "clean": ["star_matches_single_segment", "star_matches_multi_segment"],
+      "contentLengthMayDiffer": ["star_matches_single_segment", "star_matches_multi_segment"]
+    }
+  },
+  "requests": [
+    { "name": "star_matches_single_segment", "method": "GET", "path": "/dir/page" },
+    { "name": "star_matches_multi_segment", "method": "GET", "path": "/dir/sub/page" }
+  ]
+}

@@ -61,34 +61,47 @@ startup via `redirects::compile_rules` and stores the result in
 
 ## 3. Source-pattern routing (three matchers)
 
-The classifier in `redirects::compile_one`:
+The classifier in `redirects::compile_one` mirrors the reference's
+`sourceMatches` codepath at `serve-handler/src/index.js:38-67`,
+which always tries `pathToRegExp` first (with `*` → `(.*)`
+pre-substitution) and falls back to minimatch only when the regex
+returns null. The classifier collapses both legs:
 
-1. **Has `:name` segment** (and no `!`-prefix) → `Pattern`. The
-   regex compiler walks the source byte-by-byte:
+1. **Has `:name` segment OR `*` token** (and no `!`-prefix) →
+   `Pattern`. The regex compiler walks the source byte-by-byte:
    - `:name` (where `name` is `[A-Za-z0-9_]+`) → `(?P<name>[^/]+)`.
    - `*` → `(.*)` (anonymous; crosses `/` since `[^/]` is not
      applied).
    - All other runs → `regex::escape(run)`.
    - Final regex anchored `^...\/?$` (matches path-to-regexp's
      default optional trailing slash).
-   This routing mirrors `serve-handler/src/index.js:46-49`'s
-   `slashed.replace('*', '(.*)') + pathToRegExp(normalized, keys)`
-   first-pass.
+   Routing `*`-bearing sources here (not into `Glob`'s
+   `literal_separator(true)`) is what gives `/dir/*` cross-segment
+   semantics matching the reference: `/dir/*` matches `/dir/page`
+   AND `/dir/sub/page`. Pinned by ORC-084/ORC-085.
 
-2. **Has glob meta or `!`-prefix** → `Glob`. Compiled via
+2. **Has `?`/`[`/`{` glob meta (no `*`, no `:name`) OR has
+   `!`-prefix** → `Glob`. Compiled via
    `globset::GlobBuilder::new(body).literal_separator(true).build()`.
    `negate: bool` mirrors the `!`-prefix XOR pattern shared with
    cleanUrls. A literal `!`-prefixed source (no glob meta in the
    body) still routes through `Glob` so the negation flag applies
-   uniformly through the same XOR.
+   uniformly through the same XOR. The reference's behavior on
+   these patterns goes through path-to-regexp first (which usually
+   compiles to a regex that fails to match) and then through
+   minimatch — for `?`/`[`/`{` patterns IrServe diverges in nuance
+   (path-to-regexp's `?` modifier vs minimatch's `?` glob) but the
+   probe matrix doesn't currently exercise those corners.
+   `!`-negation goes through minimatch in both reference and
+   IrServe.
 
 3. **Otherwise** → `Literal`. Trailing-slash flexion handled by
    `literal_matches`: matches if `source == path`, or if `source`
    has no trailing slash and `path` has one extra trailing slash, or
    vice versa. Mirrors `pathToRegExp("/old", []) = ^/old/?$`.
 
-A source with both `:name` and `!`-prefix is rejected at compile
-time via `CompileError::NegatedParam` (see below).
+A source with `:name` and `!`-prefix is rejected at compile time via
+`CompileError::NegatedParam` (see below).
 
 ### 3.1 Glob meta classification
 
@@ -150,20 +163,39 @@ where the reference would throw at request time.
 - If `has_protocol(dest)` is truthy, return `dest.to_string()` (the
   reference's `protocol ? destination : slasher(destination)` at
   `index.js:80` short-circuits here).
-- Otherwise, `collapse_slashes(dest)` (mirrors `path.posix.normalize`'s
-  consecutive-slash collapse, the only piece of `posix.normalize`
-  that actually impacts redirect destinations in practice).
+- Otherwise, `path_posix_normalize(dest)` — a Rust port of Node's
+  `path.posix.normalize` that collapses consecutive slashes AND
+  resolves `.`/`..` segments. Mirrors `glob-slash.slasher`'s
+  `path.posix.normalize(path.posix.join('/', value))` body
+  (`glob-slash.js:6`). `..` above the absolute root is silently
+  dropped (matches Node).
 - If the result starts with `/`, return as-is; else prepend `/`.
 
 `has_protocol` checks for a valid URL scheme prefix: `[A-Za-z][A-Za-z0-9+.\-]*`
 followed by `:`. Mirrors the truthy branch of
 `url.parse(dest).protocol` in Node.
 
-The Q-007 surprise is exactly the consecutive-slash collapse: a
+`path_posix_normalize` semantics (with unit tests in
+`redirects::tests::posix_normalize_*`):
+
+- `path_posix_normalize("a/../b") = "b"` (relative).
+- `path_posix_normalize("/a/../b") = "/b"` (absolute).
+- `path_posix_normalize("/../../b") = "/b"` (`..` above root drops).
+- `path_posix_normalize("../foo") = "../foo"` (relative `..`
+  accumulates when nothing left to pop).
+- `path_posix_normalize("//example.com/x") = "/example.com/x"`
+  (the Q-007 scheme-relative collapse).
+- `path_posix_normalize("a/./b") = "a/b"` (`.` segments drop).
+- `path_posix_normalize("") = "."`, `path_posix_normalize("/") = "/"`.
+- Trailing slash preserved when present.
+
+The Q-007 surprise is the consecutive-slash collapse: a
 scheme-relative `//example.com/x` is normalized to `/example.com/x`
 and emitted as a same-origin redirect, not as a true scheme-relative
 URL. Pinned by ORC-080
-(`redirects-destination-forms#scheme_relative`). If a future user
+(`redirects-destination-forms#scheme_relative`). The `..`-resolution
+case is pinned by ORC-086
+(`redirects-destination-forms#dotdot_resolved`). If a future user
 asks for true scheme-relative behavior, escalate to a D-NNN
 divergence — the present change preserves reference parity.
 

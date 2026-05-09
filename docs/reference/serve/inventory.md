@@ -1035,8 +1035,8 @@ Reference source:
 - README: yes — serve-handler README, `redirects (Array)` section.
 - serve-handler source: `src/index.js:121-185` (`shouldRedirect`).
 - Existing test: `set 'redirects' config property to wildcard path`, `set 'redirects' config property to path segment`, `set 'redirects' config property to one-star wildcard path`, `set 'redirects' config property to extglob wildcard path`, `set 'redirects' config property to a negated wildcard path`, `set 'redirects' config property to wildcard path and do not match` in `test/integration.test.js`.
-- Probe: `tools/probe/cases/redirects-types.json` (path-segment redirect with default 301).
-- Oracle test: ORC-030 (snapshots in tools/probe/snapshots/).
+- Probe: `tools/probe/cases/redirects-types.json` (path-segment redirect with default 301), `tools/probe/cases/redirects-glob-source.json` (glob `*` source crosses path segments).
+- Oracle test: ORC-030, ORC-084, ORC-085 (snapshots in tools/probe/snapshots/).
 
 Requirement (draft):
 A `redirects` entry `{source, destination}` matches `source` (minimatch glob or `path-to-regexp` segment pattern) against the request path; on match the server responds with status 301 and `Location: <destination>` (path-to-regexp segments interpolated). The `Location` value is URI-encoded (`encodeURI`).
@@ -1047,7 +1047,7 @@ Scenarios:
   THEN status is 301 and `Location: /new-docs/12` (per probe).
 
 Compatibility notes:
-- Negated patterns (`!`-prefixed glob) and extglobs are supported by minimatch (per existing tests).
+- Negated patterns (`!`-prefixed glob) are supported. Bash-style extglob constructs (`+(...)`, `@(...)`, `?(...)`, `*(...)`, `!(...)`) are NOT supported by IrServe; tracked as Q-012 (inherited from cleanUrls).
 - Redirects fire AFTER the cleanUrl/trailingSlash redirect path (per `shouldRedirect` order). See SRV-ROUT-006 for the full pipeline.
 
 Open questions:
@@ -1092,8 +1092,8 @@ Reference source:
 - README: yes — serve-handler README: "you can use this option ... to a different one (or even an external URL)".
 - serve-handler source: `src/index.js:79-89` — `protocol`-aware destination handling skips `slasher` for absolute URLs.
 - Existing test: absent (implicit in the README; not flagged in test names).
-- Probe: `tools/probe/cases/redirects-destination-forms.json` (4 anchors covering absolute URL, scheme-relative, relative-no-leading-slash, absolute-path baseline).
-- Oracle test: ORC-079, ORC-080, ORC-081, ORC-082.
+- Probe: `tools/probe/cases/redirects-destination-forms.json` (5 anchors covering absolute URL, scheme-relative, relative-no-leading-slash, absolute-path baseline, `..`-segment resolution).
+- Oracle test: ORC-079, ORC-080, ORC-081, ORC-082, ORC-086.
 
 Requirement:
 A `destination` whose value parses as a URL with a non-empty protocol (e.g. `https://example.com/x`) is used verbatim as the `Location` header value (`encodeURI` is still applied). Destinations without a protocol go through `path.posix.normalize` + leading-slash guarantee (`glob-slash.slasher`), which collapses consecutive slashes — so `//example.com/x` becomes `/example.com/x` (same-origin redirect, not a true scheme-relative URL).

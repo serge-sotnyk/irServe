@@ -24,7 +24,6 @@ use globset::{GlobBuilder, GlobMatcher};
 use percent_encoding::{utf8_percent_encode, AsciiSet, CONTROLS};
 
 use crate::config::RedirectRule;
-use crate::normalize::collapse_slashes;
 
 /// Precompiled redirect rule. Built once at server start so the
 /// dispatcher can do per-request matching without recompiling globs.
@@ -163,26 +162,30 @@ fn compile_one(rule: &RedirectRule) -> Result<RedirectRuleCompiled, CompileError
         None => (false, slashed),
     };
     let normalized_dest = normalize_destination(&rule.destination);
-    let matcher = if has_path_param(&body) {
-        // `:name` segments route to the regex-based matcher first,
-        // mirroring `sourceMatches`'s `pathToRegExp` pre-pass at
-        // `serve-handler/src/index.js:46-49`. We don't try to combine
-        // a `:`-bearing source with `!`-prefix negation: the reference
-        // does not exercise this combination and the semantics are
-        // unclear (path-to-regexp has no negation flag).
-        if negate {
-            return Err(CompileError::NegatedParam);
-        }
+    // Routing classifier: mirror `serve-handler/src/index.js:38-67`'s
+    // path-to-regexp first-pass + minimatch fallback. The reference's
+    // `sourceMatches` pre-substitutes `*` → `(.*)` then calls
+    // `pathToRegExp`, so any source containing `*` (with or without
+    // `:name`) participates in cross-segment regex matching. Only
+    // when the source has no `*`/`:name` and no `!`-prefix do we
+    // route to globset (the minimatch-style fallback for `?`, `[`,
+    // `{` patterns). `!`-prefix forces glob (negate XOR mirrors
+    // minimatch's `nonegate: false` per-pattern semantics) and is
+    // incompatible with `:name`: path-to-regexp has no negation flag,
+    // and the reference's minimatch fallback for that combo treats
+    // `:name` as literal characters that no real request path will
+    // match.
+    let needs_pattern = (has_path_param(&body) || body.contains('*')) && !negate;
+    let matcher = if needs_pattern {
         let regex = compile_source_regex(&body)?;
         let dest_template = compile_dest_template(&normalized_dest);
         Matcher::Pattern {
             regex,
             dest_template,
         }
+    } else if has_path_param(&body) && negate {
+        return Err(CompileError::NegatedParam);
     } else if has_glob_meta(&body) || negate {
-        // Glob meta-characters route to globset (minimatch fallback in
-        // the reference). A literal `!`-prefixed source also goes
-        // through globset so the negation XOR can apply uniformly.
         let glob = GlobBuilder::new(&body).literal_separator(true).build()?;
         Matcher::Glob {
             matcher: glob.compile_matcher(),
@@ -209,26 +212,82 @@ fn compile_one(rule: &RedirectRule) -> Result<RedirectRuleCompiled, CompileError
 /// ```
 ///
 /// where `slasher` is `glob-slash`'s `path.posix.normalize` +
-/// leading-slash guarantee. This is what gives the reference its
-/// surprising Q-007 behavior: `//example.com/x` collapses to
-/// `/example.com/x` (the `//` is folded by `path.posix.normalize`,
-/// not preserved as a scheme-relative URL). We mirror exactly,
-/// pinned by `tools/probe/snapshots/redirects-destination-forms.json`.
+/// leading-slash guarantee
+/// (`third_party/serve-handler/src/glob-slash.js:6`,
+/// `path.posix.normalize(path.posix.join('/', value))`). This is what
+/// gives the reference two surprising-at-first behaviors:
 ///
-/// We approximate `path.posix.normalize` with `collapse_slashes` —
-/// fuller normalization (`.`/`..` resolution) is not implemented
-/// because real-world redirect destinations don't carry those
-/// segments; if a divergence surfaces, escalate to a Q-NNN.
+/// - `//example.com/x` collapses to `/example.com/x` (consecutive
+///   slashes folded by `path.posix.normalize`, NOT preserved as a
+///   scheme-relative URL).
+/// - `a/../b` collapses to `/b` (`..` segments resolved by
+///   `path.posix.normalize`).
+///
+/// We mirror both via `path_posix_normalize` below, pinned by
+/// `tools/probe/snapshots/redirects-destination-forms.json`.
 fn normalize_destination(dest: &str) -> String {
     if has_protocol(dest) {
         return dest.to_string();
     }
-    let collapsed = collapse_slashes(dest);
-    if collapsed.starts_with('/') {
-        collapsed.into_owned()
+    let normalized = path_posix_normalize(dest);
+    if normalized.starts_with('/') {
+        normalized
     } else {
-        format!("/{collapsed}")
+        format!("/{normalized}")
     }
+}
+
+/// POSIX-style path normalization, mirroring Node's
+/// `path.posix.normalize`:
+///
+/// - Consecutive slashes collapse to a single slash.
+/// - `.` segments are dropped.
+/// - `..` segments pop the previous non-`..` segment; for absolute
+///   paths, `..` above the root is silently dropped; for relative
+///   paths, `..` accumulates at the front when there's no segment to
+///   pop.
+/// - Trailing slash is preserved (except for the root `/`, which is
+///   itself).
+/// - Empty input normalizes to `.`.
+///
+/// This is what `glob-slash.slasher` runs on the destination (after
+/// `path.posix.join('/', value)`) before the leading-slash guarantee.
+fn path_posix_normalize(s: &str) -> String {
+    if s.is_empty() {
+        return ".".to_string();
+    }
+    let is_absolute = s.starts_with('/');
+    let trailing_slash = s.len() > 1 && s.ends_with('/');
+
+    let mut parts: Vec<&str> = Vec::new();
+    for seg in s.split('/') {
+        match seg {
+            "" | "." => continue,
+            ".." => {
+                let can_pop = parts.last().is_some_and(|p| *p != "..");
+                if can_pop {
+                    parts.pop();
+                } else if !is_absolute {
+                    parts.push("..");
+                }
+                // Absolute path: ".." above root silently dropped.
+            }
+            other => parts.push(other),
+        }
+    }
+
+    let mut result = String::new();
+    if is_absolute {
+        result.push('/');
+    }
+    result.push_str(&parts.join("/"));
+    if trailing_slash && !result.ends_with('/') {
+        result.push('/');
+    }
+    if result.is_empty() {
+        result.push('.');
+    }
+    result
 }
 
 /// Mirrors the truthy branch of `url.parse(dest).protocol` in Node:
@@ -573,15 +632,23 @@ mod tests {
     // ----- glob source ---------------------------------------------
 
     #[test]
-    fn glob_single_star_matches_one_segment() {
+    fn star_source_crosses_segments() {
+        // After Codex round 1 P1 fix: `*`-bearing sources (no `:name`,
+        // no `!`-prefix) route through Pattern (regex), mirroring
+        // `serve-handler/src/index.js:46`'s
+        // `slashed.replace('*', '(.*)')` pre-pass + `pathToRegExp`.
+        // `(.*)` crosses `/` segments, unlike globset's
+        // `literal_separator(true)`.
         let rules = compile(&[rule("/dir/*", "/elsewhere", None)]);
         assert!(compute_configured_redirects("/dir/page", &rules).is_some());
-        // `*` does not cross `/` boundaries (literal_separator(true)).
-        assert!(compute_configured_redirects("/dir/sub/page", &rules).is_none());
+        assert!(compute_configured_redirects("/dir/sub/page", &rules).is_some());
+        assert!(compute_configured_redirects("/dir/a/b/c", &rules).is_some());
+        // The leading `/dir/` literal still anchors the match.
+        assert!(compute_configured_redirects("/other/page", &rules).is_none());
     }
 
     #[test]
-    fn glob_double_star_crosses_segments() {
+    fn double_star_source_crosses_segments() {
         let rules = compile(&[rule("/dir/**", "/elsewhere", None)]);
         assert!(compute_configured_redirects("/dir/page", &rules).is_some());
         assert!(compute_configured_redirects("/dir/sub/page", &rules).is_some());
@@ -852,6 +919,35 @@ mod tests {
     }
 
     #[test]
+    fn destination_normalize_resolves_dotdot() {
+        // Codex round 1 P2 fix: `path.posix.normalize` resolves `..`
+        // segments, not just consecutive slashes. `a/../b` → `/b`.
+        let rules = compile(&[rule("/up", "a/../b", None)]);
+        let (target, _) = compute_configured_redirects("/up", &rules).unwrap();
+        assert_eq!(target, "/b");
+
+        let rules = compile(&[rule("/abs-up", "/x/../y", None)]);
+        let (target, _) = compute_configured_redirects("/abs-up", &rules).unwrap();
+        assert_eq!(target, "/y");
+    }
+
+    #[test]
+    fn destination_normalize_drops_dot_segments() {
+        let rules = compile(&[rule("/dot", "/x/./y", None)]);
+        let (target, _) = compute_configured_redirects("/dot", &rules).unwrap();
+        assert_eq!(target, "/x/y");
+    }
+
+    #[test]
+    fn destination_normalize_dotdot_above_root_is_silent() {
+        // Absolute-path `..` above root drops silently per
+        // `path.posix.normalize("/../../b")` → "/b" semantics.
+        let rules = compile(&[rule("/escape", "/../../b", None)]);
+        let (target, _) = compute_configured_redirects("/escape", &rules).unwrap();
+        assert_eq!(target, "/b");
+    }
+
+    #[test]
     fn destination_normalize_prepends_slash_to_relative() {
         let rules = compile(&[rule("/rel", "foo/bar", None)]);
         let (target, _) = compute_configured_redirects("/rel", &rules).unwrap();
@@ -903,5 +999,62 @@ mod tests {
         assert!(!has_protocol("foo/bar"));
         assert!(!has_protocol(":id/foo"));
         assert!(!has_protocol("/old/:id"));
+    }
+
+    // ----- path_posix_normalize -----------------------------------
+
+    #[test]
+    fn posix_normalize_collapses_consecutive_slashes() {
+        assert_eq!(path_posix_normalize("//example.com/x"), "/example.com/x");
+        assert_eq!(path_posix_normalize("a//b///c"), "a/b/c");
+    }
+
+    #[test]
+    fn posix_normalize_drops_dot_segments() {
+        assert_eq!(path_posix_normalize("a/./b"), "a/b");
+        assert_eq!(path_posix_normalize("./foo"), "foo");
+        assert_eq!(path_posix_normalize("foo/."), "foo");
+    }
+
+    #[test]
+    fn posix_normalize_resolves_dotdot_relative() {
+        assert_eq!(path_posix_normalize("a/../b"), "b");
+        assert_eq!(path_posix_normalize("a/b/../c"), "a/c");
+    }
+
+    #[test]
+    fn posix_normalize_resolves_dotdot_absolute() {
+        assert_eq!(path_posix_normalize("/a/../b"), "/b");
+        assert_eq!(path_posix_normalize("/a/b/../../c"), "/c");
+    }
+
+    #[test]
+    fn posix_normalize_dotdot_above_root_drops() {
+        // Absolute paths drop excess `..`; matches Node's
+        // `path.posix.normalize("/../../b")` → "/b".
+        assert_eq!(path_posix_normalize("/../../b"), "/b");
+    }
+
+    #[test]
+    fn posix_normalize_dotdot_relative_accumulates() {
+        // Relative paths preserve `..` when nothing left to pop.
+        assert_eq!(path_posix_normalize("../foo"), "../foo");
+        assert_eq!(path_posix_normalize("../../foo"), "../../foo");
+    }
+
+    #[test]
+    fn posix_normalize_empty_is_dot() {
+        assert_eq!(path_posix_normalize(""), ".");
+    }
+
+    #[test]
+    fn posix_normalize_root_stays_root() {
+        assert_eq!(path_posix_normalize("/"), "/");
+    }
+
+    #[test]
+    fn posix_normalize_preserves_trailing_slash() {
+        assert_eq!(path_posix_normalize("foo/"), "foo/");
+        assert_eq!(path_posix_normalize("/foo/"), "/foo/");
     }
 }

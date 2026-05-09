@@ -28,20 +28,23 @@ with the trailingSlash↔redirects compose corner.
   - `Literal` — sources without glob meta and without `:name`
     segments. Trailing-slash flexion mirrors `pathToRegExp("/old", [])
     = ^/old/?$`, so `/old` and `/old/` are interchangeable.
-  - `Glob` — sources with glob meta (`*`, `?`, `[`, `{`) but no
-    `:name`. Compiled via `globset::GlobBuilder` with
-    `literal_separator(true)` so a single `*` does not cross `/`,
-    matching minimatch's default. `!`-prefix negation works through
-    the same XOR pattern as cleanUrls (the shared `slasher` from
-    `serve-handler/src/glob-slash.js:8`).
-  - `Pattern` — sources with `:name` segments (and possibly `*`
-    tokens). Compiled into a `regex::Regex` with named capture
+  - `Glob` — sources with `?`/`[`/`{` glob meta (no `*`, no `:name`)
+    or any `!`-prefixed source. Compiled via `globset::GlobBuilder`
+    with `literal_separator(true)`, matching the minimatch fallback
+    of `sourceMatches` for non-`*`/non-`:name` patterns. `!`-prefix
+    negation works through the same XOR pattern as cleanUrls (the
+    shared `slasher` from `serve-handler/src/glob-slash.js:8`).
+  - `Pattern` — sources with `:name` segments OR `*` tokens (and not
+    `!`-prefixed). Compiled into a `regex::Regex` with named capture
     groups, mirroring the reference's
     `slashed.replace('*', '(.*)') + pathToRegExp(normalized, keys)`
     first-pass at `index.js:46-49`. `:name` becomes
     `(?P<name>[^/]+)`; `*` becomes `(.*)`; literals are
     `regex::escape`d. The regex is anchored `^...\/?$` (optional
-    trailing slash).
+    trailing slash). Routing `*`-bearing sources through `Pattern`
+    gives `*` cross-segment semantics matching the reference (a
+    `/dir/*` redirect matches both `/dir/page` and `/dir/sub/page`),
+    pinned by `redirects-glob-source.json` (ORC-084, ORC-085).
 
 - **Destination interpolation.** `:name` segments in destinations
   are pre-parsed into a `DestTemplate` (Vec of literal + param
@@ -56,8 +59,9 @@ with the trailingSlash↔redirects compose corner.
 
 - **Destination normalization (Q-007 closure).** The reference's
   `toTarget` at `index.js:80` runs `protocol ? destination :
-  slasher(destination)` where `slasher` is `glob-slash`'s
-  `path.posix.normalize` plus a leading-slash guarantee. This means:
+  slasher(destination)` where `slasher` is
+  `path.posix.normalize(path.posix.join('/', value))`
+  (`glob-slash.js:6`). This means:
   - Absolute URLs (`https://example.com/x`) skip normalization and
     pass through verbatim.
   - Scheme-relative URLs (`//example.com/x`) are normalized to
@@ -66,11 +70,13 @@ with the trailingSlash↔redirects compose corner.
     true scheme-relative URLs (the Q-007 surprise).
   - Relative paths (`foo/bar`) get a leading `/` prepended.
   - Absolute paths (`/foo/bar`) pass through unchanged.
-  IrServe mirrors all four exactly via
-  `redirects::normalize_destination`. Implemented as `collapse_slashes`
-  + leading-`/` guarantee — fuller `path.posix.normalize` semantics
-  (`.`/`..` resolution) are not implemented because real-world
-  redirect destinations don't carry those segments.
+  - `..`-bearing destinations (`a/../b`) resolve to `/b` because
+    `path.posix.normalize` resolves `..` segments (with `..` above
+    the absolute root silently dropped).
+  IrServe mirrors all five via `redirects::normalize_destination`,
+  which calls a local `path_posix_normalize` (consecutive-slash
+  collapse + `.`/`..` resolution) followed by the leading-slash
+  guarantee. Pinned by ORC-079 through ORC-082 + ORC-086.
 
 - **`type` override (SRV-RDIR-002).** A rule's optional `type`
   field overrides the default 301 status code. Out-of-range u16
@@ -98,11 +104,15 @@ with the trailingSlash↔redirects compose corner.
     301 wins over redirect — already correct post-6c, just newly
     declared L0-clean).
   - `redirects-destination-forms#{absolute_https, scheme_relative,
-    relative_no_leading_slash, absolute_path_baseline}` (Q-007
-    closure, four destination forms).
+    relative_no_leading_slash, absolute_path_baseline,
+    dotdot_resolved}` (Q-007 closure, five destination forms
+    including `..`-resolution).
   - `prec-trailing-redirects#trailing_add_wins_over_redirect`
     (trailingSlash 301 wins over redirect — closes the
     trailingSlash↔redirects corner of SRV-ROUT-006).
+  - `redirects-glob-source#{star_matches_single_segment,
+    star_matches_multi_segment}` (locks `*`-source cross-segment
+    semantics; closes Codex round 1 P1).
   All anchors mark `contentLengthMayDiffer`: axum emits
   `content-length: 0` on empty redirects; the reference's Node
   `http` does not. Same treatment as cleanUrls in 6c.
@@ -124,12 +134,6 @@ with the trailingSlash↔redirects compose corner.
 - **`:name(custom-regex)` source patterns.** path-to-regexp v3
   supports `:foo(\d+)` for custom per-segment regexes. Not in 6d's
   scope; if a probe surfaces a user need, escalate to a Q-NNN.
-
-- **Destination `path.posix.normalize` `.`/`..` resolution.**
-  `redirects::normalize_destination` only collapses consecutive
-  slashes; it does not resolve `.` or `..` segments. Real-world
-  redirect destinations don't carry those segments; if a divergence
-  surfaces, escalate to a Q-NNN.
 
 - **`:name` + `!`-prefix negation combination.** Rejected at compile
   time via `CompileError::NegatedParam`. The reference's minimatch

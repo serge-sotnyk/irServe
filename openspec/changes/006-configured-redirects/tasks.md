@@ -167,3 +167,59 @@
   `cargo test --test oracle` 24 passed (was 22), 21 skipped, 0
   failed; `node tools/probe/run.mjs --all --target=reference
   --snapshot=verify` 45/45.
+
+## 4. Codex review round 1 (P1 + P2 fixes)
+
+- [x] 4.1 **P1 — `*` redirect sources route to Pattern.**
+  `redirects::compile_one` classifier extended: any source
+  containing `*` (without `!`-prefix) routes through `Pattern`
+  (regex), not `Glob`. Mirrors the reference's `pathToRegExp`
+  first-pass at `serve-handler/src/index.js:46-49` which rewrites
+  `*` to `(.*)` before compilation. Globset still handles
+  `?`/`[`/`{` and `!`-prefix sources.
+- [x] 4.2 New unit tests in `redirects.rs`:
+  `star_source_crosses_segments` (replaces the old
+  `glob_single_star_matches_one_segment` which locked the wrong
+  semantics — flipped to assert cross-slash matching).
+- [x] 4.3 New probe `tools/probe/cases/redirects-glob-source.json`
+  + snapshot. Two anchors (`star_matches_single_segment`,
+  `star_matches_multi_segment`) lock down the cross-segment
+  behavior so a regression on the routing classifier shows up in
+  the oracle. ORC-084, ORC-085 added to `oracle-matrix.md`.
+- [x] 4.4 **P2 — `path.posix.normalize` `.`/`..` resolution.**
+  `redirects::normalize_destination` no longer just calls
+  `collapse_slashes`; it now calls a local `path_posix_normalize`
+  function that mirrors Node's `path.posix.normalize` (consecutive
+  slashes + `.`/`..` resolution + `..`-above-root dropping for
+  absolute paths). Closes the gap flagged by Codex: a `destination:
+  "a/../b"` rule now emits `Location: /b` matching the reference.
+- [x] 4.5 New unit tests in `redirects.rs`:
+  `destination_normalize_resolves_dotdot`,
+  `destination_normalize_drops_dot_segments`,
+  `destination_normalize_dotdot_above_root_is_silent`, plus a
+  9-test block for the standalone `path_posix_normalize` function.
+- [x] 4.6 Probe `tools/probe/cases/redirects-destination-forms.json`
+  extended with a fifth anchor `dotdot_resolved` (`/up` →
+  destination `a/../b` → reference `Location: /b`). Snapshot
+  updated. ORC-086 added to `oracle-matrix.md`.
+- [x] 4.7 **P2 — extglob inconsistency in spec text.** The
+  modified `redirects` Requirement (delta in
+  `006-configured-redirects/specs/redirects/spec.md` AND canonical
+  `openspec/specs/redirects/spec.md`) previously said "extglobs
+  SHALL be supported" while a later paragraph said extglob is NOT
+  supported (Q-012). Removed the contradiction: explicit "extglob
+  NOT supported, see Q-012" wording now appears in the
+  Requirement's first paragraph. SRV-RDIR-001's compatibility note
+  in `inventory.md` updated to match.
+- [x] 4.8 SRV-RDIR-003 spec text updated in both delta and
+  canonical to reflect full `path.posix.normalize` semantics
+  (including `.`/`..` resolution), not just consecutive-slash
+  collapse. Implementation note in the canonical spec now points
+  at `path_posix_normalize` rather than `collapse_slashes`.
+- [x] 4.9 Verify: `cargo test -p irserve-core redirects` 54/54
+  green (was 42); `cargo test --workspace` 145/145; `cargo test
+  --test oracle` 25 passed (was 24, +1 from `redirects-glob-source`),
+  21 skipped, 0 failed; `node tools/probe/run.mjs --all
+  --target=reference --snapshot=verify` 46/46;
+  `npx -y @fission-ai/openspec@latest validate --all --strict` —
+  14/14.

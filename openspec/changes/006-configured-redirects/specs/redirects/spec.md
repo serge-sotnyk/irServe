@@ -9,7 +9,13 @@ A `redirects` entry `{source, destination}` SHALL match `source`
 request path; on match, the server SHALL respond with status 301 and
 `Location: <destination>` (with `path-to-regexp` segments
 interpolated). The `Location` value SHALL be URI-encoded (`encodeURI`).
-Negated patterns (`!`-prefixed glob) and extglobs SHALL be supported.
+Negated patterns (`!`-prefixed glob) SHALL be supported. Bash-style
+extglob constructs (`+(...)`, `@(...)`, `?(...)`, `*(...)`,
+`!(...)`) — which the reference inherits from minimatch via the
+shared `sourceMatches` helper — are NOT supported by IrServe; the
+divergence is tracked as Q-012 in
+`docs/reference/serve/open-questions.md` and inherited from the
+cleanUrls capability (see SRV-ROUT-001/002).
 
 Evidence: SRV-RDIR-001 (status: verified, level: L2); oracle: ORC-030.
 
@@ -115,25 +121,29 @@ has no `type` override (mirrors `index.js:179`'s
 The server SHALL use an absolute-URL `destination` (e.g.
 `https://example.com/x`) verbatim as the `Location` header value,
 with `encodeURI` still applied. Destinations without a protocol
-SHALL be normalized via `glob-slash.slasher` (i.e.
-`path.posix.normalize` plus a leading-slash guarantee), which
-collapses consecutive slashes — so `//example.com/x` becomes
-`/example.com/x` (a same-origin redirect, NOT a true scheme-relative
-URL).
+SHALL be normalized via `glob-slash.slasher` — i.e.
+`path.posix.normalize(path.posix.join('/', value))`
+(`third_party/serve-handler/src/glob-slash.js:6`) — which:
+
+- Collapses consecutive slashes (so `//example.com/x` becomes
+  `/example.com/x` — a same-origin redirect, NOT a true
+  scheme-relative URL).
+- Resolves `.` and `..` segments (so `a/../b` becomes `/b`).
+- Guarantees a leading `/`.
 
 Evidence: SRV-RDIR-003 (status: verified, level: L2); oracle:
-ORC-079, ORC-080, ORC-081, ORC-082.
+ORC-079, ORC-080, ORC-081, ORC-082, ORC-086 (`..` segment
+resolution, `cases/redirects-destination-forms.json#dotdot_resolved`).
 
 Implementation: `crates/irserve-core/src/redirects.rs::normalize_destination`
 mirrors `serve-handler/src/index.js:80`'s
 `protocol ? destination : slasher(destination)` exactly. The
 `has_protocol` helper checks for a valid URL scheme prefix
 (`[A-Za-z][A-Za-z0-9+.\-]*:`). Destinations whose protocol is
-truthy pass through verbatim; everything else goes through
-`crate::normalize::collapse_slashes` (the consecutive-slash collapse
-that approximates `path.posix.normalize` for redirect destinations
-in practice — fuller `.`/`..` resolution is not implemented because
-real-world redirect destinations don't carry those segments) and
+truthy pass through verbatim; everything else goes through the
+local `path_posix_normalize` (which mirrors Node's
+`path.posix.normalize` — consecutive-slash collapse plus `.`/`..`
+resolution, with `..` above the absolute root silently dropped) and
 then a leading-`/` guarantee.
 
 This closes Q-007 (`docs/reference/serve/open-questions.md`). The
