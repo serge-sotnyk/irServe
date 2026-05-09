@@ -1,0 +1,17 @@
+{
+  "id": "config-missing-explicit",
+  "description": "`--config <path>` with a non-existent file is fatal: startup fails with a non-zero exit code. Backs the SRV-CFG-001 scenario \"Missing --config file is fatal\" (config/spec.md).",
+  "runner": {
+    "l0": {
+      "clean": ["missing_explicit_fatal"],
+      "divergent": [],
+      "exitCodeMayDiffer": ["missing_explicit_fatal"]
+    }
+  },
+  "cli": [
+    {
+      "name": "missing_explicit_fatal",
+      "args": ["--config", "does-not-exist.json", "."]
+    }
+  ]
+}

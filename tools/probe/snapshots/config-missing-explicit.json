@@ -1,0 +1,27 @@
+{
+  "$schemaVersion": 1,
+  "case": "config-missing-explicit",
+  "description": "`--config <path>` with a non-existent file is fatal: startup fails with a non-zero exit code. Backs the SRV-CFG-001 scenario \"Missing --config file is fatal\" (config/spec.md).",
+  "cli": [
+    {
+      "name": "missing_explicit_fatal",
+      "args": [
+        "--config",
+        "does-not-exist.json",
+        "."
+      ],
+      "exitCode": 1,
+      "stdout": {
+        "kind": "empty",
+        "length": 0,
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "stderr": {
+        "kind": "text",
+        "length": 160,
+        "sha256": "ef8557579c5ba5bf3c3dd5f17fa789685f7423ecbb7097111a062d7b1070e376",
+        "preview": " ERROR  Could not read configuration from file <FIXTURE_ROOT>\\does-not-exist.json: ENOENT: no such file or directory, open '<FIXTURE_ROOT>\\does-not-exist.json'\n"
+      }
+    }
+  ]
+}

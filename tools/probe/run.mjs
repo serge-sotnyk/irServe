@@ -43,9 +43,9 @@ const L0_EXTRA_VOLATILE_HEADERS = ['etag', 'vary', 'accept-ranges'];
 // Flags deferred from the strict L0 implementation (D-008). If a case asks
 // for one of these via `serveArgs`, the runner refuses to run it against
 // `target=irserve` rather than silently dropping the flag.
+// `-c`/`--config` un-deferred in stage 6a (change 003-load-serve-json).
 const L0_DEFERRED_FLAGS = new Set([
   '-p',
-  '-c', '--config',
   '-C', '--cors',
   '-d', '--debug',
   '-L', '--no-request-logging',

@@ -70,7 +70,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
     let serve_config = loaded.map(|l| l.config).unwrap_or_default();
 
-    let root = cli.directory.canonicalize()?;
+    let public_segment = serve_config.public.as_deref().unwrap_or(".");
+    let root = cli.directory.join(public_segment).canonicalize()?;
 
     let config = ServerConfig {
         root,

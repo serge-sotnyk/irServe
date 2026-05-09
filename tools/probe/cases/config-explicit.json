@@ -1,6 +1,6 @@
 {
   "id": "config-explicit",
-  "description": "`--config <path>` loads a non-default JSON file as the routing/headers configuration. Backs SRV-CLI-009 and SRV-CFG-001. The fixture has both a default-named `serve.json` (NOT used because --config takes precedence) and an alternate `routes.json`; the request hits a redirect that only exists in the alternate file.",
+  "description": "`--config <path>` loads a non-default JSON file as the routing/headers configuration. Backs SRV-CLI-009 and SRV-CFG-001. The fixture has both a default-named `serve.json` (NOT used because --config takes precedence) and an alternate `routes.json`; the request hits a redirect that only exists in the alternate file. TODO(6d): the redirect anchor depends on configured-redirects (sub-stage 6d); auto-skipped under target=irserve until then via the absent `runner.l0` block.",
   "fixture": {
     "files": {
       "page.html": "<p>page</p>\n",

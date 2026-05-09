@@ -1,0 +1,25 @@
+{
+  "$schemaVersion": 1,
+  "case": "config-malformed",
+  "description": "Malformed JSON in `serve.json` is fatal: startup fails with a non-zero exit code. Backs the SRV-CFG-001 scenario \"Malformed JSON is fatal\" (config/spec.md). The fixture's `serve.json` is intentionally invalid JSON.",
+  "cli": [
+    {
+      "name": "malformed_json_fatal",
+      "args": [
+        "."
+      ],
+      "exitCode": 1,
+      "stdout": {
+        "kind": "empty",
+        "length": 0,
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "stderr": {
+        "kind": "text",
+        "length": 129,
+        "sha256": "2335abd98abc4730d37c9c05c6617648d5f93409332fa9dbfd53730cd1c2d9aa",
+        "preview": " ERROR  Could not parse <FIXTURE_ROOT>\\serve.json as JSON: Expected property name or '}' in JSON at position 1 (line 1 column 2)\n"
+      }
+    }
+  ]
+}

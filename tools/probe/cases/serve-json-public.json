@@ -1,0 +1,22 @@
+{
+  "id": "serve-json-public",
+  "description": "`serve.json: {\"public\": \"site\"}` re-roots the served directory to the `site/` subdirectory. Backs the SRV-CFG-001 scenario \"Public field resolves relative to served directory\" (config/spec.md). GET / resolves to `<served-dir>/site/index.html` for both reference and IrServe.",
+  "fixture": {
+    "files": {
+      "site/index.html": "<p>public site</p>\n",
+      "outside.html": "<p>should-not-be-served</p>\n"
+    },
+    "serveJson": {
+      "public": "site"
+    }
+  },
+  "runner": {
+    "l0": {
+      "clean": ["root_serves_public_index"],
+      "divergent": []
+    }
+  },
+  "requests": [
+    { "name": "root_serves_public_index", "method": "GET", "path": "/" }
+  ]
+}

@@ -1,0 +1,22 @@
+{
+  "id": "config-malformed",
+  "description": "Malformed JSON in `serve.json` is fatal: startup fails with a non-zero exit code. Backs the SRV-CFG-001 scenario \"Malformed JSON is fatal\" (config/spec.md). The fixture's `serve.json` is intentionally invalid JSON.",
+  "fixture": {
+    "files": {
+      "serve.json": "{not json"
+    }
+  },
+  "runner": {
+    "l0": {
+      "clean": ["malformed_json_fatal"],
+      "divergent": [],
+      "exitCodeMayDiffer": ["malformed_json_fatal"]
+    }
+  },
+  "cli": [
+    {
+      "name": "malformed_json_fatal",
+      "args": ["."]
+    }
+  ]
+}
