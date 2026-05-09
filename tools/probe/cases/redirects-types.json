@@ -14,9 +14,8 @@
   },
   "runner": {
     "l0": {
-      "clean": ["explicit_302"],
-      "divergent": ["default_301_segment"],
-      "contentLengthMayDiffer": ["explicit_302"]
+      "clean": ["explicit_302", "default_301_segment"],
+      "contentLengthMayDiffer": ["explicit_302", "default_301_segment"]
     }
   },
   "requests": [
