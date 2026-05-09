@@ -52,10 +52,19 @@ The methodology runs in nine stages. Status is updated when entering or completi
 | 4 | OpenSpec bootstrap change | `openspec/changes/000-establish-serve-compatibility-baseline/` | done |
 | 5a | First implementation proposal (specs delta + design + tasks, no code) | `openspec/changes/001-port-minimal-static-server/` (proposal/design/tasks/specs only) | done |
 | 5b | Rust scaffold + first vertical slice | `Cargo.toml` + `tests/oracle/` + first crate code | done |
-| 6 | Implementation proposals (vertical slices, in dependency order) | `openspec/changes/002...010` | todo |
-| 7 | Polish: terminal output, Windows quirks, edge cases | `openspec/changes/011...` | todo |
+| 6a | `serve.json` loader | `openspec/changes/003-load-serve-json` | todo |
+| 6b | Routing normalization (trailingSlash, multi-slash) | `openspec/changes/004-route-normalization` | todo |
+| 6c | cleanUrls (301 + extensionless resolution) | `openspec/changes/005-clean-urls` | todo |
+| 6d | Configured redirects | `openspec/changes/006-configured-redirects` | todo |
+| 6e | Configured rewrites + `--single` SPA fallback | `openspec/changes/007-configured-rewrites` | todo |
+| 6f | Custom error pages, full L2 security, custom response headers | `openspec/changes/008-error-pages-and-security` | todo |
+| 6g | Directory listing (HTML / JSON, `unlisted`, `renderSingle`) | `openspec/changes/009-directory-listing` | todo |
+| 6h | CLI fill-in (`tcp://`, `-p`, `--config`, `--cors` L1, `--debug`, `--no-request-logging`, `--no-port-switching`) | `openspec/changes/010-cli-fill-in` | todo |
+| 7 | Polish: terminal output, Windows quirks, edge cases (L3+) | `openspec/changes/011...` | todo |
 
 The first concrete Rust crate appears at Stage 5b, not earlier. Stages 1–5a produce only research notes and OpenSpec specs.
+
+Sub-stages 6a–6h are the canonical decomposition of Stage 6 (L1 + L2). Per-sub-stage SRV mappings, dependency edges, and what each one closes / touches live in [`docs/stage6_l1_l2_capabilities.md`](docs/stage6_l1_l2_capabilities.md). Updates to Stage 6 scope or status land there first, then propagate to the rows above.
 
 ## Anti-hallucination rules
 
