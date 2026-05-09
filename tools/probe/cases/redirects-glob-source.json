@@ -20,16 +20,26 @@
         "star_matches_multi_segment",
         "double_star_matches_single",
         "double_star_matches_multi",
-        "multi_star_no_overmatch"
+        "multi_star_matches_single_trailing",
+        "multi_star_no_overmatch_two_trailing",
+        "multi_star_no_overmatch_zero_trailing",
+        "multi_star_no_overmatch_extra_middle"
       ],
       "contentLengthMayDiffer": [
         "star_matches_single_segment",
         "star_matches_multi_segment",
         "double_star_matches_single",
         "double_star_matches_multi",
-        "multi_star_no_overmatch"
+        "multi_star_matches_single_trailing",
+        "multi_star_no_overmatch_two_trailing",
+        "multi_star_no_overmatch_zero_trailing",
+        "multi_star_no_overmatch_extra_middle"
       ],
-      "bodyMayDiffer": ["multi_star_no_overmatch"]
+      "bodyMayDiffer": [
+        "multi_star_no_overmatch_two_trailing",
+        "multi_star_no_overmatch_zero_trailing",
+        "multi_star_no_overmatch_extra_middle"
+      ]
     }
   },
   "requests": [
@@ -37,6 +47,9 @@
     { "name": "star_matches_multi_segment", "method": "GET", "path": "/dir/sub/page" },
     { "name": "double_star_matches_single", "method": "GET", "path": "/face/me" },
     { "name": "double_star_matches_multi", "method": "GET", "path": "/face/sub/page" },
-    { "name": "multi_star_no_overmatch", "method": "GET", "path": "/a/x/b/y/z" }
+    { "name": "multi_star_matches_single_trailing", "method": "GET", "path": "/a/x/b/y" },
+    { "name": "multi_star_no_overmatch_two_trailing", "method": "GET", "path": "/a/x/b/y/z" },
+    { "name": "multi_star_no_overmatch_zero_trailing", "method": "GET", "path": "/a/x/b" },
+    { "name": "multi_star_no_overmatch_extra_middle", "method": "GET", "path": "/a/x/y/b/z" }
   ]
 }

@@ -301,3 +301,68 @@
   --target=reference --snapshot=verify` 48/48 (was 46);
   `npx -y @fission-ai/openspec@latest validate --all --strict` —
   14/14.
+
+## 6. Codex review round 3 (P1 + P2 fixes)
+
+- [x] 6.1 **P1 — `*`-only sources need a minimatch fallback.**
+  Round 2's first-only-`*`-replace correctly stopped over-matching
+  `/a/*/b/*` against `/a/x/b/y/z`, but it under-matched
+  `/a/x/b/y` (which the reference matches via the `minimatch`
+  fallback in `sourceMatches` at `index.js:59`). Root cause:
+  `path-to-regexp@3.3.0`'s PATH_REGEXP doesn't recognize bare `*`
+  as a wildcard token, so the second-and-later `*`s end up as
+  regex literals; the reference's two-stage matcher then tries
+  minimatch where each `*` is a single-segment wildcard. Fixed by
+  adding a `glob_fallback: Option<GlobMatcher>` field to the
+  `Pattern` matcher: for `*`-bearing-no-`:name` sources, store a
+  `globset::Glob` over the original source pattern. At match time,
+  try regex first (so `:name` captures still work for
+  `:`+`*` sources); on miss, try the glob (with a trailing-slash
+  trim mirroring `path.posix.resolve(requestPath)` so globset's
+  zero-or-more `*` lines up with minimatch's one-or-more).
+- [x] 6.2 New unit test `multi_star_source_matches_via_glob_fallback`
+  replaces the round-2 `multi_star_source_only_first_substitutes`
+  test: now asserts the positive single-trailing case (`/a/x/b/y`
+  matches) plus four negative cases.
+- [x] 6.3 Probe `tools/probe/cases/redirects-glob-source.json`
+  extended with `multi_star_matches_single_trailing` (positive
+  case missed previously), and the round-2
+  `multi_star_no_overmatch` anchor renamed to
+  `multi_star_no_overmatch_two_trailing` plus two new negative
+  anchors `multi_star_no_overmatch_zero_trailing` and
+  `multi_star_no_overmatch_extra_middle`. Snapshot regenerated.
+  ORC-091 reference updated to the renamed anchor; new ORC-095,
+  ORC-096, ORC-097 added.
+- [x] 6.4 **P2 — stale doc references scrubbed.**
+  - `docs/reference/serve/decisions.md` D-012 — removed the stale
+    paragraph claiming `!`+`:name` is rejected via
+    `CompileError::NegatedParam`; updated multi-`*` description
+    to mention the round-3 glob fallback alongside the round-2
+    first-only substitution.
+  - `openspec/changes/006-configured-redirects/design.md` — §7.2
+    updated from "Q-007 closure (4 anchors)" to "(7 anchors after
+    Codex rounds 1+2)" plus enumeration of the round-1/2/3
+    additional probes; §8 stop-the-line item rewritten to
+    document the round-2 reversal of `NegatedParam` rejection
+    plus a new item 3 documenting the round-3 glob-fallback
+    discovery.
+  - `openspec/changes/006-configured-redirects/proposal.md` —
+    `CompileError` enum description corrected (no more
+    `NegatedParam`).
+  - `docs/reference/serve/open-questions.md` Q-007 — anchor count
+    updated from 4 to 7 with the full enumeration; ORC list
+    extended to include ORC-086, ORC-087, ORC-088.
+  - `openspec/specs/redirects/spec.md` (canonical) and the
+    `006-configured-redirects` delta — SRV-RDIR-003 oracle list
+    extended with ORC-087/ORC-088; SRV-RDIR-001 oracle list
+    extended through ORC-097.
+  - `docs/reference/serve/inventory.md` — SRV-RDIR-001 oracle
+    list and probe enumeration synced with the round-3 anchor
+    set.
+- [x] 6.5 Verify: `cargo test -p irserve-core redirects` 59/59
+  green (no test count change; one round-2 test rewritten);
+  `cargo test --test oracle` 27 passed (no case-count change —
+  the `redirects-glob-source` probe gained 3 anchors but stayed
+  one case), 21 skipped, 0 failed; `node tools/probe/run.mjs
+  --all --target=reference --snapshot=verify` 48/48; `npx -y
+  @fission-ai/openspec@latest validate --all --strict` — 14/14.

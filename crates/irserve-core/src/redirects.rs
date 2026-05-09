@@ -57,16 +57,33 @@ enum Matcher {
         negate: bool,
         destination: String,
     },
-    /// Source contains `:name` segments (and possibly `*` tokens).
+    /// Source contains `:name` segments and/or `*` tokens.
     /// Compiled into a `regex::Regex` with named capture groups,
     /// mirroring the reference's `path-to-regexp` first-pass at
     /// `serve-handler/src/index.js:46-49`. The destination is a
     /// pre-parsed template that interpolates captured values
     /// (`encodeURIComponent` per value, mirroring
     /// `pathToRegExp.compile`).
+    ///
+    /// `glob_fallback` is `Some` when the source has `*` but no
+    /// `:name` segment — `path-to-regexp@3.3.0`'s PATH_REGEXP
+    /// doesn't recognize bare `*` as a wildcard token, so after
+    /// `slashed.replace('*', '(.*)')` the second-and-later `*`s
+    /// pass through to the compiled regex as literal `*`
+    /// characters that real URLs never carry. The reference's
+    /// `sourceMatches` (`index.js:59`) falls through to `minimatch`
+    /// in this case; we mirror by trying the regex first (so a
+    /// source like `/dir/*` still gives multi-segment matching via
+    /// `(.*)`) and falling through to a `globset` matcher for
+    /// minimatch parity (so `/a/*/b/*` matches `/a/x/b/y` with each
+    /// `*` covering a single segment). `:name`-bearing sources
+    /// don't need the fallback: minimatch would treat `:name` as
+    /// literal characters that real URLs don't carry, so the
+    /// fallback would never match.
     Pattern {
         regex: regex::Regex,
         dest_template: DestTemplate,
+        glob_fallback: Option<GlobMatcher>,
     },
 }
 
@@ -182,9 +199,27 @@ fn compile_one(rule: &RedirectRule) -> Result<RedirectRuleCompiled, CompileError
     let matcher = if needs_pattern {
         let regex = compile_source_regex(&body)?;
         let dest_template = compile_dest_template(&normalized_dest);
+        // `:name`-bearing sources don't need the minimatch fallback:
+        // minimatch would treat `:name` as literal characters that
+        // real URLs never carry, so it would never match anyway.
+        // Bare-`*` sources DO need the fallback to recover the
+        // single-segment-per-`*` behavior the reference exhibits via
+        // minimatch when path-to-regexp returns null on multi-`*`
+        // patterns.
+        let glob_fallback = if !has_path_param(&body) {
+            Some(
+                GlobBuilder::new(&body)
+                    .literal_separator(true)
+                    .build()?
+                    .compile_matcher(),
+            )
+        } else {
+            None
+        };
         Matcher::Pattern {
             regex,
             dest_template,
+            glob_fallback,
         }
     } else if has_glob_meta(&body) || negate {
         let glob = GlobBuilder::new(&body).literal_separator(true).build()?;
@@ -372,26 +407,59 @@ impl RedirectRuleCompiled {
             Matcher::Pattern {
                 regex,
                 dest_template,
-            } => regex.captures(path).map(|caps| dest_template.render(&caps)),
+                glob_fallback,
+            } => {
+                if let Some(caps) = regex.captures(path) {
+                    return Some(dest_template.render(Some(&caps)));
+                }
+                if let Some(g) = glob_fallback {
+                    // Mirror `serve-handler/src/index.js:41`'s
+                    // `path.posix.resolve(requestPath)` — drop a
+                    // single trailing `/` (except for the root `/`)
+                    // before minimatch sees the path. Without this,
+                    // globset's `*` (zero-or-more) would match an
+                    // empty trailing segment and `/a/x/b/` would hit
+                    // a `/a/*/b/*` rule, diverging from the
+                    // reference's 404. minimatch's `*` requires a
+                    // non-empty segment.
+                    let path_for_glob =
+                        if path != "/" && path.ends_with('/') {
+                            &path[..path.len() - 1]
+                        } else {
+                            path
+                        };
+                    if g.is_match(path_for_glob) {
+                        // Glob-fallback path: no `:name` captures
+                        // (the regex didn't match). dest_template's
+                        // `Param` fragments fail open to empty
+                        // strings — but `*`-only sources don't have
+                        // `:name` in their destination anyway.
+                        return Some(dest_template.render(None));
+                    }
+                }
+                None
+            }
         }
     }
 }
 
 impl DestTemplate {
-    fn render(&self, captures: &regex::Captures) -> String {
+    fn render(&self, captures: Option<&regex::Captures>) -> String {
         let mut out = String::new();
         for frag in &self.fragments {
             match frag {
                 DestFrag::Literal(s) => out.push_str(s),
                 DestFrag::Param(name) => {
-                    if let Some(m) = captures.name(name) {
-                        out.extend(utf8_percent_encode(m.as_str(), ENCODE_URI_COMPONENT_SET));
+                    if let Some(caps) = captures {
+                        if let Some(m) = caps.name(name) {
+                            out.extend(utf8_percent_encode(m.as_str(), ENCODE_URI_COMPONENT_SET));
+                        }
                     }
-                    // If a `:name` in the destination has no matching
-                    // capture, emit nothing for that fragment. The
-                    // reference's `pathToRegExp.compile` would throw on
-                    // a missing prop; we fail open instead so a typo
-                    // doesn't crash the request handler.
+                    // Missing capture or no captures (glob fallback):
+                    // fail open with empty string. The reference's
+                    // `pathToRegExp.compile` would throw on a missing
+                    // prop; we fail open instead so a typo doesn't
+                    // crash the request handler.
                 }
             }
         }
@@ -723,21 +791,33 @@ mod tests {
     }
 
     #[test]
-    fn multi_star_source_only_first_substitutes() {
-        // Codex review round 2 P1: JS `String.replace('*', '(.*)')`
-        // replaces only the FIRST `*`. The reference's source
-        // `/a/*/b/*` becomes regex `/a/(.*)/b/*` (path-to-regexp
-        // then interprets the trailing `*` as kleene). Our compiler
-        // emits `^/a/(.*)/b/\*/?$` — the second `*` is regex-escaped
-        // to a literal `*` that real URLs never carry, so requests
-        // like `/a/x/b/y/z` correctly fall through to 404 (matching
-        // the reference's "no match" behavior on this input).
+    fn multi_star_source_matches_via_glob_fallback() {
+        // Codex review round 3 P1: in `path-to-regexp@3.3.0`, bare
+        // `*` is NOT recognized as a wildcard token — the
+        // PATH_REGEXP doesn't capture it. After
+        // `slashed.replace('*', '(.*)')`, multi-`*` sources like
+        // `/a/*/b/*` become `/a/(.*)/b/*`, where the trailing `*`
+        // ends up as a regex-literal `\*` in the compiled regex.
+        // The reference's `sourceMatches` (`index.js:59`) then
+        // falls through to `minimatch`, which treats each `*` as a
+        // single-segment wildcard. We mirror via the
+        // `glob_fallback` field on `Pattern`: the regex is tried
+        // first (so `:name` captures still work for
+        // `:`-bearing-with-`*` sources), and a `globset` matcher
+        // catches multi-`*` patterns where the regex misses.
         let rules = compile(&[rule("/a/*/b/*", "/multi-hit", None)]);
+        // Single-segment trailing → matches via glob fallback.
+        let (target, _) = compute_configured_redirects("/a/x/b/y", &rules)
+            .expect("multi-`*` should match single-segment trailing via glob fallback");
+        assert_eq!(target, "/multi-hit");
+        // Multi-segment trailing → no match (`*` is single-segment
+        // in minimatch).
         assert!(compute_configured_redirects("/a/x/b/y/z", &rules).is_none());
-        assert!(compute_configured_redirects("/a/x/b/y", &rules).is_none());
-        // A request that literally contains `*` after `/b/` would
-        // match — odd but consistent with the regex shape.
-        assert!(compute_configured_redirects("/a/x/b/*", &rules).is_some());
+        // Multi-segment middle → no match.
+        assert!(compute_configured_redirects("/a/x/y/b/z", &rules).is_none());
+        // No trailing segment → no match.
+        assert!(compute_configured_redirects("/a/x/b", &rules).is_none());
+        assert!(compute_configured_redirects("/a/x/b/", &rules).is_none());
     }
 
     #[test]

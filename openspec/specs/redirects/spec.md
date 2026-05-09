@@ -67,7 +67,8 @@ NOT a true scheme-relative URL), resolves `.` and `..` segments
 (so `a/../b` becomes `/b`), and guarantees a leading `/`.
 
 Evidence: SRV-RDIR-003 (status: verified, level: L2); oracle:
-ORC-079, ORC-080, ORC-081, ORC-082, ORC-086.
+ORC-079, ORC-080, ORC-081, ORC-082, ORC-086 (mid-path `..`),
+ORC-087 (leading `..`), ORC-088 (empty destination → root).
 
 Note: Q-007 closed by snapshot
 `tools/probe/snapshots/redirects-destination-forms.json`. The

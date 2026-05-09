@@ -93,8 +93,9 @@ with the trailingSlash↔redirects compose corner.
   patterns and invalid path-pattern regexes are silently skipped at
   startup with a stderr warning emitted from `server.rs::serve`,
   mirroring the cleanUrls treatment from 6c and the reference's
-  silent try/catch at `index.js:38-67`. A new `CompileError` enum
-  carries the variant (`Glob | Regex | NegatedParam`).
+  silent try/catch at `index.js:38-67`. The `CompileError` enum
+  carries `Glob` (`#[from] globset::Error`) and `Regex`
+  (`#[from] regex::Error`) variants.
 
 - **Probe coverage.** The following anchors flip into
   `runner.l0.clean`:

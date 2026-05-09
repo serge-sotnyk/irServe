@@ -293,9 +293,21 @@ Existing probes `redirects-types`, `prec-rewrites-redirects` get
 `runner.l0.clean` blocks (anchors documented in proposal.md). Two
 new probes land in slice 3:
 
-- `redirects-destination-forms.json` — Q-007 closure (4 anchors).
+- `redirects-destination-forms.json` — Q-007 closure (7 anchors
+  after Codex rounds 1+2: absolute URL, scheme-relative,
+  relative-no-leading-slash, absolute path baseline, mid-path `..`,
+  leading `..`, empty destination).
 - `prec-trailing-redirects.json` — trailingSlash↔redirect
   precedence (1 anchor).
+
+After Codex rounds 1, 2, 3, four more probes land:
+
+- `redirects-glob-source.json` (8 anchors) — `*` and `**` source
+  routing, multi-`*` minimatch fallback semantics.
+- `redirects-source-slasher.json` (2 anchors) — source-side
+  `slasher` parity for leading-`..` and `.`-segment.
+- `redirects-negation-source.json` (1 anchor) — `!`-prefix +
+  `:name` falling through to minimatch.
 
 All redirect anchors mark `contentLengthMayDiffer` (axum vs Node
 http chunked encoding, same treatment as 6c's
@@ -316,14 +328,37 @@ plan:
    mirror exactly via `redirects::normalize_destination`, document
    the surprise in D-012.
 
-2. **`!`-prefix + `:name` combination.** During slice 2 the
-   classifier needed to choose between Pattern (regex) and Glob
-   (globset) routing. `!`-prefix forces Glob (via the cleanUrls
-   precedent), but `:name` requires Pattern. Decision: reject the
-   combination at compile time via `CompileError::NegatedParam` and
-   surface as a stderr warning. The reference's minimatch fallback
-   for that combo would never match any real path either, so this
-   is a clarification rather than a divergence.
+2. **`!`-prefix + `:name` combination.** Slice 2 initially rejected
+   this combination at compile time via a (later-removed)
+   `CompileError::NegatedParam` variant on the assumption that the
+   reference would never match it either. Codex review round 2 P1
+   probed and showed that the reference's `sourceMatches` falls
+   through to minimatch on these patterns, treating `:name` as
+   literal characters and emitting the negated match for any path
+   that doesn't literally equal the source. Decision: route
+   `!`-prefix + `:name` through `Glob` with `negate=true` (just
+   like `!`-prefix without `:name`), drop the `NegatedParam`
+   variant, and pin the behavior with
+   `redirects-negation-source.json` (ORC-094).
+
+3. **Multi-`*` source / glob fallback.** Slice 1 and round 1
+   routed `*`-bearing sources through `Pattern` (regex) only.
+   Codex rounds 2 and 3 surfaced the deeper truth: `path-to-regexp@3.3.0`
+   doesn't recognize bare `*` as a wildcard — only `(.*)` from the
+   JS first-replace step is interpreted as a custom regex segment.
+   Multi-`*` sources end up with a regex containing literal `\*`
+   that real URLs can't match, and the reference's `sourceMatches`
+   falls through to minimatch (single-segment `*` per pattern
+   element). Decision: keep `Pattern` (regex) for `:name`-bearing
+   sources, but for `*`-bearing-no-`:name` sources also store a
+   `globset::GlobMatcher` as `glob_fallback` on the `Pattern`
+   variant. At match time, try the regex first (so `:name`+`*`
+   sources still get path-to-regexp captures), fall back to the
+   glob (with a trailing-slash trim mirroring
+   `path.posix.resolve(requestPath)` at `index.js:41`) if the
+   regex returns no match. Pinned by `redirects-glob-source.json`:
+   ORC-091 (multi-trailing 404), ORC-095 (positive single-trailing
+   match), ORC-096 (no-trailing 404), ORC-097 (extra-middle 404).
 
 ## 9. Hard stops
 
