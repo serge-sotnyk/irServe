@@ -19,18 +19,9 @@ ORC-064 (`cases/serve-json-public.json#root_serves_public_index`,
 `public` field scenario), ORC-065 (`cases/config-missing-explicit.json
 #missing_explicit_fatal`, missing-explicit scenario), ORC-066
 (`cases/config-malformed.json#malformed_json_fatal`, malformed-JSON
+scenario), ORC-067 (`cases/config-explicit-public.json
+#alt_config_public_redirects_root`, explicit-overrides-default
 scenario).
-
-Implementation: Landed by change `003-load-serve-json` (Stage 6a).
-The loader lives in `crates/irserve-core/src/config.rs`
-(`load_serve_json`, `ServeConfig`, `ConfigError`). The bin
-(`crates/irserve/src/main.rs`) wires the `-c/--config <PATH>` flag,
-calls `load_serve_json` before `canonicalize`, emits a stderr
-deprecation warning when the source is `now.json` or `package.json
-#static`, and folds `serve_config.public` into the served-root
-computation. Schema validation uses `serde` with
-`#[serde(deny_unknown_fields)]`; per `D-002`, validation error
-wording is implementation-defined (Q-003 stays open).
 
 Note: Q-003 is open on the exact validation error format and exit
 codes (deferred to oracle harness work). IrServe MAY emit a deprecation

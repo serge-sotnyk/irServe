@@ -1,0 +1,24 @@
+{
+  "id": "config-explicit-public",
+  "description": "`--config alt.json` overrides the default `serve.json` lookup. The fixture ships both: `serve.json` sets `public: default-dir` (with `default-dir/index.html` saying `default`); `alt.json` sets `public: site` (with `site/index.html` saying `site`). With `--config alt.json`, the alternate file wins and `GET /` serves the `site` content. Backs SRV-CLI-009 and SRV-CFG-001 (explicit-overrides-default scenario, observable through `public`).",
+  "fixture": {
+    "files": {
+      "default-dir/index.html": "<p>default</p>\n",
+      "site/index.html": "<p>site</p>\n",
+      "alt.json": "{\n  \"public\": \"site\"\n}\n"
+    },
+    "serveJson": {
+      "public": "default-dir"
+    }
+  },
+  "serveArgs": ["--config", "alt.json"],
+  "runner": {
+    "l0": {
+      "clean": ["alt_config_public_redirects_root"],
+      "divergent": []
+    }
+  },
+  "requests": [
+    { "name": "alt_config_public_redirects_root", "method": "GET", "path": "/" }
+  ]
+}

@@ -299,8 +299,8 @@ Reference source:
 - README: yes — help text: `Specify custom path to 'serve.json'`.
 - serve source: `third_party/serve/source/main.ts` (flag) and `source/utilities/config.ts:31-32` — `--config` is unshifted to the head of the search list.
 - Existing test: absent.
-- Probe: not run.
-- Oracle test: ORC-006 (snapshots in tools/probe/snapshots/).
+- Probe: `tools/probe/cases/config-explicit-public.json` (positive path under `target=irserve` since Stage 6a).
+- Oracle test: ORC-006, ORC-067 (snapshots in tools/probe/snapshots/).
 
 Requirement (draft):
 With `-c <path>`/`--config <path>`, that file is read first as the configuration source. If it cannot be read, startup fails with an error (i.e. the missing-config-file is fatal in this case, unlike the implicit `serve.json`).
@@ -583,7 +583,7 @@ Reference source:
 - serve source: `third_party/serve/source/utilities/config.ts:31-108`.
 - Existing test: absent (CLI-level lookup) — the field-level behavior is covered per-area (e.g. `set 'cleanUrls' config property to 'true'`).
 - Probe: indirect for most fields (per-area probes ship a `serve.json`); direct probes for the loader surface added in change `003-load-serve-json` (Stage 6a).
-- Oracle test: ORC-006, ORC-064, ORC-065, ORC-066 (snapshots in tools/probe/snapshots/).
+- Oracle test: ORC-006, ORC-064, ORC-065, ORC-066, ORC-067 (snapshots in tools/probe/snapshots/).
 
 Requirement (draft):
 Configuration is loaded from the served directory. The lookup order is: `--config <path>` (if given) → `serve.json` → `now.json` (deprecated, key `now.static`) → `package.json` (deprecated, key `static`). The first existing file with a usable section wins; the rest are ignored. Missing implicit files are silently skipped; a missing `--config` file is a fatal error. Invalid JSON or non-object content is a fatal error. The `public` field is resolved relative to the served directory.

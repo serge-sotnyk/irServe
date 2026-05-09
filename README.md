@@ -21,7 +21,7 @@ Concretely: take `vercel/serve` (a small but real Node.js static file server), r
 - **Stage 5b — Rust scaffold + first vertical slice.** Done.
 - **Stage 6a — `serve.json` loader.** Done.
 
-Rust code lives under `crates/irserve` (the bin) and `crates/irserve-core` (the lib). The first slice is strict-L0: eight SRVs (`SRV-CLI-001/002/007/019`, `SRV-FILE-001/002/004/005`); every other capability is deferred per `D-008`.
+Rust code lives under `crates/irserve` (the bin) and `crates/irserve-core` (the lib). The first slice (Stage 5b) is strict-L0: eight SRVs (`SRV-CLI-001/002/007/019`, `SRV-FILE-001/002/004/005`). Stage 6a un-defers SRV-CFG-001, SRV-CFG-002, and SRV-CLI-009 (`-c/--config`); the remaining capabilities are still deferred per `D-008`/`D-009`.
 
 ## Repository layout
 
@@ -60,7 +60,7 @@ The methodology runs in nine stages. Status is updated when entering or completi
 | 6e | Configured rewrites + `--single` SPA fallback | `openspec/changes/007-configured-rewrites` | todo |
 | 6f | Custom error pages, full L2 security, custom response headers | `openspec/changes/008-error-pages-and-security` | todo |
 | 6g | Directory listing (HTML / JSON, `unlisted`, `renderSingle`) | `openspec/changes/009-directory-listing` | todo |
-| 6h | CLI fill-in (`tcp://`, `-p`, `--config`, `--cors` L1, `--debug`, `--no-request-logging`, `--no-port-switching`) | `openspec/changes/010-cli-fill-in` | todo |
+| 6h | CLI fill-in (`tcp://`, `-p`, `--cors` L1, `--debug`, `--no-request-logging`, `--no-port-switching`) | `openspec/changes/010-cli-fill-in` | todo |
 | 7 | Polish: terminal output, Windows quirks, edge cases (L3+) | `openspec/changes/011...` | todo |
 
 The first concrete Rust crate appears at Stage 5b, not earlier. Stages 1–5a produce only research notes and OpenSpec specs.
@@ -123,9 +123,9 @@ curl -i http://127.0.0.1:3010/
 
 Rust toolchain (1.81+) is required to build and test `irserve`. `cargo build` produces the bin under `target/debug/irserve(.exe)`. `cargo test --test oracle` builds the bin and shells out to `node tools/probe/run.mjs --all --target=irserve --snapshot=verify`; Node 18+ on PATH is a prerequisite (already needed for the reference oracle bundle above).
 
-## Try IrServe (strict L0)
+## Try IrServe (post-6a)
 
-The current binary covers eight SRVs (`SRV-CLI-001/002/007/019`, `SRV-FILE-001/002/004/005`); every other capability is deferred per `D-008` and is not implemented yet (see `docs/reference/serve/decisions.md`).
+The current binary covers the Stage-5b strict-L0 SRVs (`SRV-CLI-001/002/007/019`, `SRV-FILE-001/002/004/005`) plus the Stage-6a `serve.json` loader surface (`SRV-CFG-001`, `SRV-CFG-002`, `SRV-CLI-009`). Per-field behavior beyond `public` (cleanUrls, redirects, rewrites, headers, listings, etc.) is parsed into the typed configuration but not yet observable; remaining capabilities are deferred per `D-008`/`D-009` (see `docs/reference/serve/decisions.md`).
 
 ```bash
 mkdir -p _tmp && echo hello > _tmp/index.html
@@ -156,8 +156,8 @@ curl -i -X POST http://127.0.0.1:3010/                               # 405
 ./target/release/irserve --no-port-switching   # exit non-zero, deferred flag
 ```
 
-What this slice does NOT do yet (all deferred to L1/L2 in Stage 6):
-`cleanUrls` and `trailingSlash`, `serve.json`, configured redirects/rewrites, directory listing, custom `404.html`, `--single` SPA fallback, `tcp://host:port` URI form, and `ETag`/`Last-Modified`/conditional GETs.
+What is NOT yet observable (still deferred to the remaining Stage 6 sub-stages):
+`cleanUrls` and `trailingSlash` (6b/6c), configured redirects (6d) / rewrites and `--single` SPA fallback (6e), custom `<status>.html` and the full L2 security surface (6f), directory listing (6g), `tcp://host:port` URI form and the rest of the CLI fill-in (6h), and `ETag`/`Last-Modified`/conditional GETs (Stage 7+).
 
 ## References
 
