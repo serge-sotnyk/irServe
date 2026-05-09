@@ -29,6 +29,12 @@ This change wires:
   5. Mirrors the reference's `decodedPath` invariant (`index.js:561`)
   so encoded `%2F%2F` decodes to `//` and participates in the
   collapse semantics identically to literal `//`.
+- **`Location` header re-encoded with `encodeURI` semantics** before
+  the 301 leaves the dispatcher. Mirrors
+  `serve-handler/src/index.js:586` (`Location: encodeURI(redirect.target)`)
+  so SPACEs become `%20`, non-ASCII bytes become percent-escaped
+  UTF-8, and reserved chars (`?`, `=`, `&`, `:`, `@`, `+`, `$`, `,`,
+  `#`, `/`, `;`) pass through.
 
 Two new probes (`trailingslash-add`, `trailingslash-strip`) isolate
 the trailingSlash redirect from `cleanUrls` (which defaults to on in

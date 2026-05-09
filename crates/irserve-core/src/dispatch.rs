@@ -3,7 +3,7 @@ use std::path::Path;
 use axum::body::Body;
 use axum::http::header::{HeaderValue, CONTENT_TYPE, LOCATION};
 use axum::http::{Method, Request, Response, StatusCode};
-use percent_encoding::percent_decode_str;
+use percent_encoding::{percent_decode_str, utf8_percent_encode, AsciiSet, CONTROLS};
 
 use crate::config::ServeConfig;
 use crate::mime::mime_for;
@@ -66,14 +66,96 @@ pub async fn dispatch(
     }
 }
 
+/// Mirrors JavaScript's `encodeURI` (the function the reference applies
+/// to redirect targets at `serve-handler/src/index.js:586`):
+///
+/// * Unreserved (kept as-is): `A-Z a-z 0-9 - _ . ! ~ * ' ( )`
+/// * Reserved (kept as-is): `; , / ? : @ & = + $ #`
+/// * Encoded: SPACE `"` `%` `<` `>` `\` `^` `` ` `` `{` `|` `}` `[` `]`
+///   + control chars + every non-ASCII byte (each UTF-8 byte → `%xx`).
+const ENCODE_URI_SET: &AsciiSet = &CONTROLS
+    .add(b' ')
+    .add(b'"')
+    .add(b'%')
+    .add(b'<')
+    .add(b'>')
+    .add(b'\\')
+    .add(b'^')
+    .add(b'`')
+    .add(b'{')
+    .add(b'|')
+    .add(b'}')
+    .add(b'[')
+    .add(b']');
+
+pub(crate) fn encode_uri_target(target: &str) -> String {
+    utf8_percent_encode(target, ENCODE_URI_SET).to_string()
+}
+
 fn redirect_301(target: &str) -> Response<Body> {
-    let location = HeaderValue::from_str(target)
+    let encoded = encode_uri_target(target);
+    let location = HeaderValue::from_str(&encoded)
         .unwrap_or_else(|_| HeaderValue::from_static("/"));
     Response::builder()
         .status(StatusCode::MOVED_PERMANENTLY)
         .header(LOCATION, location)
         .body(Body::empty())
         .expect("301 response should always build")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::encode_uri_target;
+
+    #[test]
+    fn encode_keeps_safe_ascii_path() {
+        assert_eq!(encode_uri_target("/about/"), "/about/");
+        assert_eq!(encode_uri_target("/api/v1/users"), "/api/v1/users");
+    }
+
+    #[test]
+    fn encode_preserves_query_and_reserved_chars() {
+        // encodeURI keeps ? = & : @ + $ , # / ; intact.
+        assert_eq!(
+            encode_uri_target("/path?a=1&b=2"),
+            "/path?a=1&b=2"
+        );
+        assert_eq!(
+            encode_uri_target("/with:colons@and+pluses,$dollars#frag"),
+            "/with:colons@and+pluses,$dollars#frag"
+        );
+    }
+
+    #[test]
+    fn encode_space_to_percent_20() {
+        assert_eq!(encode_uri_target("/foo bar/"), "/foo%20bar/");
+    }
+
+    #[test]
+    fn encode_non_ascii_to_utf8_bytes() {
+        // 'é' is U+00E9 → UTF-8 bytes C3 A9.
+        assert_eq!(encode_uri_target("/café/"), "/caf%C3%A9/");
+        // 'д' is U+0434 → UTF-8 bytes D0 B4.
+        assert_eq!(encode_uri_target("/привет"), "/%D0%BF%D1%80%D0%B8%D0%B2%D0%B5%D1%82");
+    }
+
+    #[test]
+    fn encode_literal_percent_becomes_percent_25() {
+        // A literal `%` left over after decode (e.g. `%25` in the input
+        // path) must be re-encoded to `%25` to match `encodeURI`.
+        assert_eq!(encode_uri_target("/100%off/"), "/100%25off/");
+    }
+
+    #[test]
+    fn encode_brackets_and_quotes() {
+        assert_eq!(encode_uri_target("/[x]/\"y\""), "/%5Bx%5D/%22y%22");
+    }
+
+    #[test]
+    fn encode_control_chars() {
+        // Newline (0x0A) is a control character.
+        assert_eq!(encode_uri_target("/a\nb"), "/a%0Ab");
+    }
 }
 
 fn file_response(path: &Path, bytes: Vec<u8>) -> Response<Body> {

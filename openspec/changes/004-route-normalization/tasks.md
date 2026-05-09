@@ -142,3 +142,50 @@
   passed / 26 skipped / 0 failed); `node tools/probe/run.mjs --all
   --target=reference --snapshot=verify` (40/40); `npx -y
   @fission-ai/openspec@latest validate --all --strict` (12/12)
+
+## 6. Round 2 fixes (Codex review)
+
+- [x] 6.1 `crates/irserve-core/src/dispatch.rs` — add
+  `ENCODE_URI_SET: &AsciiSet` (CONTROLS + SPACE, `"`, `%`, `<`,
+  `>`, `\`, `^`, `` ` ``, `{`, `|`, `}`, `[`, `]`) and
+  `pub(crate) fn encode_uri_target(target: &str) -> String` built
+  on `percent_encoding::utf8_percent_encode`; call it from
+  `redirect_301` before constructing the `HeaderValue` (P2-1 fix,
+  mirrors `serve-handler/src/index.js:586` `encodeURI`)
+- [x] 6.2 `crates/irserve-core/src/dispatch.rs` — `#[cfg(test)]
+  mod tests` with 7 unit tests for `encode_uri_target`: safe-set
+  passthrough, query/reserved chars (`?`, `=`, `&`, `:`, `@`, `+`,
+  `$`, `,`, `#`), SPACE → `%20`, multi-byte UTF-8 (`café`,
+  Cyrillic), literal `%` → `%25`, brackets/quotes, control chars
+- [x] 6.3 `tools/probe/cases/trailingslash-add.json` — add anchors
+  `space_in_path_reencoded_in_location` (`/foo%20bar` → 301
+  `/foo%20bar/`, ORC-075) and `non_ascii_in_path_reencoded_in_location`
+  (`/caf%C3%A9` → 301 `/caf%C3%A9/`, ORC-076); extend
+  `runner.l0.clean` and `contentLengthMayDiffer`
+- [x] 6.4 Snapshots — re-record via `--snapshot=update
+  --target=reference` for `trailingslash-add`
+- [x] 6.5 `docs/reference/serve/oracle-matrix.md` — two new rows
+  for ORC-075 / ORC-076
+- [x] 6.6 `docs/reference/serve/inventory.md` — extend SRV-ROUT-003
+  oracle list with ORC-072, ORC-073, ORC-075, ORC-076 (catches up
+  to round 1's additions plus the new encoding ORCs)
+- [x] 6.7 `docs/reference/serve/decisions.md` — amend D-010 in
+  place (P2-2 fix): rewrite Reason and Impact to reflect the
+  as-implemented wiring (decode at entry; phase 5 on uncollapsed
+  decoded path; multi-slash override; `encodeURI` re-encoding for
+  `Location`); update affected ORC list
+- [x] 6.8 `openspec/changes/004-route-normalization/{proposal,
+  design}.md` — document the `Location` encoding step alongside
+  the existing decode and override descriptions
+- [x] 6.9 `openspec/changes/004-route-normalization/specs/routing/
+  spec.md` — extend SRV-ROUT-003 MODIFIED requirement: add
+  `Location` re-encoding sentence to the requirement text, append
+  ORC-075 / ORC-076 to `Evidence:`, extend `Implementation:` to
+  cover `encode_uri_target`, add two new Scenarios (SPACE re-
+  encoded; non-ASCII re-encoded)
+- [x] 6.10 Verify: `cargo test -p irserve-core` 56/56 (was 49/49 +
+  7 new encode tests); `cargo test --test oracle` (40 cases, 14
+  passed / 26 skipped / 0 failed); `node tools/probe/run.mjs --all
+  --target=reference --snapshot=verify` (40/40); `npx -y
+  @fission-ai/openspec@latest validate --all --strict` (12/12);
+  `cargo build --release` clean

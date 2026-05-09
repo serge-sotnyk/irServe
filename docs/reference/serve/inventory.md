@@ -891,8 +891,8 @@ Reference source:
 - README: yes — serve-handler README, `trailingSlash (Boolean)` section.
 - serve-handler source: `src/index.js:145-168`.
 - Existing test: `set 'trailingSlash' config property to 'true'` in `test/integration.test.js`.
-- Probe: `tools/probe/cases/prec-cleanurls-trailing.json` (compose with cleanUrls); `tools/probe/cases/trailingslash-add.json` (pure, `cleanUrls: false`).
-- Oracle test: ORC-015, ORC-016, ORC-068, ORC-069 (snapshots in tools/probe/snapshots/).
+- Probe: `tools/probe/cases/prec-cleanurls-trailing.json` (compose with cleanUrls); `tools/probe/cases/trailingslash-add.json` (pure, `cleanUrls: false`; also covers multi-slash override + `Location` re-encoding).
+- Oracle test: ORC-015, ORC-016, ORC-068, ORC-069, ORC-072, ORC-073, ORC-075, ORC-076 (snapshots in tools/probe/snapshots/).
 
 Requirement (draft):
 With `trailingSlash: true`, a request `/path` (no trailing slash, no extension, not a dotfile) is redirected with 301 to `/path/`.

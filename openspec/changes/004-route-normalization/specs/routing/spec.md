@@ -7,7 +7,11 @@
 The server SHALL redirect (status 301) any extensionless non-dotfile
 request without a trailing slash to the slash-appended form when
 `trailingSlash` is `true`. Dotfiles and files with extensions SHALL
-be exempt from the trailing-slash insertion.
+be exempt from the trailing-slash insertion. The redirect's
+`Location` header SHALL be `encodeURI`-encoded — characters in the
+unreserved (`A-Z a-z 0-9 - _ . ! ~ * ' ( )`) and reserved (`; , / ?
+: @ & = + $ #`) sets pass through, all other characters (including
+SPACE, control chars, and non-ASCII bytes) SHALL be percent-encoded.
 
 Evidence: SRV-ROUT-003 (status: verified, level: L2); oracle: ORC-015
 (`cases/prec-cleanurls-trailing.json#about_no_slash`, compose with
@@ -15,7 +19,11 @@ cleanUrls), ORC-016 (`cases/prec-cleanurls-trailing.json#about_with_slash`,
 compose with cleanUrls), ORC-068 (`cases/trailingslash-add.json#about_no_slash_redirects`,
 pure trailingSlash add with `cleanUrls: false`), ORC-069
 (`cases/trailingslash-add.json#txt_with_extension_no_redirect`,
-extension-exempt anti-redirect anchor).
+extension-exempt anti-redirect anchor), ORC-075
+(`cases/trailingslash-add.json#space_in_path_reencoded_in_location`,
+SPACE in path re-encoded to `%20` in `Location`), ORC-076
+(`cases/trailingslash-add.json#non_ascii_in_path_reencoded_in_location`,
+non-ASCII bytes re-encoded as percent-escaped UTF-8 in `Location`).
 
 Implementation: `crates/irserve-core/src/trailing_slash.rs::
 compute_trailing_slash_redirect` mirrors `serve-handler/src/index.js:
@@ -23,7 +31,11 @@ compute_trailing_slash_redirect` mirrors `serve-handler/src/index.js:
 uses `basename.starts_with('.')`; the extension guard uses "any non-
 leading dot in the basename" to match Node's `path.parse(p).ext`
 shape (`/foo.tar.gz` is exempt; `/.bashrc.bak` is exempt;
-`/.htaccess` is exempt).
+`/.htaccess` is exempt). The `Location` value is computed by
+`crates/irserve-core/src/dispatch.rs::encode_uri_target`, an
+`encodeURI`-equivalent built on `percent_encoding::utf8_percent_encode`
+with a custom `AsciiSet` matching JavaScript's `encodeURI` reserved /
+unreserved sets (mirrors `serve-handler/src/index.js:586`).
 
 #### Scenario: Trailing slash added
 
@@ -31,6 +43,20 @@ shape (`/foo.tar.gz` is exempt; `/.bashrc.bak` is exempt;
 - WHEN `GET /about`
 - THEN status is 301
 - AND `Location: /about/`
+
+#### Scenario: SPACE in path is re-encoded in Location
+
+- GIVEN `trailingSlash: true`, `cleanUrls: false`
+- WHEN `GET /foo%20bar`
+- THEN status is 301
+- AND `Location: /foo%20bar/` (decoded SPACE re-encoded to `%20`)
+
+#### Scenario: Non-ASCII bytes are re-encoded in Location
+
+- GIVEN `trailingSlash: true`, `cleanUrls: false`
+- WHEN `GET /caf%C3%A9`
+- THEN status is 301
+- AND `Location: /caf%C3%A9/` (decoded non-ASCII re-encoded as percent-escaped UTF-8)
 
 ### Requirement: `trailingSlash: false` strips a trailing slash via 301
 

@@ -144,11 +144,20 @@ signature churn.
 `serve_config: ServeConfig`. The `handler` extracts both via `&state.
 {root, serve_config}` and passes them positionally to `dispatch`.
 
-## 6. `redirect_301` helper
+## 6. `redirect_301` helper and `encode_uri_target`
 
 ```rust
+const ENCODE_URI_SET: &AsciiSet = &CONTROLS
+    .add(b' ').add(b'"').add(b'%').add(b'<').add(b'>').add(b'\\')
+    .add(b'^').add(b'`').add(b'{').add(b'|').add(b'}').add(b'[').add(b']');
+
+pub(crate) fn encode_uri_target(target: &str) -> String {
+    utf8_percent_encode(target, ENCODE_URI_SET).to_string()
+}
+
 fn redirect_301(target: &str) -> Response<Body> {
-    let location = HeaderValue::from_str(target)
+    let encoded = encode_uri_target(target);
+    let location = HeaderValue::from_str(&encoded)
         .unwrap_or_else(|_| HeaderValue::from_static("/"));
     Response::builder()
         .status(StatusCode::MOVED_PERMANENTLY)
@@ -158,10 +167,30 @@ fn redirect_301(target: &str) -> Response<Body> {
 }
 ```
 
+`encode_uri_target` mirrors JavaScript's `encodeURI` (the function the
+reference applies to redirect targets at
+`serve-handler/src/index.js:586`). Without this re-encoding, a
+request like `GET /foo%20bar` would decode to `/foo bar` at
+dispatcher entry, the trailingSlash add branch would compute target
+`/foo bar/`, and `Location` would carry the literal SPACE — diverging
+from the reference's `/foo%20bar/`. Likewise non-ASCII bytes
+(`/caf%C3%A9` → `/café` after decode) would emit raw UTF-8 in the
+header instead of the reference's percent-escaped form.
+
+The encode set is built additively from `percent_encoding::CONTROLS`:
+SPACE, `"`, `%`, `<`, `>`, `\`, `^`, `` ` ``, `{`, `|`, `}`, `[`,
+`]`. Reserved chars used in URLs (`?`, `=`, `&`, `:`, `@`, `+`, `$`,
+`,`, `#`, `/`, `;`) are intentionally NOT in the set — `encodeURI`
+preserves them. `utf8_percent_encode` always percent-encodes non-ASCII
+bytes regardless of the set, which matches `encodeURI`'s UTF-8
+behavior. 7 unit tests in `dispatch.rs` cover safe-set passthrough,
+query/reserved chars, SPACE, multi-byte UTF-8, literal `%` →
+`%25`, brackets/quotes, control chars.
+
 The fallback to `"/"` on `HeaderValue::from_str` failure is
-defensive: target paths are produced from already-normalized URI
-paths plus `/` append, so they should always be valid header values.
-The fallback exists only to keep the function infallible.
+defensive: targets pass through `encode_uri_target` first, so the
+result is guaranteed to be valid header bytes. The fallback exists
+only to keep the function infallible.
 
 axum/hyper auto-emits `content-length: 0` on the empty body; the
 reference (Node http) omits the header. We do not strip it from the
