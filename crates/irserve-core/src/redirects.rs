@@ -95,52 +95,120 @@ struct DestTemplate {
     fragments: Vec<DestFrag>,
 }
 
-/// Glob-based minimatch fallback for `*`-bearing source patterns.
-/// `globset` is used for the underlying compiled match, but additional
-/// strict-mode validation runs on top to mirror minimatch's defaults
-/// — specifically `dot: false`, where a `*` segment does not match a
-/// path segment beginning with `.`. globset matches dotfiles by
-/// default, so we post-validate.
+/// Per-segment minimatch fallback for `*`-bearing source patterns.
+/// Replaces a single globset over the full pattern with a vector of
+/// per-segment matchers, so that minimatch's `dot: false` default
+/// can be enforced precisely: a path segment beginning with `.`
+/// matches only when the corresponding pattern segment literally
+/// begins with `.`. globset's `*` matches dotfiles, so we cannot
+/// rely on a single full-pattern globset match alone.
+///
+/// Codex review round 5 P1: the round-4 implementation gated dot
+/// rejection on "pattern segment contains `*`" and skipped all
+/// validation for `**`-bearing patterns. Both were divergent —
+/// `[.]y` and other magic-but-not-`*` patterns also obey
+/// `dot: false`, and `**` does too. The fix walks pattern segments
+/// classified as `Literal | Wildcard | DoubleStar` and applies the
+/// dot rule per minimatch's actual semantics.
 #[derive(Debug)]
 struct GlobFallback {
-    matcher: GlobMatcher,
-    /// Source pattern split on `/`, leading-empty stripped. Used for
-    /// segment-by-segment alignment checks at match time.
-    pattern_segments: Vec<String>,
-    /// True when any pattern segment is exactly `**` (multi-segment
-    /// wildcard). When set, the segment-count alignment check is
-    /// skipped — `**`-bearing sources are usually covered by the
-    /// regex matcher anyway, and minimatch's `**` semantics aren't
-    /// fully ported here.
-    has_doublestar: bool,
+    segments: Vec<PatSeg>,
+}
+
+#[derive(Debug)]
+enum PatSeg {
+    /// Pure literal (no glob meta-characters).
+    Literal(String),
+    /// Single-segment glob with at least one of `*`, `?`, `[`, `{`.
+    /// `starts_with_dot` is the literal-leading-dot flag — true when
+    /// the user-typed pattern segment starts with `.` (e.g. `.*`,
+    /// `.?html`, `.foo*`), false for magic-leading segments like
+    /// `*foo`, `[.]y`, `?abc`. Mirrors minimatch's
+    /// "leading dot will not be matched by GLOB unless the pattern
+    /// itself starts with a literal dot".
+    Wildcard {
+        matcher: GlobMatcher,
+        starts_with_dot: bool,
+    },
+    /// Globstar — matches zero or more path segments, with each
+    /// expanded segment subject to the same `dot: false` rule.
+    DoubleStar,
 }
 
 impl GlobFallback {
-    /// Returns true when the path matches the underlying globset AND
-    /// passes minimatch-strict checks (segment count, leading-`.`
-    /// rejection on `*`-aligned segments).
     fn matches_strict(&self, path: &str) -> bool {
-        if !self.matcher.is_match(path) {
-            return false;
-        }
-        if self.has_doublestar {
-            return true;
-        }
         let path_segments: Vec<&str> =
             path.split('/').filter(|s| !s.is_empty()).collect();
-        if path_segments.len() != self.pattern_segments.len() {
-            return false;
-        }
-        for (pat, ps) in self.pattern_segments.iter().zip(path_segments.iter()) {
-            // minimatch with `dot: false` (the default): a `*`-bearing
-            // pattern segment does NOT match a path segment beginning
-            // with `.`. globset matches dotfiles, so we filter here.
-            if pat.contains('*') && ps.starts_with('.') {
-                return false;
+        match_segments(&self.segments, &path_segments)
+    }
+}
+
+fn match_segments(pat: &[PatSeg], path: &[&str]) -> bool {
+    match pat.first() {
+        None => path.is_empty(),
+        Some(PatSeg::Literal(lit)) => match path.first() {
+            Some(seg) if seg == lit => match_segments(&pat[1..], &path[1..]),
+            _ => false,
+        },
+        Some(PatSeg::Wildcard {
+            matcher,
+            starts_with_dot,
+        }) => match path.first() {
+            None => false,
+            Some(seg) => {
+                // minimatch `dot: false`: a path segment that begins
+                // with `.` is NOT matched by a glob pattern unless
+                // the pattern segment itself begins with a literal
+                // `.`. `[.]y` first char is `[` (magic), so it does
+                // NOT permit leading-dot matches even though the
+                // bracket class contains `.`.
+                if seg.starts_with('.') && !starts_with_dot {
+                    return false;
+                }
+                if matcher.is_match(seg) {
+                    match_segments(&pat[1..], &path[1..])
+                } else {
+                    false
+                }
+            }
+        },
+        Some(PatSeg::DoubleStar) => {
+            // `**` matches zero or more path segments. With
+            // `dot: false`, none of the consumed segments may begin
+            // with `.`. Try increasing skip counts; abort once a dot
+            // segment would have to be consumed.
+            let mut skip = 0usize;
+            loop {
+                if match_segments(&pat[1..], &path[skip..]) {
+                    return true;
+                }
+                if skip == path.len() {
+                    return false;
+                }
+                if path[skip].starts_with('.') {
+                    return false;
+                }
+                skip += 1;
             }
         }
-        true
     }
+}
+
+fn classify_pattern_segment(seg: &str) -> Result<PatSeg, globset::Error> {
+    if seg == "**" {
+        return Ok(PatSeg::DoubleStar);
+    }
+    let has_glob = seg
+        .chars()
+        .any(|c| matches!(c, '*' | '?' | '[' | '{'));
+    if !has_glob {
+        return Ok(PatSeg::Literal(seg.to_string()));
+    }
+    let glob = GlobBuilder::new(seg).literal_separator(true).build()?;
+    Ok(PatSeg::Wildcard {
+        matcher: glob.compile_matcher(),
+        starts_with_dot: seg.starts_with('.'),
+    })
 }
 
 #[derive(Debug)]
@@ -260,18 +328,13 @@ fn compile_one(rule: &RedirectRule) -> Result<RedirectRuleCompiled, CompileError
         // `redirects-pattern-with-multistar-fallback.json` probe
         // disproved.
         let glob_fallback = if body.contains('*') {
-            let glob = GlobBuilder::new(&body).literal_separator(true).build()?;
-            let pattern_segments: Vec<String> = body
+            let segments: Result<Vec<PatSeg>, globset::Error> = body
                 .split('/')
                 .filter(|s| !s.is_empty())
-                .map(|s| s.to_string())
+                .map(classify_pattern_segment)
                 .collect();
-            let has_doublestar =
-                pattern_segments.iter().any(|s| s == "**");
             Some(GlobFallback {
-                matcher: glob.compile_matcher(),
-                pattern_segments,
-                has_doublestar,
+                segments: segments?,
             })
         } else {
             None
@@ -853,6 +916,63 @@ mod tests {
         let rules = compile(&[rule("/dir/**", "/elsewhere", None)]);
         assert!(compute_configured_redirects("/dir/page", &rules).is_some());
         assert!(compute_configured_redirects("/dir/sub/page", &rules).is_some());
+    }
+
+    #[test]
+    fn dot_pattern_segment_admits_leading_dot_path() {
+        // Codex review round 5 P1: minimatch's `dot: false` rejects
+        // leading-dot path segments only when the corresponding
+        // pattern segment doesn't itself begin with a literal `.`.
+        // For source `/a/.*/b/*`, the second pattern segment is `.*`
+        // (literal `.` then `*`), so a path segment `.x` IS allowed.
+        let rules = compile(&[rule("/a/.*/b/*", "/hit", None)]);
+        let (target, _) = compute_configured_redirects("/a/.x/b/y", &rules)
+            .expect("`.*` pattern should permit a `.x` segment");
+        assert_eq!(target, "/hit");
+        // Sanity: a non-dot path segment should NOT match `.*` (its
+        // first char must be `.`).
+        assert!(compute_configured_redirects("/a/x/b/y", &rules).is_none());
+    }
+
+    #[test]
+    fn bracket_pattern_segment_does_not_admit_leading_dot() {
+        // Codex review round 5 P1: a pattern segment like `[.]y`
+        // begins with `[` (a magic character), NOT with a literal
+        // `.`, so minimatch's `dot: false` rejects path segments
+        // that begin with `.` even though the bracket class
+        // contains `.`. This is the rule "the pattern segment must
+        // start with a LITERAL dot to permit a leading-dot path".
+        let rules = compile(&[rule("/a/*/b/[.]y", "/hit", None)]);
+        assert!(compute_configured_redirects("/a/x/b/.y", &rules).is_none());
+        // Sanity: a non-dot bracket pattern still matches its
+        // single-char class non-leading-dot positions correctly.
+        // The pattern `[.]y` literal-match on a segment `.y` is
+        // refused per `dot: false`, but on `.` alone it would be
+        // refused too — and `y` alone doesn't have the `.` so it
+        // can't match `[.]y`. The `[.]y` match space is therefore
+        // empty under `dot: false`; this rule effectively never
+        // fires unless `dot: true` is set (we mirror reference's
+        // default).
+    }
+
+    #[test]
+    fn doublestar_segment_obeys_dot_rule() {
+        // Codex review round 5 P1: minimatch's `**` (globstar) also
+        // obeys `dot: false` — a `**` cannot expand to a sequence
+        // containing a `.`-segment unless `dot: true` is set. The
+        // round-4 implementation used `has_doublestar` as a "skip
+        // strict validation" escape hatch, which over-matched
+        // dotfiles. The round-5 recursive matcher walks `**`
+        // expansions explicitly and aborts when a dot segment
+        // would have to be consumed.
+        let rules = compile(&[rule("/a/**/b/*", "/hit", None)]);
+        // Non-dot expansion via `**` works.
+        assert!(compute_configured_redirects("/a/x/b/y", &rules).is_some());
+        assert!(compute_configured_redirects("/a/x/y/b/z", &rules).is_some());
+        // Dot segment under `**` blocks the match.
+        assert!(compute_configured_redirects("/a/.x/b/y", &rules).is_none());
+        // Dot segment in trailing `*` slot also blocks.
+        assert!(compute_configured_redirects("/a/x/b/.y", &rules).is_none());
     }
 
     #[test]

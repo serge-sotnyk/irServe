@@ -375,6 +375,24 @@ plan:
    `redirects-pattern-with-multistar-fallback.json#literal_colon_id_matches_via_minimatch`
    (ORC-100, `:name`+`*` literal-`:name` minimatch hit).
 
+4. **Generalized dot-rejection (Codex round 5 P1).** The round-4
+   `matches_strict` used "pattern segment contains `*`" as its
+   dot-rejection trigger and skipped all validation when the
+   pattern contained `**`. The actual minimatch rule: a path
+   segment beginning with `.` matches only when the pattern
+   segment ITSELF begins with a literal `.`, regardless of glob
+   meta in the rest of the segment. Decision: replace the
+   `Option<GlobMatcher>` glob_fallback with a per-segment
+   `Vec<PatSeg>` and a recursive `match_segments` walker.
+   `PatSeg` is `Literal | Wildcard{matcher, starts_with_dot} |
+   DoubleStar`; `Wildcard.starts_with_dot` flags pattern
+   segments whose first character is literal `.` (so `.*`
+   admits dotfiles, `*` and `[.]y` do not). `DoubleStar`
+   recurses with explicit dot-aborting (no segment consumed by
+   `**` may begin with `.`). Pinned by ORC-101 (`.*` admits
+   leading-dot), ORC-102 (`[.]y` doesn't), ORC-103 (`**`
+   doesn't).
+
 ## 9. Hard stops
 
 - `third_party/` — read-only.

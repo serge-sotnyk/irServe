@@ -414,3 +414,57 @@
   21 skipped, 0 failed; `node tools/probe/run.mjs --all
   --target=reference --snapshot=verify` 49/49 (was 48); `npx -y
   @fission-ai/openspec@latest validate --all --strict` — 14/14.
+
+## 8. Codex review round 5 (P1 generalized dot-rejection)
+
+- [x] 8.1 **P1 — generalized minimatch `dot: false`.** Round 4's
+  `matches_strict` rejected dot path segments only when the
+  pattern segment contained `*`, AND skipped all validation when
+  any pattern segment was exactly `**` (the `has_doublestar`
+  short-circuit). Both heuristics diverged from minimatch:
+  - A pattern segment beginning with literal `.` (e.g. `.*`,
+    `.foo*`) DOES admit a leading-dot path segment, so the round-4
+    rule was too strict for `dot/.*/b/*` patterns.
+  - A pattern segment whose magic char is `?`/`[`/`{` instead of
+    `*` (e.g. `[.]y`) ALSO rejects leading-dot paths, so the
+    round-4 rule was too loose by gating on `*`-presence.
+  - `**` (globstar) follows the same rule per minimatch's default
+    — it cannot expand to a sequence containing a leading-dot
+    segment. The round-4 escape hatch over-matched.
+- [x] 8.2 Replaced the bare `Option<GlobMatcher>` glob_fallback
+  with a per-segment `Vec<PatSeg>` plus a recursive
+  `match_segments` walker. `PatSeg` variants:
+  - `Literal(String)` — no glob meta.
+  - `Wildcard { matcher: GlobMatcher, starts_with_dot: bool }` —
+    has at least one of `*`/`?`/`[`/`{`. `starts_with_dot` is
+    `seg.starts_with('.')`, the literal-leading-dot flag.
+  - `DoubleStar` — segment is exactly `**`.
+  `match_segments` is a textbook minimatch-style recursive
+  descent: `Literal` requires equality; `Wildcard` checks the
+  dot rule then runs globset over the single segment;
+  `DoubleStar` tries successive skip counts, aborting once a
+  consumed segment would begin with `.`.
+- [x] 8.3 New unit tests in `redirects.rs`:
+  `dot_pattern_segment_admits_leading_dot_path`,
+  `bracket_pattern_segment_does_not_admit_leading_dot`,
+  `doublestar_segment_obeys_dot_rule`. The round-4
+  `multi_star_source_rejects_dot_segments` test continues to
+  pass under the new matcher.
+- [x] 8.4 `tools/probe/cases/redirects-glob-source.json`
+  extended with three new anchors covering all three round-5
+  corners (`dot_pattern_segment_admits_leading_dot`,
+  `bracket_pattern_segment_rejects_leading_dot`,
+  `doublestar_rejects_dot_in_expansion`). Snapshot regenerated.
+  ORC-101, ORC-102, ORC-103 added to oracle-matrix.
+- [x] 8.5 D-012 in `decisions.md` extended; `design.md` §8
+  stop-the-line item 4 added; `inventory.md` SRV-RDIR-001 oracle
+  list extended through ORC-103; the
+  `006-configured-redirects` delta `specs/redirects/spec.md`
+  SRV-RDIR-001 oracle list also extended.
+- [x] 8.6 Verify: `cargo test -p irserve-core redirects` 64/64
+  green (was 61); `cargo test --test oracle` 28 passed (no
+  case-count change — `redirects-glob-source` gained 3 anchors
+  but stayed one case), 21 skipped, 0 failed; `node
+  tools/probe/run.mjs --all --target=reference --snapshot=verify`
+  49/49; `npx -y @fission-ai/openspec@latest validate --all
+  --strict` — 14/14.
