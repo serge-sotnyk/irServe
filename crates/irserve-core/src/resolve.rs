@@ -1,5 +1,6 @@
 use std::path::{Path, PathBuf};
 
+#[derive(Debug)]
 pub enum ResolveOutcome {
     File(PathBuf),
     Index(PathBuf),

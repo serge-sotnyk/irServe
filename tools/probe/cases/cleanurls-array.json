@@ -12,8 +12,14 @@
   },
   "runner": {
     "l0": {
-      "clean": ["in_scope_redirect", "out_of_scope_html_direct"],
+      "clean": [
+        "in_scope_redirect",
+        "in_scope_extensionless",
+        "out_of_scope_html_direct",
+        "out_of_scope_extensionless_miss"
+      ],
       "divergent": [],
+      "bodyMayDiffer": ["out_of_scope_extensionless_miss"],
       "contentLengthMayDiffer": ["in_scope_redirect"]
     }
   },

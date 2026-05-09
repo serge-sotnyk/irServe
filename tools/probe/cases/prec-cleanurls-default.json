@@ -9,7 +9,7 @@
   },
   "runner": {
     "l0": {
-      "clean": ["about_html"],
+      "clean": ["about_html", "about_no_slash", "about_with_slash"],
       "divergent": [],
       "contentLengthMayDiffer": ["about_html"]
     }

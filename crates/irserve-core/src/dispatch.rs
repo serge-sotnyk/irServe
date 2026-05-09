@@ -5,7 +5,9 @@ use axum::http::header::{HeaderValue, CONTENT_TYPE, LOCATION};
 use axum::http::{Method, Request, Response, StatusCode};
 use percent_encoding::{percent_decode_str, utf8_percent_encode, AsciiSet, CONTROLS};
 
-use crate::clean_urls::{compute_clean_urls_redirect, CleanUrlsView};
+use crate::clean_urls::{
+    compute_clean_urls_redirect, try_clean_urls_resolve, CleanUrlsView,
+};
 use crate::config::ServeConfig;
 use crate::mime::mime_for;
 use crate::normalize::collapse_slashes;
@@ -62,10 +64,41 @@ pub async fn dispatch(
 
     // Phase 6: configured redirects (Stage 6d).
     // Phase 7: rewrites + --single (Stage 6e).
-    // Phase 8: cleanUrls resolution (Stage 6c).
 
-    // Phases 9–13: resolve → MIME → 404.
-    let outcome = resolve(&url_path, root).await;
+    // Phase 8: cleanUrls resolution (SRV-ROUT-002). Mirrors
+    // `serve-handler/src/index.js:608-642` precisely:
+    //
+    //   * For paths WITH an extension, the reference does a pre-stat
+    //     first (`index.js:608-616`) and only falls into `findRelated`
+    //     when that pre-stat misses. This avoids `findRelated`
+    //     shadowing a real `/foo.css` file via `/foo.css.html`.
+    //   * For paths WITHOUT an extension, no pre-stat — `findRelated`
+    //     runs first, so an existing `<P>.html` is preferred over a
+    //     bare extensionless file at `<P>` (matches the SRV-ROUT-006
+    //     scenario "If P has no extension … the original path SHALL be
+    //     attempted only at stage 6").
+    //
+    // We map this onto our existing `resolve()` (which combines
+    // pre-stat + directory index handling) by gating the phase-8
+    // attempt: extensionless paths try phase 8 first; has-extension
+    // paths try phase 8 only if `resolve()` reported NotFound.
+    let url_has_extension = url_path_has_extension(&url_path);
+
+    let outcome = if !url_has_extension {
+        // Extensionless: phase 8 first, then phase 9 fallback.
+        match try_clean_urls_resolve(&url_path, root, clean_urls_view).await {
+            Some(o) => o,
+            None => resolve(&url_path, root).await,
+        }
+    } else {
+        // Has-ext: phase 9 first; if NotFound, fall to phase 8.
+        match resolve(&url_path, root).await {
+            ResolveOutcome::NotFound => try_clean_urls_resolve(&url_path, root, clean_urls_view)
+                .await
+                .unwrap_or(ResolveOutcome::NotFound),
+            other => other,
+        }
+    };
 
     match outcome {
         ResolveOutcome::File(p) | ResolveOutcome::Index(p) => match tokio::fs::read(&p).await {
@@ -74,6 +107,21 @@ pub async fn dispatch(
         },
         ResolveOutcome::NotFound | ResolveOutcome::EscapedRoot => not_found_response(req.headers()),
     }
+}
+
+/// Mirror of Node's `path.extname(p)` for our URL-path use case: an
+/// extension is a non-empty `.xxx` substring after the last `/` that
+/// is NOT the leading character of the basename. Trailing-slash paths
+/// (`/foo.txt/`) and dotfiles (`/.bashrc`) have no extension; nested
+/// dotfiles with extensions (`/.bashrc.bak`) do.
+fn url_path_has_extension(path: &str) -> bool {
+    let basename = match path.rsplit('/').next() {
+        Some(b) if !b.is_empty() => b,
+        _ => return false, // empty (root or trailing-slash path)
+    };
+    // A leading-dot basename whose ONLY dot is the leading one has no
+    // extension. Skip char index 0 when scanning for an extension dot.
+    basename.char_indices().skip(1).any(|(_, ch)| ch == '.')
 }
 
 /// Mirrors JavaScript's `encodeURI` (the function the reference applies

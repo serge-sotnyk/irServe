@@ -9,9 +9,12 @@
 //! - `slasher` (`./glob-slash.js`) ensures a leading `/` on the source
 //!   pattern before `minimatch` runs.
 
+use std::path::Path;
+
 use globset::{Glob, GlobSet, GlobSetBuilder};
 
 use crate::config::BoolOrGlobs;
+use crate::resolve::ResolveOutcome;
 
 /// Precompiled view of `serve.json#cleanUrls`. Built once at server
 /// start so the dispatcher can do per-request scope checks without
@@ -132,6 +135,83 @@ fn strip_html_or_index_suffix(path: &str) -> Option<&str> {
         return Some(rest);
     }
     None
+}
+
+/// Phase 8: extensionless resolution. When `cleanUrls` is enabled and
+/// applicable to the request path, attempt to serve `<P>/index.html`
+/// first, then `<P>.html`, returning the first that exists. Returns
+/// `None` when neither candidate resolves — the dispatcher then falls
+/// through to phase 9 (the existing `resolve()` over the original path).
+///
+/// Mirrors `findRelated` + `getPossiblePaths(.html)`
+/// (`serve-handler/src/index.js:276-307`):
+///
+/// - Candidate 1: `path.join(P, 'index.html')`.
+/// - Candidate 2: trailing-slash variant of `P + '.html'`
+///   (`P.replace(/\/$/g, '.html')` when `P` ends with `/`, else `P + '.html'`).
+///   For our purposes both forms reduce to `<basename>.html` after
+///   trimming a single trailing `/`.
+/// - Filter: skip a candidate whose basename is exactly `.html`
+///   (matches the `path.basename(item) !== extension` filter in
+///   `index.js:279`). In our path space this only fires for the bare
+///   root (`/`), where the second candidate would be `/.html`.
+///
+/// The candidate paths are canonicalized and checked against `root` to
+/// reject path-traversal attempts (mirrors the existing `resolve()`
+/// behavior at `crates/irserve-core/src/resolve.rs:40-47`).
+pub async fn try_clean_urls_resolve(
+    url_path: &str,
+    root: &Path,
+    view: &CleanUrlsView,
+) -> Option<ResolveOutcome> {
+    if !view.applicable(url_path) {
+        return None;
+    }
+
+    // Normalize the url path so it can be joined under `root`. Strip
+    // leading `/` and any trailing `/` so that `/about/` and `/about`
+    // produce the same candidate set, matching `getPossiblePaths`.
+    let trimmed = url_path.trim_start_matches('/');
+    let trimmed = trimmed.trim_end_matches('/');
+
+    // Candidate 1: <P>/index.html. Always attempted (even for `P=""`,
+    // i.e. the root path), matching `getPossiblePaths`.
+    let candidate_index = if trimmed.is_empty() {
+        root.join("index.html")
+    } else {
+        root.join(trimmed).join("index.html")
+    };
+    if let Some(canonical) = stat_under_root(&candidate_index, root).await {
+        return Some(ResolveOutcome::Index(canonical));
+    }
+
+    // Candidate 2: <P>.html. Skipped when `P` is empty (the second
+    // entry would be `/.html`, which `getPossiblePaths` filters out).
+    if trimmed.is_empty() {
+        return None;
+    }
+    let candidate_flat = root.join(format!("{trimmed}.html"));
+    if let Some(canonical) = stat_under_root(&candidate_flat, root).await {
+        return Some(ResolveOutcome::File(canonical));
+    }
+
+    None
+}
+
+/// Stat a candidate file path; return the canonicalized path iff the
+/// path exists, is a regular file, and resolves under `root` (anti
+/// path-traversal). Mirrors the metadata + canonicalize + starts_with
+/// guard in `resolve.rs`.
+async fn stat_under_root(candidate: &Path, root: &Path) -> Option<std::path::PathBuf> {
+    let meta = tokio::fs::metadata(candidate).await.ok()?;
+    if !meta.is_file() {
+        return None;
+    }
+    let canonical = tokio::fs::canonicalize(candidate).await.ok()?;
+    if !canonical.starts_with(root) {
+        return None;
+    }
+    Some(canonical)
 }
 
 /// Mirrors `decodedPath.replace(/\/+/g, '/')` from `index.js:137`.
@@ -343,5 +423,125 @@ mod tests {
     fn redirect_scope_out_of_glob() {
         let v = view_scoped(&["/docs/**"]);
         assert_eq!(compute_clean_urls_redirect("/blog/post.html", &v), None);
+    }
+
+    // ----- try_clean_urls_resolve ---------------------------------
+
+    use std::fs;
+    use tempfile::tempdir;
+
+    fn write_file(dir: &Path, rel: &str, content: &str) {
+        let p = dir.join(rel);
+        if let Some(parent) = p.parent() {
+            fs::create_dir_all(parent).unwrap();
+        }
+        fs::write(p, content).unwrap();
+    }
+
+    #[tokio::test]
+    async fn resolve_index_first_when_dir_with_index_exists() {
+        let dir = tempdir().unwrap();
+        let root = fs::canonicalize(dir.path()).unwrap();
+        write_file(&root, "about.html", "flat");
+        write_file(&root, "about/index.html", "index");
+        let outcome = try_clean_urls_resolve("/about", &root, &view_on())
+            .await
+            .expect("must resolve");
+        match outcome {
+            ResolveOutcome::Index(p) => {
+                assert!(p.ends_with("about/index.html") || p.ends_with("about\\index.html"));
+            }
+            other => panic!("expected Index, got {other:?}"),
+        }
+    }
+
+    #[tokio::test]
+    async fn resolve_falls_back_to_html_when_no_dir_index() {
+        let dir = tempdir().unwrap();
+        let root = fs::canonicalize(dir.path()).unwrap();
+        write_file(&root, "about.html", "flat");
+        let outcome = try_clean_urls_resolve("/about", &root, &view_on())
+            .await
+            .expect("must resolve via .html fallback");
+        match outcome {
+            ResolveOutcome::File(p) => {
+                assert!(p.ends_with("about.html"));
+            }
+            other => panic!("expected File, got {other:?}"),
+        }
+    }
+
+    #[tokio::test]
+    async fn resolve_trailing_slash_normalizes_to_same_candidates() {
+        // `/about/` and `/about` should produce the same candidate set.
+        let dir = tempdir().unwrap();
+        let root = fs::canonicalize(dir.path()).unwrap();
+        write_file(&root, "about.html", "flat");
+        let outcome = try_clean_urls_resolve("/about/", &root, &view_on())
+            .await
+            .expect("must resolve via .html fallback");
+        match outcome {
+            ResolveOutcome::File(p) => assert!(p.ends_with("about.html")),
+            other => panic!("expected File, got {other:?}"),
+        }
+    }
+
+    #[tokio::test]
+    async fn resolve_root_only_tries_index_html() {
+        // For `P = ""` (or `/`), `getPossiblePaths` filters the second
+        // candidate (basename `.html`). Only `index.html` is tried.
+        let dir = tempdir().unwrap();
+        let root = fs::canonicalize(dir.path()).unwrap();
+        write_file(&root, "index.html", "root");
+        let outcome = try_clean_urls_resolve("/", &root, &view_on())
+            .await
+            .expect("must resolve root");
+        match outcome {
+            ResolveOutcome::Index(p) => assert!(p.ends_with("index.html")),
+            other => panic!("expected Index, got {other:?}"),
+        }
+    }
+
+    #[tokio::test]
+    async fn resolve_both_miss_returns_none() {
+        let dir = tempdir().unwrap();
+        let root = fs::canonicalize(dir.path()).unwrap();
+        // No index.html anywhere, no `about.html` either.
+        let outcome = try_clean_urls_resolve("/about", &root, &view_on()).await;
+        assert!(outcome.is_none());
+    }
+
+    #[tokio::test]
+    async fn resolve_off_short_circuits() {
+        let dir = tempdir().unwrap();
+        let root = fs::canonicalize(dir.path()).unwrap();
+        write_file(&root, "about.html", "flat");
+        let outcome = try_clean_urls_resolve("/about", &root, &view_off()).await;
+        assert!(outcome.is_none());
+    }
+
+    #[tokio::test]
+    async fn resolve_out_of_scope_returns_none() {
+        let dir = tempdir().unwrap();
+        let root = fs::canonicalize(dir.path()).unwrap();
+        write_file(&root, "blog/post.html", "post");
+        let v = view_scoped(&["/docs/**"]);
+        let outcome = try_clean_urls_resolve("/blog/post", &root, &v).await;
+        assert!(outcome.is_none());
+    }
+
+    #[tokio::test]
+    async fn resolve_in_scope_matches_glob() {
+        let dir = tempdir().unwrap();
+        let root = fs::canonicalize(dir.path()).unwrap();
+        write_file(&root, "docs/guide.html", "guide");
+        let v = view_scoped(&["/docs/**"]);
+        let outcome = try_clean_urls_resolve("/docs/guide", &root, &v)
+            .await
+            .expect("must resolve in-scope path");
+        match outcome {
+            ResolveOutcome::File(p) => assert!(p.ends_with("guide.html")),
+            other => panic!("expected File, got {other:?}"),
+        }
     }
 }
