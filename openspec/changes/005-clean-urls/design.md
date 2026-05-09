@@ -76,31 +76,78 @@ impl CleanUrlsView {
             None => Mode::On,                                    // serve-handler default
             Some(Bool(true)) => Mode::On,
             Some(Bool(false)) => Mode::Off,
-            Some(Globs(patterns)) => Mode::Scoped(build_glob_set(patterns)?),
+            Some(Globs(patterns)) => {
+                let mut builder = GlobSetBuilder::new();
+                for p in patterns {
+                    let glob = GlobBuilder::new(&slasher(p))
+                        .literal_separator(true)  // see below
+                        .build()?;
+                    builder.add(glob);
+                }
+                Mode::Scoped(builder.build()?)
+            }
         }
     }
     pub fn applicable(&self, decoded_path: &str) -> bool {
         match &self.inner {
-            Off => false, On => true, Scoped(set) => set.is_match(decoded_path),
+            Off => false,
+            On => true,
+            Scoped(set) => {
+                // Mirror `path.posix.resolve(requestPath)` inside
+                // `sourceMatches` (`index.js:38-67`): collapse `//`
+                // before minimatch / globset.
+                let normalized = crate::normalize::collapse_slashes(decoded_path);
+                set.is_match(normalized.as_ref())
+            }
         }
     }
 }
 ```
 
 Glob normalization (`slasher` mirror): patterns without a leading
-`/` get one prepended before they enter `GlobSetBuilder`. We do not
+`/` get one prepended before they enter `GlobBuilder`. We do not
 replicate the full `path.posix.normalize` (collapsing `..` etc.) —
 cleanUrls patterns shouldn't carry such segments in practice; if
 they do, that's a methodological signal for a future Q-NNN entry.
 
-Negation patterns (`!/secret/**`) are passed verbatim to globset.
-The reference's iteration logic (line 261-268) also doesn't honor
-the negation — it's `for; if sourceMatches; return true; end` — so
-behavior matches: a negation-leading pattern will never match
-anything and so never enables cleanUrls, just like in the reference.
+`literal_separator(true)` is the critical setting. Globset's default
+behavior lets `*` cross `/` (so `/docs/*` would also match
+`/docs/sub/page.html`), while minimatch — used by `sourceMatches`
+in the reference — treats `/` as a hard segment boundary for `*`.
+With `literal_separator(true)`, `*` matches one segment only and
+`**` matches multiple segments. This is what `sourceMatches` expects
+for `applicable()` calls (the only path our `CleanUrlsView` exercises);
+the segment-aware `path-to-regexp` branch at `index.js:45-56` is
+gated on `allowSegments=true` and is not used by `applicable`.
+
+Path normalization in `applicable` mirrors `path.posix.resolve` at
+`index.js:41`: a raw-mode request like `GET //docs/guide.html`
+arrives at the dispatcher as `//docs/guide.html`, but the reference
+collapses runs of `/` before minimatch via `path.posix.resolve`,
+yielding `/docs/guide.html`. Without the same collapse on our side,
+otherwise-matching `/docs/**` globs would miss the request and
+allow phase 9 to serve the `.html` directly (a 200 instead of the
+contracted 301). We reuse `crate::normalize::collapse_slashes`,
+which returns `Cow::Borrowed` on the no-`//` happy path
+(zero-allocation).
+
+Negation patterns (`!/secret/**`) are NOT yet honored. The
+reference's `slasher` preserves a leading `!` (`glob-slash.js:8`)
+and minimatch treats `!`-leading patterns as negation when
+`nonegate: false` (the default). globset has no equivalent toggle —
+a `Glob::new("!/secret/**")` matches paths whose first segment is
+the literal `!secret`. This is a real semantic divergence the
+existing probes don't exercise (the `cleanurls-array.json` fixture
+uses a plain inclusion glob, and the `serve` README's example uses
+`/!components/**` — literal `!` after the slash, not negation). If
+a real-world divergence surfaces, capture as Q-NNN and either
+implement `!`-prefix handling manually (track inclusion vs exclusion
+sets and short-circuit on first match in the order the user supplied)
+or record an `adapted` D-NNN.
 
 `globset` precompiles the patterns once; per-request matching is
-allocation-free batch matching.
+allocation-free batch matching, plus the `Cow::Borrowed` happy path
+for slash-collapse on typical (no-`//`) paths.
 
 ## 4. `compute_clean_urls_redirect` (phase 4)
 
@@ -127,7 +174,9 @@ pub fn compute_clean_urls_redirect(
 of the reference's `decodedPath.replace(/(\.html|\/index)$/g, '')`:
 the `g` flag is a no-op against an end-anchored pattern, so the
 function tries `.html` first and `/index` second, returning the
-input minus the matched suffix on the first hit. This produces:
+input minus the matched suffix on the first hit. The `//` collapse
+on the stripped result reuses `crate::normalize::collapse_slashes`
+(the same helper phase 3 uses). This produces:
 
 | Input             | After strip   | Final (after collapse + ensureSlashStart) |
 |-------------------|---------------|--------------------------------------------|

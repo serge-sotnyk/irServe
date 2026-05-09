@@ -30,8 +30,17 @@ a `globset::GlobSet` via `CleanUrlsView::from_config`, mirroring
 the reference's `applicable()` helper at `index.js:256-274`. Pattern
 normalization mirrors `slasher` from `serve-handler/src/glob-slash.js`:
 patterns without a leading `/` get one prepended before
-`GlobSetBuilder::add`. Invalid glob patterns surface as a startup
-error (`Error::CleanUrlsGlob`) rather than per-request.
+`GlobBuilder::new`. Globs are built with
+`GlobBuilder::new(...).literal_separator(true)` so `*` does NOT
+cross `/` (matching minimatch's pathname-aware semantics — the
+reference's `sourceMatches` calls minimatch). The request path is
+also normalized via `collapse_slashes` inside `applicable` before
+`is_match`, mirroring `path.posix.resolve(requestPath)` inside
+`sourceMatches` at `index.js:38-67`, so raw-mode requests like
+`GET //docs/guide.html` participate correctly in `/docs/**` scope
+checks. Invalid glob patterns surface as a startup error
+(`Error::CleanUrlsGlob`) rather than per-request. Negation patterns
+(`!`-prefix) are NOT yet honored; no current probe exercises them.
 
 The redirect target passes through `dispatch.rs::encode_uri_target`
 (unchanged from 6b) for `Location`-header encoding, so SPACEs

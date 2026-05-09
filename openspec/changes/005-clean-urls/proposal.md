@@ -198,14 +198,28 @@ were absorbed without a new D-NNN entry:
 ## Risks and mitigations
 
 1. **Glob library semantics differ from minimatch.** `globset` is a
-   Rust glob library; `serve-handler` uses `minimatch` (Node). Both
-   support `*`, `**`, `?`, character classes; brace alternation `{a,b}`
-   is supported by both but disabled-by-default in some configurations.
-   Our `cleanurls-array.json` probe uses `/docs/**` — the simplest
-   form — and passes against irserve. More exotic patterns (negation
-   prefixes `!`, brace expansion, edge cases) are not yet probed; if
-   a real-world divergence surfaces, record a Q-NNN and either patch
-   the glob normalization or document an `adapted` D-NNN.
+   Rust glob library; `serve-handler` uses `minimatch` (Node). Two
+   alignments are required so the array-form scope check matches
+   the reference:
+   (a) `GlobBuilder::new(...).literal_separator(true)` so `*` does
+   not cross `/` (minimatch's pathname-aware semantics). Without
+   this, `/docs/*` would also match `/docs/sub/page.html`, while
+   the reference's minimatch only lets `**` cross segments.
+   (b) `applicable` collapses `//` in the request path before
+   `is_match`, mirroring `path.posix.resolve(requestPath)` inside
+   `sourceMatches` at `index.js:38-67`. Without this, raw-mode
+   requests like `GET //docs/guide.html` miss otherwise-matching
+   `/docs/**` globs.
+   Both alignments landed in Codex review round 1 (P1 fix); the
+   regressions are pinned by `applicable_single_star_does_not_cross_slash`,
+   `applicable_double_star_crosses_segments`, and
+   `applicable_normalizes_double_slash_path` in the `clean_urls`
+   unit tests, plus their phase-4 counterparts
+   `redirect_scope_single_star_does_not_match_nested` and
+   `redirect_scope_double_slash_path_normalizes`. Negation patterns
+   (`!`-prefix per `slasher` + minimatch) are NOT yet honored —
+   globset has no equivalent. No probe currently exercises them; if
+   a real-world divergence surfaces, record a Q-NNN.
 2. **`/index.html` → `/index` vs `/`.** The reference regex
    `(\.html|\/index)$/g` does a single-pass replace, yielding
    `/index` (not `/`). The existing snapshot `_smoke#index_html_redirect`

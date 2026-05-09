@@ -11,9 +11,10 @@
 
 use std::path::Path;
 
-use globset::{Glob, GlobSet, GlobSetBuilder};
+use globset::{GlobBuilder, GlobSet, GlobSetBuilder};
 
 use crate::config::BoolOrGlobs;
+use crate::normalize::collapse_slashes;
 use crate::resolve::ResolveOutcome;
 
 /// Precompiled view of `serve.json#cleanUrls`. Built once at server
@@ -51,7 +52,17 @@ impl CleanUrlsView {
             Some(BoolOrGlobs::Globs(patterns)) => {
                 let mut builder = GlobSetBuilder::new();
                 for pat in patterns {
-                    builder.add(Glob::new(&slasher(pat))?);
+                    // `literal_separator(true)` mirrors minimatch's
+                    // pathname-aware `*` semantics: a single `*` does
+                    // NOT cross `/`. Without this, `/docs/*` would also
+                    // match `/docs/sub/page.html`, while the reference
+                    // (minimatch via `sourceMatches`) only lets `**`
+                    // cross segments. See
+                    // `serve-handler/src/index.js:38-67`.
+                    let glob = GlobBuilder::new(&slasher(pat))
+                        .literal_separator(true)
+                        .build()?;
+                    builder.add(glob);
                 }
                 Mode::Scoped(builder.build()?)
             }
@@ -63,11 +74,21 @@ impl CleanUrlsView {
     /// `serve-handler/src/index.js:256-274`. `true` means the cleanUrls
     /// behavior (redirect or extensionless resolution) applies to the
     /// given path.
+    ///
+    /// Scoped checks normalize the path via the same slash-collapse
+    /// the reference applies inside `sourceMatches`
+    /// (`serve-handler/src/index.js:38-67`, `path.posix.resolve(requestPath)`).
+    /// Without this, a raw-mode request like `GET //docs/guide.html`
+    /// arrives at the dispatcher as `//docs/guide.html` and would miss
+    /// an otherwise-matching `/docs/**` glob.
     pub fn applicable(&self, decoded_path: &str) -> bool {
         match &self.inner {
             Mode::Off => false,
             Mode::On => true,
-            Mode::Scoped(set) => set.is_match(decoded_path),
+            Mode::Scoped(set) => {
+                let normalized = collapse_slashes(decoded_path);
+                set.is_match(normalized.as_ref())
+            }
         }
     }
 }
@@ -116,12 +137,11 @@ pub fn compute_clean_urls_redirect(
     }
 
     let stripped = strip_html_or_index_suffix(decoded_path)?;
-    let target = if stripped.contains("//") {
-        collapse_consecutive_slashes(&stripped)
-    } else {
-        stripped.to_string()
-    };
-    Some(ensure_slash_start(&target))
+    // Reuse the routing-normalization helper (mirrors the reference's
+    // `decodedPath.replace(/\/+/g, '/')` at `index.js:137`). Returns
+    // `Cow::Borrowed` on the no-`//` happy path (zero-allocation).
+    let collapsed = collapse_slashes(stripped);
+    Some(ensure_slash_start(collapsed.as_ref()))
 }
 
 /// Strip the suffix matched by JS `/(\.html|\/index)$/g` in a single
@@ -214,24 +234,6 @@ async fn stat_under_root(candidate: &Path, root: &Path) -> Option<std::path::Pat
     Some(canonical)
 }
 
-/// Mirrors `decodedPath.replace(/\/+/g, '/')` from `index.js:137`.
-fn collapse_consecutive_slashes(path: &str) -> String {
-    let mut out = String::with_capacity(path.len());
-    let mut prev_slash = false;
-    for ch in path.chars() {
-        if ch == '/' {
-            if !prev_slash {
-                out.push('/');
-            }
-            prev_slash = true;
-        } else {
-            out.push(ch);
-            prev_slash = false;
-        }
-    }
-    out
-}
-
 /// Mirrors `ensureSlashStart` (`index.js:119`).
 fn ensure_slash_start(target: &str) -> String {
     if target.starts_with('/') {
@@ -292,6 +294,44 @@ mod tests {
         // slasher() prepends `/` so users can write `"docs/**"`.
         let v = view_scoped(&["docs/**"]);
         assert!(v.applicable("/docs/guide.html"));
+    }
+
+    #[test]
+    fn applicable_single_star_does_not_cross_slash() {
+        // Mirror minimatch: `*` matches a single segment, not nested
+        // paths. `/docs/*` matches `/docs/page.html` but NOT
+        // `/docs/sub/page.html`. Without `literal_separator(true)`
+        // globset would match the nested path too — confirmed
+        // divergence with the reference (`serve-handler/src/index.js:
+        // 38-67` via `sourceMatches` + minimatch).
+        let v = view_scoped(&["/docs/*"]);
+        assert!(v.applicable("/docs/page.html"));
+        assert!(v.applicable("/docs/guide"));
+        assert!(!v.applicable("/docs/sub/page.html"));
+        assert!(!v.applicable("/docs/sub/sub2/page.html"));
+    }
+
+    #[test]
+    fn applicable_double_star_crosses_segments() {
+        // Sanity: `**` SHOULD cross segments (matching minimatch).
+        let v = view_scoped(&["/docs/**"]);
+        assert!(v.applicable("/docs/page.html"));
+        assert!(v.applicable("/docs/sub/page.html"));
+        assert!(v.applicable("/docs/sub/sub2/page.html"));
+    }
+
+    #[test]
+    fn applicable_normalizes_double_slash_path() {
+        // Raw-mode requests can deliver paths with `//` to the
+        // dispatcher. The reference's `applicable` runs the path
+        // through `path.posix.resolve` inside `sourceMatches` before
+        // minimatch, so `//docs/guide.html` collapses to
+        // `/docs/guide.html` for scope-check purposes. The redirect
+        // target computation downstream handles its own `//` collapse.
+        let v = view_scoped(&["/docs/**"]);
+        assert!(v.applicable("//docs/guide.html"));
+        assert!(v.applicable("/docs//guide.html"));
+        assert!(v.applicable("///docs////guide.html"));
     }
 
     #[test]
@@ -423,6 +463,40 @@ mod tests {
     fn redirect_scope_out_of_glob() {
         let v = view_scoped(&["/docs/**"]);
         assert_eq!(compute_clean_urls_redirect("/blog/post.html", &v), None);
+    }
+
+    #[test]
+    fn redirect_scope_single_star_does_not_match_nested() {
+        // Companion to `applicable_single_star_does_not_cross_slash`:
+        // a `/docs/*` scope should NOT trigger the cleanUrls 301 for
+        // a nested `.html` path. Reference behavior: `GET
+        // /docs/sub/page.html` with `cleanUrls: ["/docs/*"]` returns
+        // 200 (file served direct).
+        let v = view_scoped(&["/docs/*"]);
+        assert_eq!(
+            compute_clean_urls_redirect("/docs/sub/page.html", &v),
+            None
+        );
+        // Single-segment match still produces the 301.
+        assert_eq!(
+            compute_clean_urls_redirect("/docs/guide.html", &v).as_deref(),
+            Some("/docs/guide")
+        );
+    }
+
+    #[test]
+    fn redirect_scope_double_slash_path_normalizes() {
+        // Raw-mode `GET //docs/guide.html` with `cleanUrls:
+        // ["/docs/**"]`: the reference's `applicable` normalizes the
+        // path before minimatch, so the cleanUrls 301 fires. Our
+        // implementation must too. Result Location is computed by the
+        // existing strip-then-collapse path (`//docs/guide` →
+        // `/docs/guide`).
+        let v = view_scoped(&["/docs/**"]);
+        assert_eq!(
+            compute_clean_urls_redirect("//docs/guide.html", &v).as_deref(),
+            Some("/docs/guide")
+        );
     }
 
     // ----- try_clean_urls_resolve ---------------------------------
