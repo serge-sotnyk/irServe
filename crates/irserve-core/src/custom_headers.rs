@@ -14,10 +14,31 @@
 //!   (last-write-wins per key reproduces the same final state as
 //!   the reference's two-stage `Object.assign`-then-prune).
 //!
-//! Custom headers apply to every successful and error response. They
-//! are skipped on 3xx redirects (mirrors the reference's
-//! `response.writeHead(redirect.statusCode, { Location: ... })` path at
-//! `index.js:586-588`, which bypasses `getHeaders`).
+//! Per-branch contract (mirrors `sendError`'s call sites at
+//! `index.js:467-524` and the success-site `getHeaders` call at
+//! `index.js:746`):
+//!
+//! - **200 success** — apply, matched against the FINAL resolved
+//!   file path (post-cleanUrls / post-rewrite), tracked in
+//!   `dispatch_inner` as `lexical_url`.
+//! - **JSON-preferring error** — SKIP. Reference returns at
+//!   `index.js:477-487` before reaching `getHeaders`.
+//! - **HTML error with custom `<status>.html`** — apply, matched
+//!   against `/<status>.html` (mirrors `getHeaders(.., errorPage,
+//!   stats)` at `index.js:508`). Custom Content-Type from a user
+//!   rule may override the default `text/html`.
+//! - **HTML error fallback (no custom page)** — apply, matched
+//!   against the request path, EXCEPT when the error came from a
+//!   path-traversal / malformed-decode 400 (the lexical-escape and
+//!   URIError sites pass `skip_fallback_headers=true`). The
+//!   fallback then forces `Content-Type: text/html; charset=utf-8`
+//!   AFTER the apply pass (mirrors `index.js:520`), so a user rule
+//!   cannot override the fallback's content type.
+//! - **3xx redirect** — SKIP. Reference's redirect path at
+//!   `index.js:586-588` builds the response via
+//!   `response.writeHead(redirect.statusCode, { Location: ... })`
+//!   without going through `getHeaders`. `apply_custom_headers`
+//!   short-circuits on `response.status().is_redirection()`.
 //!
 //! Note on SRV-HDR-002: the public `serve` CLI's JSON Schema
 //! (`@zeit/schemas/deployment/config-static.js`) declares
