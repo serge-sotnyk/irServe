@@ -173,11 +173,13 @@ shipped.
 
 ## Validation
 
-- `cargo test --workspace` — green (slices 1-5).
-- Oracle harness: `target=irserve total=80 passed=72 skipped=8
-  failed=0`; reference 80/80 via `--snapshot=verify`.
+- `cargo test --workspace` — green (slices 1-5 + Codex round 1 fix).
+- Oracle harness: `target=irserve total=81 passed=73 skipped=8
+  failed=0`; reference 81/81 via `--snapshot=verify` (the +1 is the
+  round-1 `cors-user-override` probe).
 - Unit / integration tests added across slices: 18 (listen_spec) +
-  4 (cors) + 3 (server bind_with_fallback) = 25 new tests, plus
-  the slice-5 println path covered by the two acceptance probes.
+  4 (cors, including the round-1 `preserves_user_set_header` flip) +
+  3 (server bind_with_fallback) = 25 new tests, plus the slice-5
+  println path covered by the two acceptance probes.
 - `openspec validate --all --strict` — green (slice 6 final
   step).

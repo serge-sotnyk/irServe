@@ -124,19 +124,24 @@ to 6h.
   `--debug`, `-L`, `--no-request-logging` across slices 2-5. After
   slice 5 the list is empty; all stage-6h flags are accepted
   symmetrically against `target=irserve` and `target=reference`.
-  Five new probe cases are authored:
+  Six new probe cases are authored:
   - `cli-tcp-uri.json` (slice 2) — `--listen tcp://127.0.0.1:{port}`
     + free-port substitution; `GET /` → 200.
   - `cli-p-alias.json` (slice 2) — `-p {port}` + free-port; 200.
   - `cors-on-redirect.json` (slice 3) — `serve.json` redirect
-    `/old → /new` + `--cors`; `GET /old` → 301 with all four CORS
-    headers. Pins the 3xx-pass-through.
+    `{source: "/old", destination: "/new", type: 302}` + `--cors`;
+    `GET /old` → 302 with all four CORS headers. Pins the
+    3xx-pass-through.
+  - `cors-user-override.json` (Codex review round 1) — `**/*.css`
+    rule sets `access-control-allow-origin: https://example.test`
+    + `--cors`; pins set-only-if-missing semantics (user value
+    wins, the other three CORS defaults fill in).
   - `cli-debug-flag.json` (slice 5) — `--debug` acceptance, 200.
   - `cli-no-request-logging.json` (slice 5) — flag acceptance, 200.
 
-- **Final oracle.** `target=irserve total=80 passed=72 skipped=8
-  failed=0` after slice 5. Reference still 80 of 80 green via
-  `node tools/probe/run.mjs --all --target=reference
+- **Final oracle.** `target=irserve total=81 passed=73 skipped=8
+  failed=0` after Codex review round 1. Reference still 81 of 81
+  green via `node tools/probe/run.mjs --all --target=reference
   --snapshot=verify`.
 
 ## Out of scope

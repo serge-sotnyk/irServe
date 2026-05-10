@@ -163,8 +163,9 @@ Files:
   `Vec<SocketAddr>` via `ListenSpec::resolve`.
 - Unit tests in `listen_spec.rs::tests`: bare port, `tcp://127.0.0.1:3010`,
   `tcp://localhost`, `tcp://localhost:3010`, `tcp://:3010`,
-  `tcp://[::1]:3010`, malformed (`tcp://`, `tcp://host:notnum`), rejected
-  (`pipe:...`, `unix:...`).
+  `tcp://[::1]:3010`, both-defaults (`tcp://` → `localhost:3000` per
+  Q-001), malformed (`tcp://host:notnum`, unbalanced bracket,
+  `garbage`), rejected (`pipe:...`, `unix:...`).
 
 Verify: `cargo test --workspace`; all 78 existing probes green.
 
@@ -425,11 +426,16 @@ node tools\probe\run.mjs --all --target=reference --snapshot=verify
 npx -y @fission-ai/openspec@latest validate --all --strict
 ```
 
-Expected delta: +5 new probes (`cli-tcp-uri`, `cli-p-alias`,
-`cors-on-redirect`, `cli-debug-flag`, `cli-no-request-logging`); 3
-existing probes (`cors-flag`, `cors-applied`, `cors-response-surface`)
-now green on `target=irserve`. 0 changes to reference snapshots
-(reference behavior did not change).
+Final delta after Codex review round 1:
++6 new probes (`cli-tcp-uri`, `cli-p-alias`, `cors-on-redirect`,
+`cli-debug-flag`, `cli-no-request-logging`, plus the round-1
+follow-on `cors-user-override` that pins set-only-if-missing CORS
+semantics). 3 existing probes (`cors-flag`, `cors-applied`,
+`cors-response-surface`) now green on `target=irserve`. 0 changes
+to existing reference snapshots (reference behavior did not change;
+6 NEW reference snapshots written for the NEW probes). Final oracle
+counts: `target=irserve total=81 passed=73 skipped=8 failed=0`;
+`target=reference total=81 passed=81 skipped=0 failed=0`.
 
 ## Risks
 

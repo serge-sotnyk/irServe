@@ -60,8 +60,9 @@ delegates to `ToSocketAddrs` for non-literal hosts.
 
 18 unit tests in `listen_spec.rs::tests` cover: bare port,
 `tcp://127.0.0.1:3010`, `tcp://localhost`, `tcp://localhost:3010`,
-`tcp://:3010`, `tcp://[::1]:3010`, malformed (`tcp://`, `tcp://
-host:notnum`), and rejected (`pipe:`, `unix:`).
+`tcp://:3010`, `tcp://[::1]:3010`, both-defaults (`tcp://` →
+`localhost:3000` per Q-001), malformed (`tcp://host:notnum`,
+unbalanced bracket, `garbage`), and rejected (`pipe:`, `unix:`).
 
 ## 2. `-p` post-parse merge
 
@@ -307,11 +308,15 @@ D-016 before authoring a new decision.
 listed in §6.
 
 `cargo test --test oracle` runs the full harness against
-`target=irserve`: 80 probes total / 72 passed / 8 skipped / 0 failed.
+`target=irserve`: 81 probes total / 73 passed / 8 skipped / 0 failed
+after Codex review round 1's `cors-user-override` probe lands.
 
-Reference still 80 of 80 green via `node tools/probe/run.mjs --all
---target=reference --snapshot=verify`. No reference snapshots were
-re-recorded — reference behavior did not change.
+Reference 81 of 81 green via `node tools/probe/run.mjs --all
+--target=reference --snapshot=verify`. No existing reference snapshots
+were re-recorded — reference behavior did not change; the 6 NEW
+reference snapshots written for the new probes (`cli-tcp-uri`,
+`cli-p-alias`, `cors-on-redirect`, `cors-user-override`,
+`cli-debug-flag`, `cli-no-request-logging`) are the only additions.
 
 Manual smoke commands are documented in `README.md`'s "Try IrServe
 (post-6h)" section.
