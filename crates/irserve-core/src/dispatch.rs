@@ -243,7 +243,13 @@ async fn dispatch_inner(
         // cleanUrls candidates).
         if let Some(target) = compute_configured_rewrites(&url_path, rewrite_rules) {
             match resolve(&target, root).await {
-                ResolveOutcome::NotFound | ResolveOutcome::EscapedRoot => {
+                // Stage 6g Slice 1 plumbing: a rewrite that resolves
+                // to a directory (no `index.html`) falls back to the
+                // original path, mirroring the prior NotFound behavior
+                // until Slice 2 wires the listing branch.
+                ResolveOutcome::NotFound
+                | ResolveOutcome::EscapedRoot
+                | ResolveOutcome::Directory(_) => {
                     (resolve(&url_path, root).await, url_path_str.clone())
                 }
                 other => (other, target),
@@ -269,7 +275,14 @@ async fn dispatch_inner(
         // destination. If no rewrite matched, fall back to the
         // existing cleanUrls candidate.
         match resolve(&url_path, root).await {
-            ResolveOutcome::NotFound => {
+            // Stage 6g Slice 1 plumbing: has-extension paths that
+            // resolve to a directory (e.g. literal folder named
+            // `foo.txt`) take the same fallback chain as NotFound —
+            // try rewrites, then cleanUrls candidates. Listing
+            // semantics for the has-extension branch are unusual
+            // and not in scope; the eventual final outcome is still
+            // 404 in Slice 1 and beyond.
+            ResolveOutcome::NotFound | ResolveOutcome::Directory(_) => {
                 if let Some(target) = compute_configured_rewrites(&url_path, rewrite_rules) {
                     let r = resolve(&target, root).await;
                     (r, target)
@@ -302,6 +315,22 @@ async fn dispatch_inner(
                 (resp, None)
             }
         },
+        // Stage 6g Slice 1: directory plumbing in place. Slice 2+
+        // intercept this branch with the listing renderer; for now
+        // it falls through to 404 to preserve the pre-6g behavior
+        // (resolve used to flatten dir-no-index into NotFound).
+        ResolveOutcome::Directory(_) => {
+            let resp = error_response(
+                StatusCode::NOT_FOUND,
+                req.headers(),
+                root,
+                header_rules,
+                &decoded_path,
+                false,
+            )
+            .await;
+            (resp, None)
+        }
         ResolveOutcome::NotFound => {
             let resp = error_response(
                 StatusCode::NOT_FOUND,
