@@ -22,7 +22,7 @@ Affected area: cli
 Suspected behavior: A `tcp://hostname` (no port) defaults to port 3000; `tcp://:1234` (no host) defaults to `localhost`. Source code suggests this; not probed.
 How to verify:
 - Probe: spawn `serve -l tcp://127.0.0.1` and `serve -l tcp://:3010`, confirm reachable via the inferred default.
-Resolution: open.
+Resolution: closed (2026-05-10) — defaults are host=`localhost`, port=`3000`. Codified in the cli capability spec (SRV-CLI-003 Note). Mirrors `third_party/serve/source/utilities/cli.ts:128-130`.
 
 ## Q-002: HTTP compression — content-type set and minimum body size
 

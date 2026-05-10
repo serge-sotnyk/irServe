@@ -26,6 +26,7 @@ Concretely: take `vercel/serve` (a small but real Node.js static file server), r
 - **Stage 6e — configured rewrites + `--single`.** Done.
 - **Stage 6f — custom error pages, full L2 security, custom response headers.** Done.
 - **Stage 6g — directory listing (HTML / JSON, `unlisted`, `renderSingle`).** Done.
+- **Stage 6h — CLI fill-in (`tcp://`, `-p`, `--cors`, `--debug`, `--no-request-logging`, `--no-port-switching`).** Done.
 
 Rust code lives under `crates/irserve` (the bin) and `crates/irserve-core` (the lib). The first slice (Stage 5b) is strict-L0: eight SRVs (`SRV-CLI-001/002/007/019`, `SRV-FILE-001/002/004/005`). Stage 6a un-defers SRV-CFG-001, SRV-CFG-002, and SRV-CLI-009 (`-c/--config`); the remaining capabilities are still deferred per `D-008`/`D-009`.
 
@@ -66,7 +67,7 @@ The methodology runs in nine stages. Status is updated when entering or completi
 | 6e | Configured rewrites + `--single` SPA fallback | `openspec/changes/007-configured-rewrites` | done |
 | 6f | Custom error pages, full L2 security, custom response headers | `openspec/changes/008-error-pages-and-security` | done |
 | 6g | Directory listing (HTML / JSON, `unlisted`, `renderSingle`) | `openspec/changes/009-directory-listing` | done |
-| 6h | CLI fill-in (`tcp://`, `-p`, `--cors` L1, `--debug`, `--no-request-logging`, `--no-port-switching`) | `openspec/changes/010-cli-fill-in` | todo |
+| 6h | CLI fill-in (`tcp://`, `-p`, `--cors` L1, `--debug`, `--no-request-logging`, `--no-port-switching`) | `openspec/changes/010-cli-fill-in` | done |
 | 7 | Polish: terminal output, Windows quirks, edge cases (L3+) | `openspec/changes/011...` | todo |
 
 The first concrete Rust crate appears at Stage 5b, not earlier. Stages 1–5a produce only research notes and OpenSpec specs.
@@ -132,9 +133,9 @@ curl -i http://127.0.0.1:3010/
 
 Rust toolchain (1.81+) is required to build and test `irserve`. `cargo build` produces the bin under `target/debug/irserve(.exe)`. `cargo test --test oracle` builds the bin and shells out to `node tools/probe/run.mjs --all --target=irserve --snapshot=verify`; Node 18+ on PATH is a prerequisite (already needed for the reference oracle bundle above).
 
-## Try IrServe (post-6g)
+## Try IrServe (post-6h)
 
-The current binary covers the Stage-5b strict-L0 SRVs (`SRV-CLI-001/002/007/019`, `SRV-FILE-001/002/004/005`), the Stage-6a `serve.json` loader surface (`SRV-CFG-001`, `SRV-CFG-002`, `SRV-CLI-009`), the Stage-6b routing normalization phases (`SRV-ROUT-003` `trailingSlash` add, `SRV-ROUT-004` `trailingSlash` strip, `SRV-ROUT-005` silent multi-slash collapse), the Stage-6c `cleanUrls` phases (`SRV-ROUT-001` `.html`/`/index` 301, `SRV-ROUT-002` extensionless `<P>/index.html`-then-`<P>.html` resolution; both `bool` and `string[]` glob forms), the Stage-6d configured redirects (`SRV-RDIR-001`/`002`/`003`: phase-6 first-match-wins iteration with literal / glob / `:name`-pattern source matching, `type` override for any 3xx, absolute / scheme-relative / relative destination handling per Q-007), the Stage-6e configured rewrites + `--single` SPA fallback (`SRV-RWRT-001`, `SRV-CLI-008`: phase-7 chained recursion mirroring `applyRewrites` at `serve-handler/src/index.js:91-117`, with an irserve-only depth cap of 64 per D-014; `--single` injects a synthetic `**` rewrite at config-load time per `main.ts:78-90`), the Stage-6f cross-cutting bundle (`SRV-FILE-003` custom `<status>.html` from served root, `SRV-SEC-001` full wire-level surface — strict `%xx` syntax + lexical `..` containment both yielding 400 — and `SRV-SEC-002` single-pass URL decode, plus `SRV-HDR-001`/`002` custom response headers with accumulate / case-insensitive override / 3xx-skip / `value: null` prune), and the Stage-6g directory listing branch (`SRV-DLST-001`/`002`/`003`: phase 11 with HTML / JSON content negotiation; `directoryListing: bool | string[]` scope; hardcoded `[".DS_Store", ".git"]` defaults plus user `unlisted` globs; `renderSingle` short-circuit checked against the unfiltered count per reference; D-007 sanitization with `"."`/`"sub"`/`"sub/deep"` JSON shape; listing 200 responses bypass `apply_custom_headers` mirroring reference). Remaining capabilities are deferred per `D-008`/`D-009`/`D-010`/`D-011`/`D-012`/`D-013`/`D-014`/`D-015` (see `docs/reference/serve/decisions.md`).
+The current binary covers the Stage-5b strict-L0 SRVs (`SRV-CLI-001/002/007/019`, `SRV-FILE-001/002/004/005`), the Stage-6a `serve.json` loader surface (`SRV-CFG-001`, `SRV-CFG-002`, `SRV-CLI-009`), the Stage-6b routing normalization phases (`SRV-ROUT-003` `trailingSlash` add, `SRV-ROUT-004` `trailingSlash` strip, `SRV-ROUT-005` silent multi-slash collapse), the Stage-6c `cleanUrls` phases (`SRV-ROUT-001` `.html`/`/index` 301, `SRV-ROUT-002` extensionless `<P>/index.html`-then-`<P>.html` resolution; both `bool` and `string[]` glob forms), the Stage-6d configured redirects (`SRV-RDIR-001`/`002`/`003`: phase-6 first-match-wins iteration with literal / glob / `:name`-pattern source matching, `type` override for any 3xx, absolute / scheme-relative / relative destination handling per Q-007), the Stage-6e configured rewrites + `--single` SPA fallback (`SRV-RWRT-001`, `SRV-CLI-008`: phase-7 chained recursion mirroring `applyRewrites` at `serve-handler/src/index.js:91-117`, with an irserve-only depth cap of 64 per D-014; `--single` injects a synthetic `**` rewrite at config-load time per `main.ts:78-90`), the Stage-6f cross-cutting bundle (`SRV-FILE-003` custom `<status>.html` from served root, `SRV-SEC-001` full wire-level surface — strict `%xx` syntax + lexical `..` containment both yielding 400 — and `SRV-SEC-002` single-pass URL decode, plus `SRV-HDR-001`/`002` custom response headers with accumulate / case-insensitive override / 3xx-skip / `value: null` prune), the Stage-6g directory listing branch (`SRV-DLST-001`/`002`/`003`: phase 11 with HTML / JSON content negotiation; `directoryListing: bool | string[]` scope; hardcoded `[".DS_Store", ".git"]` defaults plus user `unlisted` globs; `renderSingle` short-circuit checked against the unfiltered count per reference; D-007 sanitization with `"."`/`"sub"`/`"sub/deep"` JSON shape; listing 200 responses bypass `apply_custom_headers` mirroring reference), and the Stage-6h CLI fill-in (`SRV-CLI-003` `tcp://host:port` URI form with Q-001 defaults host=`localhost`/port=`3000`, `SRV-CLI-006` `-p` deprecated alias, `SRV-CLI-010` `-C`/`--cors` enabling all four reference CORS headers — `access-control-allow-origin: *`, `access-control-allow-headers: *`, `access-control-allow-credentials: true`, `access-control-allow-private-network: true` — applied post-dispatch so they ride on 3xx redirects too, `SRV-CLI-014` `-d`/`--debug` with elapsed-ms suffix on the per-request log, `SRV-CLI-015` `-L`/`--no-request-logging` silencing the per-request log line, and `SRV-CLI-016` `--no-port-switching` enforcing the documented contract — default retry on `EADDRINUSE`, flag-set non-zero exit — per D-016 since the reference's flag is a no-op in v14+ via vercel/serve#751). Remaining capabilities are deferred per `D-008`/`D-009`/`D-010`/`D-011`/`D-012`/`D-013`/`D-014`/`D-015`/`D-016` (see `docs/reference/serve/decisions.md`).
 
 ```bash
 mkdir -p _tmp && echo hello > _tmp/index.html
@@ -238,14 +239,46 @@ curl -i http://127.0.0.1:3010/secret.txt                             # 200; unli
 # rm -rf _tmp/*; mkdir _tmp/media; cp some.png _tmp/media/photo.png
 curl -i http://127.0.0.1:3010/media/                                 # 200, image/png, body is photo.png bytes (no listing)
 
+# tcp:// listen URI (Stage 6h, SRV-CLI-003).
+cargo run -- --listen tcp://127.0.0.1:3010 _tmp
+curl -i http://127.0.0.1:3010/                   # 200
+# Q-001 default port (3000) when omitted:
+cargo run -- --listen tcp://localhost _tmp
+curl -i http://localhost:3000/                   # 200
+
+# `-p` deprecated alias for `--listen` (Stage 6h, SRV-CLI-006).
+cargo run -- -p 3011 _tmp
+curl -i http://127.0.0.1:3011/                   # 200
+
+# --cors enables all four reference CORS headers (Stage 6h, SRV-CLI-010).
+cargo run -- --cors --listen 3010 _tmp
+curl -i http://127.0.0.1:3010/                   # 200 + 4 access-control-* headers
+
+# --no-port-switching (Stage 6h, SRV-CLI-016, D-016): refuse fallback on a busy port.
+# Terminal A:
+cargo run -- --listen 3010 _tmp
+# Terminal B (default — retries):
+cargo run -- --listen 3010 _tmp
+# stderr: "warning: listen address 127.0.0.1:3010 is already in use, switched to 127.0.0.1:NNNNN"
+# Terminal B (with flag — exits):
+cargo run -- --no-port-switching --listen 3010 _tmp
+# stderr: "error: listen address 127.0.0.1:3010 is already in use (--no-port-switching is set)"; non-zero exit.
+
+# --debug + --no-request-logging (Stage 6h, SRV-CLI-014/015).
+cargo run -- --debug --listen 3010 _tmp
+curl -s http://127.0.0.1:3010/ > /dev/null
+# stdout: "GET / -> 200 (Xms)"
+cargo run -- --no-request-logging --listen 3010 _tmp
+curl -s http://127.0.0.1:3010/ > /dev/null
+# stdout: (empty)
+
 ./target/release/irserve --help        # exit 0
 ./target/release/irserve -v            # exit 0, prints version
 ./target/release/irserve a b           # exit non-zero, two positionals rejected
-./target/release/irserve --no-port-switching   # exit non-zero, deferred flag
 ```
 
-What is NOT yet observable (still deferred to the remaining Stage 6 sub-stages):
-`tcp://host:port` URI form and the rest of the CLI fill-in (6h), and `ETag`/`Last-Modified`/conditional GETs (Stage 7+).
+What is NOT yet observable (still deferred to Stage 7+ L3 polish):
+`ETag`/`Last-Modified`/conditional GETs, full L3 CORS preflight surface, gzip compression, symlink resolution, TLS.
 
 ## References
 

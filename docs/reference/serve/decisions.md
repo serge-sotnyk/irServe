@@ -26,11 +26,11 @@ Impact: IrServe MUST NOT be used as a drop-in replacement for `serve-handler` in
 
 ## D-002: No exact terminal output / stdout formatting
 
-Date: 2026-05-07
-Affected requirements: SRV-CLI-014 (`-d`/`--debug`), SRV-CLI-015 (`-L`/`--no-request-logging`), SRV-CLI-016 (port-switching warning), SRV-CLI-019 (`--help`/`--version`)
+Date: 2026-05-07 (amended 2026-05-10 for the SRV-CLI-016 scope clarification)
+Affected requirements: SRV-CLI-014 (`-d`/`--debug`), SRV-CLI-015 (`-L`/`--no-request-logging`), SRV-CLI-016 (port-switching warning text only — the bind/exit behavior IS contractual; only the wording is implementation-defined per D-002), SRV-CLI-019 (`--help`/`--version`)
 Status: rejected
 Reason: The `serve` CLI uses `chalk`, `boxen`, and a specific log format (date prefix, IP, status, ms-elapsed). Mirroring this byte-for-byte adds churn without functional value and is excluded by anti-hallucination rule #5.
-Impact: Oracle tests MUST NOT compare stdout/stderr text. Verbosity flags (`-d`, `-L`) are accepted; their effect on logging is implementation-defined.
+Impact: Oracle tests MUST NOT compare stdout/stderr text. Verbosity flags (`-d`, `-L`) are accepted; their effect on logging is implementation-defined. Per the Stage-6h amendment: SRV-CLI-016's bind/exit semantics (default retry on `EADDRINUSE` vs. non-zero exit under `--no-port-switching`) are contractual per D-016; only the stderr message wording falls under D-002.
 
 ## D-003: No exact HTML/CSS markup of the directory listing or error pages
 
@@ -279,3 +279,15 @@ Codex review round 3 sharpened three corners of the per-branch error-response wi
 9. **Fallback HTML force-overrides Content-Type.** Reference forces `headers['Content-Type'] = 'text/html; charset=utf-8'` AFTER `getHeaders` in the fallback branch (`index.js:519-520`), so a user rule cannot make a 4xx fallback emit `application/x-custom`. IrServe now mirrors via a final `response.headers_mut().insert(CONTENT_TYPE, "text/html; charset=utf-8")` after `apply_custom_headers` runs in the fallback path. The custom-page branch keeps the merge-with-override semantics (a user Content-Type wins over the default `text/html`, matching reference's `Object.assign(defaultHeaders, related)`).
 
 10. **Success-path header matching uses the lexical resolved URL, not the canonical PathBuf.** Round 2 derived the matching path from `ResolveOutcome::File(canonical_p).strip_prefix(canonical_root)` — but on Windows `tokio::fs::canonicalize` folds the file's case to its on-disk casing, so a request `GET /ASSET.CSS` resolved to a file named `asset.css` would match a `**/*.css` rule under irserve while reference's case-sensitive minimatch (working on the lexical `path.relative` of the un-canonicalized `absolutePath`) does not. Round 3 tracks a `lexical_url: String` alongside `ResolveOutcome` in `dispatch_inner`: the cleanUrls candidate it picked (`/page/index.html` or `/page.html`), the rewrite's destination string when a rewrite matched, otherwise the original `url_path`. The canonical `PathBuf` is used only for `tokio::fs::read`, never for header matching.
+
+## D-016: `--no-port-switching` honors the documented contract (upstream no-op)
+
+Date: 2026-05-10
+Affected requirements: SRV-CLI-016
+Status: adapted
+Reason: The reference declares `--no-port-switching` at `third_party/serve/source/utilities/cli.ts:158` (clap-style flag declaration in `args` definition), but `server.ts`'s `startServer` never reads it: the busy-port branch at `server.ts:166-181` unconditionally retries on `port: 0` regardless of any flag value. The behavior is a known upstream regression — [vercel/serve#751](https://github.com/vercel/serve/issues/751), open since 2022-12, introduced in v14.0.0 (it worked in v13.0.4). On the reference, both default and `--no-port-switching` collapse to "retry on `port: 0`"; the documented contract ("refuse fallback") has been wire-unreachable for ~3 years. D-004 (no bug-for-bug parity) explicitly authorizes irserve to honor the **documented** contract rather than mirror the regression. We do not file a new upstream issue — duplicate. The probe runner already injects `--no-port-switching` for every reference invocation (`tools/probe/run.mjs:172`) but it is a no-op on the reference; the documented contract was never wire-tested upstream, which is precisely why the runner's reference behavior matches what the runner expected.
+Impact: irserve's behavior:
+- **default** (`--no-port-switching` absent): retry on `SocketAddr::new(addr.ip(), 0)` when the requested address returns `ErrorKind::AddrInUse`. Stderr emits a one-line warning (format implementation-defined per D-002).
+- **`--no-port-switching` set**: surface `Error::PortInUse { addr }` for non-zero exit. Stderr emits a one-line error (format implementation-defined per D-002).
+
+The bind/exit decision is contractual — D-002 was amended in the same change to clarify that only the warning/error wording is implementation-defined. Failure-mode is verified by integration tests in `crates/irserve-core/src/server.rs::tests` (`bind_fails_on_addr_in_use_when_switching_disabled`, `bind_retries_on_addr_in_use_when_switching_allowed`, `bind_succeeds_on_free_port`), not by an oracle probe — pre-binding a port from the runner before the server spawns is impractical for one case (would require a separate worker holding the socket across the spawn). The runner does NOT inject `--no-port-switching` for irserve invocations: irserve's default retry is unobservable on the runner's auto-allocated free ports, so injection would be cosmetic. Anyone validating irserve against the reference must remember the flag is a no-op upstream; comparison must use a test harness that actually pre-binds the requested port.
