@@ -25,6 +25,7 @@ Concretely: take `vercel/serve` (a small but real Node.js static file server), r
 - **Stage 6d — configured redirects.** Done.
 - **Stage 6e — configured rewrites + `--single`.** Done.
 - **Stage 6f — custom error pages, full L2 security, custom response headers.** Done.
+- **Stage 6g — directory listing (HTML / JSON, `unlisted`, `renderSingle`).** Done.
 
 Rust code lives under `crates/irserve` (the bin) and `crates/irserve-core` (the lib). The first slice (Stage 5b) is strict-L0: eight SRVs (`SRV-CLI-001/002/007/019`, `SRV-FILE-001/002/004/005`). Stage 6a un-defers SRV-CFG-001, SRV-CFG-002, and SRV-CLI-009 (`-c/--config`); the remaining capabilities are still deferred per `D-008`/`D-009`.
 
@@ -64,7 +65,7 @@ The methodology runs in nine stages. Status is updated when entering or completi
 | 6d | Configured redirects | `openspec/changes/006-configured-redirects` | done |
 | 6e | Configured rewrites + `--single` SPA fallback | `openspec/changes/007-configured-rewrites` | done |
 | 6f | Custom error pages, full L2 security, custom response headers | `openspec/changes/008-error-pages-and-security` | done |
-| 6g | Directory listing (HTML / JSON, `unlisted`, `renderSingle`) | `openspec/changes/009-directory-listing` | todo |
+| 6g | Directory listing (HTML / JSON, `unlisted`, `renderSingle`) | `openspec/changes/009-directory-listing` | done |
 | 6h | CLI fill-in (`tcp://`, `-p`, `--cors` L1, `--debug`, `--no-request-logging`, `--no-port-switching`) | `openspec/changes/010-cli-fill-in` | todo |
 | 7 | Polish: terminal output, Windows quirks, edge cases (L3+) | `openspec/changes/011...` | todo |
 
@@ -131,9 +132,9 @@ curl -i http://127.0.0.1:3010/
 
 Rust toolchain (1.81+) is required to build and test `irserve`. `cargo build` produces the bin under `target/debug/irserve(.exe)`. `cargo test --test oracle` builds the bin and shells out to `node tools/probe/run.mjs --all --target=irserve --snapshot=verify`; Node 18+ on PATH is a prerequisite (already needed for the reference oracle bundle above).
 
-## Try IrServe (post-6f)
+## Try IrServe (post-6g)
 
-The current binary covers the Stage-5b strict-L0 SRVs (`SRV-CLI-001/002/007/019`, `SRV-FILE-001/002/004/005`), the Stage-6a `serve.json` loader surface (`SRV-CFG-001`, `SRV-CFG-002`, `SRV-CLI-009`), the Stage-6b routing normalization phases (`SRV-ROUT-003` `trailingSlash` add, `SRV-ROUT-004` `trailingSlash` strip, `SRV-ROUT-005` silent multi-slash collapse), the Stage-6c `cleanUrls` phases (`SRV-ROUT-001` `.html`/`/index` 301, `SRV-ROUT-002` extensionless `<P>/index.html`-then-`<P>.html` resolution; both `bool` and `string[]` glob forms), the Stage-6d configured redirects (`SRV-RDIR-001`/`002`/`003`: phase-6 first-match-wins iteration with literal / glob / `:name`-pattern source matching, `type` override for any 3xx, absolute / scheme-relative / relative destination handling per Q-007), the Stage-6e configured rewrites + `--single` SPA fallback (`SRV-RWRT-001`, `SRV-CLI-008`: phase-7 chained recursion mirroring `applyRewrites` at `serve-handler/src/index.js:91-117`, with an irserve-only depth cap of 64 per D-014; `--single` injects a synthetic `**` rewrite at config-load time per `main.ts:78-90`), and the Stage-6f cross-cutting bundle (`SRV-FILE-003` custom `<status>.html` from served root, `SRV-SEC-001` full wire-level surface — strict `%xx` syntax + lexical `..` containment both yielding 400 — and `SRV-SEC-002` single-pass URL decode, plus `SRV-HDR-001`/`002` custom response headers with accumulate / case-insensitive override / 3xx-skip / `value: null` prune). Per-field behavior beyond what 6a–6f wire (directory listing) is parsed into the typed configuration but not yet observable; remaining capabilities are deferred per `D-008`/`D-009`/`D-010`/`D-011`/`D-012`/`D-013`/`D-014`/`D-015` (see `docs/reference/serve/decisions.md`).
+The current binary covers the Stage-5b strict-L0 SRVs (`SRV-CLI-001/002/007/019`, `SRV-FILE-001/002/004/005`), the Stage-6a `serve.json` loader surface (`SRV-CFG-001`, `SRV-CFG-002`, `SRV-CLI-009`), the Stage-6b routing normalization phases (`SRV-ROUT-003` `trailingSlash` add, `SRV-ROUT-004` `trailingSlash` strip, `SRV-ROUT-005` silent multi-slash collapse), the Stage-6c `cleanUrls` phases (`SRV-ROUT-001` `.html`/`/index` 301, `SRV-ROUT-002` extensionless `<P>/index.html`-then-`<P>.html` resolution; both `bool` and `string[]` glob forms), the Stage-6d configured redirects (`SRV-RDIR-001`/`002`/`003`: phase-6 first-match-wins iteration with literal / glob / `:name`-pattern source matching, `type` override for any 3xx, absolute / scheme-relative / relative destination handling per Q-007), the Stage-6e configured rewrites + `--single` SPA fallback (`SRV-RWRT-001`, `SRV-CLI-008`: phase-7 chained recursion mirroring `applyRewrites` at `serve-handler/src/index.js:91-117`, with an irserve-only depth cap of 64 per D-014; `--single` injects a synthetic `**` rewrite at config-load time per `main.ts:78-90`), the Stage-6f cross-cutting bundle (`SRV-FILE-003` custom `<status>.html` from served root, `SRV-SEC-001` full wire-level surface — strict `%xx` syntax + lexical `..` containment both yielding 400 — and `SRV-SEC-002` single-pass URL decode, plus `SRV-HDR-001`/`002` custom response headers with accumulate / case-insensitive override / 3xx-skip / `value: null` prune), and the Stage-6g directory listing branch (`SRV-DLST-001`/`002`/`003`: phase 11 with HTML / JSON content negotiation; `directoryListing: bool | string[]` scope; hardcoded `[".DS_Store", ".git"]` defaults plus user `unlisted` globs; `renderSingle` short-circuit checked against the unfiltered count per reference; D-007 sanitization with `"."`/`"sub"`/`"sub/deep"` JSON shape; listing 200 responses bypass `apply_custom_headers` mirroring reference). Remaining capabilities are deferred per `D-008`/`D-009`/`D-010`/`D-011`/`D-012`/`D-013`/`D-014`/`D-015` (see `docs/reference/serve/decisions.md`).
 
 ```bash
 mkdir -p _tmp && echo hello > _tmp/index.html
@@ -216,6 +217,27 @@ curl -i 'http://127.0.0.1:3010/%zz'                                  # 400 (malf
 # echo 'body{}' > _tmp/asset.css
 curl -i http://127.0.0.1:3010/asset.css                              # 200, x-custom: yes, cache-control: public, max-age=600
 
+# Directory listing (Stage 6g). Default config — start in a directory
+# without index.html and request its root:
+# rm _tmp/index.html; touch _tmp/a.txt _tmp/b.txt; mkdir _tmp/sub
+curl -i http://127.0.0.1:3010/                                       # 200, text/html, listing of a.txt / b.txt / sub/
+curl -i -H 'Accept: application/json' http://127.0.0.1:3010/         # 200, application/json, {"files":[...],"directory":".","paths":[]}
+
+# Disable listing globally (SRV-DLST-001). In _tmp/serve.json:
+# {"directoryListing": false}
+curl -i http://127.0.0.1:3010/                                       # 404
+
+# unlisted filter (SRV-DLST-002). In _tmp/serve.json:
+# {"unlisted":["secret.txt"]}
+# echo shh > _tmp/secret.txt; touch _tmp/.DS_Store
+curl -i http://127.0.0.1:3010/                                       # 200; listing omits secret.txt and .DS_Store
+curl -i http://127.0.0.1:3010/secret.txt                             # 200; unlisted only hides from listings, not from direct fetch
+
+# renderSingle (SRV-DLST-003). In _tmp/serve.json:
+# {"renderSingle": true}
+# rm -rf _tmp/*; mkdir _tmp/media; cp some.png _tmp/media/photo.png
+curl -i http://127.0.0.1:3010/media/                                 # 200, image/png, body is photo.png bytes (no listing)
+
 ./target/release/irserve --help        # exit 0
 ./target/release/irserve -v            # exit 0, prints version
 ./target/release/irserve a b           # exit non-zero, two positionals rejected
@@ -223,7 +245,7 @@ curl -i http://127.0.0.1:3010/asset.css                              # 200, x-cu
 ```
 
 What is NOT yet observable (still deferred to the remaining Stage 6 sub-stages):
-directory listing (6g), `tcp://host:port` URI form and the rest of the CLI fill-in (6h), and `ETag`/`Last-Modified`/conditional GETs (Stage 7+).
+`tcp://host:port` URI form and the rest of the CLI fill-in (6h), and `ETag`/`Last-Modified`/conditional GETs (Stage 7+).
 
 ## References
 

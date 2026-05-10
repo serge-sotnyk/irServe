@@ -363,7 +363,32 @@ async fn dispatch_inner(
             )
             .await
             {
-                Ok(RenderResult::Direct(resp)) => (resp, None),
+                Ok(RenderResult::Direct(resp)) => {
+                    // When `directoryListing` is off but `renderSingle`
+                    // is on, we still ran the renderer to give the
+                    // count-of-1 short-circuit a chance to fire. If
+                    // it didn't (count != 1, or the lone entry is a
+                    // directory), the listing must NOT be emitted —
+                    // mirrors reference's `applicable + renderSingle`
+                    // at `serve-handler/src/index.js:336-374` where
+                    // the post-loop `return {directory: output}`
+                    // path is reached only when listing IS
+                    // applicable.
+                    if listing_applicable {
+                        (resp, None)
+                    } else {
+                        let resp = error_response(
+                            StatusCode::NOT_FOUND,
+                            req.headers(),
+                            root,
+                            header_rules,
+                            &decoded_path,
+                            false,
+                        )
+                        .await;
+                        (resp, None)
+                    }
+                }
                 Ok(RenderResult::Single { path, bytes }) => {
                     // Headers-path is the URL form `<request>/<filename>`.
                     // Reference's `getHeaders(.., absolutePath, stats)` at
