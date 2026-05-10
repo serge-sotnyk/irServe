@@ -1,0 +1,42 @@
+{
+  "id": "redirects-backslash-meta",
+  "description": "Codex round 9 P1: empirical probe of minimatch 3.1.5's `\\X` handling. Reference behavior: `\\X` is transparent — the backslash is effectively stripped and the meta-character keeps its glob meaning for X in `*`/`?`/`[`/`{`. The `\\.` case (round 8) admits leading-dot paths because the de-escaped form starts with a literal `.`; the same de-escape uniformly applies to all glob meta characters but they retain their meta meaning when they're, well, meta. Locks the round-9 fix that reverted the round-8 over-generalization (`backslash_escape(true)` on globset which made `\\*` literal-`*`).",
+  "fixture": {
+    "files": {
+      "_marker.txt": "marker\n"
+    },
+    "serveJson": {
+      "redirects": [
+        { "source": "/s/\\*", "destination": "/star-hit" },
+        { "source": "/q/\\?", "destination": "/qmark-hit" },
+        { "source": "/br/\\[ab]", "destination": "/bracket-hit" },
+        { "source": "/bc/\\{a,b}", "destination": "/brace-hit" }
+      ]
+    }
+  },
+  "runner": {
+    "l0": {
+      "clean": [
+        "escaped_star_keeps_glob",
+        "escaped_question_keeps_glob",
+        "escaped_bracket_keeps_glob_a",
+        "escaped_bracket_keeps_glob_b",
+        "escaped_brace_keeps_glob_a"
+      ],
+      "contentLengthMayDiffer": [
+        "escaped_star_keeps_glob",
+        "escaped_question_keeps_glob",
+        "escaped_bracket_keeps_glob_a",
+        "escaped_bracket_keeps_glob_b",
+        "escaped_brace_keeps_glob_a"
+      ]
+    }
+  },
+  "requests": [
+    { "name": "escaped_star_keeps_glob", "method": "GET", "path": "/s/foo" },
+    { "name": "escaped_question_keeps_glob", "method": "GET", "path": "/q/a" },
+    { "name": "escaped_bracket_keeps_glob_a", "method": "GET", "path": "/br/a" },
+    { "name": "escaped_bracket_keeps_glob_b", "method": "GET", "path": "/br/b" },
+    { "name": "escaped_brace_keeps_glob_a", "method": "GET", "path": "/bc/a" }
+  ]
+}

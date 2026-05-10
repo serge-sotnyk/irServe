@@ -228,28 +228,35 @@ fn classify_pattern_segment(seg: &str) -> Result<PatSeg, globset::Error> {
     if seg == "**" {
         return Ok(PatSeg::DoubleStar);
     }
-    let has_glob = seg
+    // Codex review round 9 P1 corrected the backslash handling.
+    // Empirical probe of minimatch 3.1.5 (the version pinned by
+    // serve-handler) shows that `\X` in a pattern is effectively
+    // transparent — the backslash is not consumed as an escape
+    // for X in `*`/`?`/`[`/`{`. Specifically:
+    //   * `/s/\*` matches `/s/foo` (the `*` is still wildcard).
+    //   * `/q/\?` matches `/q/a` (the `?` is still single-char glob).
+    //   * `/br/\[ab]` matches `/br/a` (the `[ab]` is still bracket class).
+    //   * `/bc/\{a,b}` matches `/bc/a` (the `{a,b}` is still alternation).
+    // The ONLY observable effect of `\.` is to bypass the dot
+    // rule (since the de-escaped form starts with literal `.`).
+    // We mirror by stripping `\X` to `X` uniformly before
+    // classifying — that gives minimatch-faithful behavior for
+    // all five cases. The previous round-8 fix used
+    // `GlobBuilder::backslash_escape(true)` which made globset
+    // treat `\*` as literal `*` (under-matching).
+    let de_escaped = de_escape(seg);
+    let has_glob = de_escaped
         .chars()
         .any(|c| matches!(c, '*' | '?' | '[' | '{'));
     if !has_glob {
-        // Literal segment (no glob meta). De-escape `\X` so a
-        // segment like `\.x` literal-matches a `.x` path
-        // segment. Codex review round 8 P2 — minimatch and
-        // path-to-regexp both treat `\X` as literal `X`.
-        return Ok(PatSeg::Literal(de_escape(seg)));
+        return Ok(PatSeg::Literal(de_escaped));
     }
-    // `backslash_escape(true)` lets globset interpret `\X` as a
-    // literal `X` (mirrors minimatch). Without this, a Wildcard
-    // segment like `\.*` would treat `\` as a literal backslash
-    // character and never match a `.X` path. Codex review round
-    // 8 P2.
-    let glob = GlobBuilder::new(seg)
+    let glob = GlobBuilder::new(&de_escaped)
         .literal_separator(true)
-        .backslash_escape(true)
         .build()?;
     Ok(PatSeg::Wildcard {
         matcher: glob.compile_matcher(),
-        starts_with_dot: segment_can_start_with_dot(seg),
+        starts_with_dot: segment_can_start_with_dot(&de_escaped),
     })
 }
 
@@ -258,16 +265,13 @@ fn classify_pattern_segment(seg: &str) -> Result<PatSeg, globset::Error> {
 /// before the dot rule is applied: `{.x,y}` admits a leading-dot
 /// path segment because the `.x` alternative starts with `.`. The
 /// segment-leading `.` itself (no braces) trivially returns true.
-/// Backslash-escaped leading dot (`\.` followed by anything) also
-/// counts — minimatch's `\X` is a literal `X`, and the dot rule
-/// looks at the EFFECTIVE first character (after escape
-/// processing). Codex review round 6 P1 added the brace case;
-/// round 8 P2 added the `\.` case.
+/// Codex review round 6 P1 added the brace case. (Codex round 9
+/// removed the round-8 `\.` check because the caller now
+/// de-escapes the segment before classification, so a `\.`-leading
+/// pattern becomes a `.`-leading one and falls into the trivial
+/// branch.)
 fn segment_can_start_with_dot(seg: &str) -> bool {
     if seg.starts_with('.') {
-        return true;
-    }
-    if seg.starts_with("\\.") {
         return true;
     }
     if !seg.starts_with('{') {
@@ -1133,6 +1137,53 @@ mod tests {
         let (target, _) = compute_configured_redirects("/a/./foo", &rules)
             .expect("`.` segment should resolve before regex captures :id");
         assert_eq!(target, "/new/foo");
+    }
+
+    #[test]
+    fn wildcard_with_escaped_star_keeps_glob_meta() {
+        // Codex review round 9 P1: minimatch 3.1.5 (the version
+        // pinned by serve-handler) treats `\X` for X in `*`/`?`/
+        // `[`/`{` as transparent — the backslash is stripped but
+        // the meta-character keeps its glob meaning. Empirical:
+        // `m('/s/foo', '/s/\\*')` returns true. Round 8's
+        // `backslash_escape(true)` made globset interpret `\*` as
+        // a literal `*`, under-matching real paths. Round 9
+        // strips `\` uniformly and keeps the meta meaning.
+        let rules = compile(&[rule("/s/\\*", "/hit", None)]);
+        let (target, _) = compute_configured_redirects("/s/foo", &rules)
+            .expect("`\\*` should match any single segment (the `*` keeps glob meaning)");
+        assert_eq!(target, "/hit");
+        // Literal `*` in the path also matches (the `*` glob
+        // matches the literal char `*`).
+        assert!(compute_configured_redirects("/s/*", &rules).is_some());
+    }
+
+    #[test]
+    fn wildcard_with_escaped_question_keeps_glob_meta() {
+        let rules = compile(&[rule("/q/\\?", "/hit", None)]);
+        let (target, _) = compute_configured_redirects("/q/a", &rules)
+            .expect("`\\?` should match any single character");
+        assert_eq!(target, "/hit");
+    }
+
+    #[test]
+    fn wildcard_with_escaped_bracket_keeps_glob_meta() {
+        let rules = compile(&[rule("/br/\\[ab]", "/hit", None)]);
+        let (target, _) = compute_configured_redirects("/br/a", &rules)
+            .expect("`\\[ab]` should match `a` or `b` (bracket class still active)");
+        assert_eq!(target, "/hit");
+        let (target, _) = compute_configured_redirects("/br/b", &rules).unwrap();
+        assert_eq!(target, "/hit");
+    }
+
+    #[test]
+    fn wildcard_with_escaped_brace_keeps_glob_meta() {
+        let rules = compile(&[rule("/bc/\\{a,b}", "/hit", None)]);
+        let (target, _) = compute_configured_redirects("/bc/a", &rules)
+            .expect("`\\{a,b}` should expand alternation");
+        assert_eq!(target, "/hit");
+        let (target, _) = compute_configured_redirects("/bc/b", &rules).unwrap();
+        assert_eq!(target, "/hit");
     }
 
     #[test]

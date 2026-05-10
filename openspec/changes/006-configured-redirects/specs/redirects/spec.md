@@ -18,10 +18,10 @@ divergence is tracked as Q-012 in
 cleanUrls capability (see SRV-ROUT-001/002).
 
 Evidence: SRV-RDIR-001 (status: verified, level: L2); oracle:
-ORC-030, ORC-084..ORC-122 (39 anchors total covering literal,
-glob, `:name`, `*`, `**`, brace, bracket, escape, negation,
-resolve, and dot-rule corners — see `oracle-matrix.md` for the
-full enumeration).
+ORC-030 plus the contiguous range ORC-084..ORC-127 (40 anchors
+total covering literal, glob, `:name`, `*`, `**`, brace, bracket,
+backslash escape, negation, resolve, and dot-rule corners — see
+`oracle-matrix.md` for the full enumeration).
 
 Note: Redirects fire after the cleanUrls / trailingSlash redirect
 stage; see the routing capability's "Operation precedence in the

@@ -643,10 +643,61 @@
   ORC-122 (using `ORC-084..ORC-122` shorthand);
   `006-configured-redirects` delta `specs/redirects/spec.md`
   SRV-RDIR-001 oracle list collapsed to the same shorthand
-  (39 anchors total — too many to enumerate inline).
+  (40 anchors total — `ORC-030` plus the contiguous 39-anchor
+  range `ORC-084..ORC-122`. Codex round 9 P3 corrected the
+  earlier "39 anchors total" miscount).
 - [x] 11.6 Verify: `cargo test -p irserve-core redirects` 80/80
   green (was 75); `cargo test --test oracle` 33 passed (was
   32, +1 case from new probe), 21 skipped, 0 failed; `node
   tools/probe/run.mjs --all --target=reference --snapshot=verify`
   54/54 (was 53); `npx -y @fission-ai/openspec@latest validate
+  --all --strict` — 14/14.
+
+## 12. Codex review round 9 (P1 + P3 fixes)
+
+- [x] 12.1 **P1 — backslash transparency for glob meta.** Round
+  8's `GlobBuilder::backslash_escape(true)` was over-broad.
+  Empirical probe of `minimatch@3.1.5` (the version pinned by
+  serve-handler — see `_minimatch_test.js`-style direct
+  invocation) shows `\X` is transparent for X in `*`/`?`/`[`/`{`:
+  the backslash is stripped but the meta-character keeps its
+  glob meaning. So `/s/\*` matches `/s/foo` (the `*` is still
+  wildcard). Round 8's flag made globset interpret `\*` as
+  literal `*`, under-matching real paths. Round 9 fix: remove
+  the `backslash_escape(true)` flag and `de_escape` each
+  segment before passing to globset / Literal classification.
+  This unifies handling: `\X` → `X` for all X, the dot rule
+  works naturally on the de-escaped first-char.
+- [x] 12.2 The `\.`-prefix branch in `segment_can_start_with_dot`
+  is now redundant (de-escaped `.X` hits the existing
+  `.`-prefix branch). Removed for clarity.
+- [x] 12.3 New unit tests in `redirects.rs`:
+  `wildcard_with_escaped_star_keeps_glob_meta`,
+  `wildcard_with_escaped_question_keeps_glob_meta`,
+  `wildcard_with_escaped_bracket_keeps_glob_meta`,
+  `wildcard_with_escaped_brace_keeps_glob_meta`. Existing round-8
+  tests (`literal_source_de_escapes_backslash_dot`,
+  `wildcard_with_escaped_dot_admits_leading_dot_path`) continue
+  to pass under the new uniform de-escape.
+- [x] 12.4 New probe `tools/probe/cases/redirects-backslash-meta.json`
+  (5 anchors): `\*` matches via wildcard glob, `\?` matches
+  single char, `\[ab]` matches bracket class members `a` and
+  `b`, `\{a,b}` expands alternation. ORC-123..127 added to
+  `oracle-matrix.md`.
+- [x] 12.5 **P3 — anchor count fix.** The round-8 wording in
+  the spec delta and tasks.md said "39 anchors total" for the
+  range `ORC-030, ORC-084..ORC-122`. The range `084..122` IS
+  39 anchors, plus `ORC-030` makes it 40. Updated to "40
+  anchors total" in both files.
+- [x] 12.6 D-012 in `decisions.md` extended with the round-9
+  correction; `design.md` §8 stop-the-line item 8 added;
+  `inventory.md` SRV-RDIR-001 oracle list extended through
+  ORC-127; `006-configured-redirects` delta
+  `specs/redirects/spec.md` updated to reflect the 40-anchor
+  total over `ORC-084..ORC-127`.
+- [x] 12.7 Verify: `cargo test -p irserve-core redirects` 84/84
+  green (was 80); `cargo test --test oracle` 34 passed (was
+  33, +1 case from new probe), 21 skipped, 0 failed; `node
+  tools/probe/run.mjs --all --target=reference --snapshot=verify`
+  55/55 (was 54); `npx -y @fission-ai/openspec@latest validate
   --all --strict` — 14/14.

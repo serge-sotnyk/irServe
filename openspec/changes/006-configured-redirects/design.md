@@ -458,6 +458,21 @@ plan:
    ORC-121 (Literal escape), ORC-122 (Wildcard escape admits
    dotfile).
 
+8. **Backslash transparency for glob meta (Codex round 9).**
+   Round 8's `backslash_escape(true)` was correct for `\.` but
+   over-generalized: empirical testing of `minimatch@3.1.5`
+   (pinned by serve-handler) shows `\*` / `\?` / `\[...]` /
+   `\{...}` are TRANSPARENT — the backslash is effectively
+   stripped but the meta-character keeps its glob meaning.
+   Decision: in `classify_pattern_segment`, `de_escape` the
+   segment first, then classify based on the de-escaped form.
+   globset compiles the de-escaped pattern with default
+   backslash semantics (no `backslash_escape(true)` flag). The
+   round-8 `\.`-prefix check in `segment_can_start_with_dot` is
+   now redundant — a de-escaped `.X` naturally hits the
+   `.`-prefix branch. Pinned by ORC-123 (`\*` keeps glob),
+   ORC-124 (`\?`), ORC-125/126 (`\[ab]`), ORC-127 (`\{a,b}`).
+
 ## 9. Hard stops
 
 - `third_party/` — read-only.
