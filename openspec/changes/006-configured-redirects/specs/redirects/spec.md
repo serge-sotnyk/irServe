@@ -116,9 +116,10 @@ in D-012 in `docs/reference/serve/decisions.md`):
   JS-specific case-folding table for limited real-world value.
 - **`\*\*`** (escaped consecutive stars) parses as TWO single-
   segment globs in minimatch (not globstar). IrServe treats it
-  as a single Wildcard segment via the round-10 de-escape-then-
-  classify path. Mirroring requires position-aware escape
-  parsing.
+  as DoubleStar/globstar via the round-10 de-escape-then-
+  classify path (`de_escape("\\*\\*")` → `"**"` →
+  `PatSeg::DoubleStar`). Mirroring requires position-aware
+  escape parsing. Pinned by ORC-128.
 - **`{a\,b,c}`** (brace alternation with escaped comma) triggers
   minimatch's quirky `\/`-separator regex. IrServe's brace
   parser splits at the un-escaped comma. Mirroring requires a
