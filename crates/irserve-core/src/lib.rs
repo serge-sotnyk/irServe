@@ -6,6 +6,7 @@ mod dispatch;
 mod mime;
 mod normalize;
 mod notfound;
+mod path_pattern;
 mod redirects;
 mod resolve;
 mod server;
