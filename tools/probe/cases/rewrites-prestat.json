@@ -1,0 +1,31 @@
+{
+  "id": "rewrites-prestat",
+  "description": "Phase 7 pre-stat asymmetry per openspec/specs/rewrites/spec.md:21-29 and serve-handler/src/index.js:608-642. Three anchors: (a) `extensioned_skipped`: has-extension request whose original file exists is served directly, rewrite does NOT fire; (b) `extensionless_wins`: extensionless rewrite displaces an existing original-path file (no pre-stat); (c) `extensionless_miss_falls_back`: extensionless request whose rewrite target doesn't exist falls back to the original-path's resolve (mirrors the reference's final `lstat(absolutePath)` at index.js:634-642 after `findRelated` returns null). Anchor (c) was the corner that exposed Codex round 1 P1. cleanUrls disabled in fixture to isolate phase-7 behavior.",
+  "fixture": {
+    "files": {
+      "page.html": "<p>page-original</p>\n",
+      "other.html": "<p>other-via-rewrite</p>\n",
+      "about": "<p>about-direct</p>\n",
+      "actual.html": "<p>actual-via-rewrite</p>\n",
+      "direct": "<p>direct-fallback</p>\n"
+    },
+    "serveJson": {
+      "cleanUrls": false,
+      "rewrites": [
+        { "source": "/page.html", "destination": "/other.html" },
+        { "source": "/about", "destination": "/actual.html" },
+        { "source": "/direct", "destination": "/missing.html" }
+      ]
+    }
+  },
+  "runner": {
+    "l0": {
+      "clean": ["extensioned_skipped", "extensionless_wins", "extensionless_miss_falls_back"]
+    }
+  },
+  "requests": [
+    { "name": "extensioned_skipped", "method": "GET", "path": "/page.html" },
+    { "name": "extensionless_wins", "method": "GET", "path": "/about" },
+    { "name": "extensionless_miss_falls_back", "method": "GET", "path": "/direct" }
+  ]
+}

@@ -1121,8 +1121,8 @@ Reference source:
 - README: yes — serve-handler README, `rewrites (Array)` section.
 - serve-handler source: `src/index.js:91-117` (`applyRewrites`) and `src/index.js:618-622` (apply when no direct stat is available).
 - Existing test: `set 'rewrites' config property to wildcard path`, `set 'rewrites' config property to non-matching path`, `set 'rewrites' config property to one-star wildcard path`, `set 'rewrites' config property to path segment` in `test/integration.test.js`.
-- Probe: `tools/probe/cases/rewrites-segment.json` (segment + SPA wildcard); `tools/probe/cases/rewrites-chain.json` (recursive chain — D-013).
-- Oracle test: ORC-028, ORC-029, ORC-148 (snapshots in tools/probe/snapshots/).
+- Probe: `tools/probe/cases/rewrites-segment.json` (segment + SPA wildcard); `tools/probe/cases/rewrites-chain.json` (recursive chain — D-013); `tools/probe/cases/rewrites-prestat.json` (pre-stat asymmetry: has-ext skipped, extensionless wins, extensionless rewrite-target-miss fallback to original — Codex round 1 P1); `tools/probe/cases/rewrites-extensioned-miss.json` (has-ext miss → rewrite resolves); `tools/probe/cases/prec-redirects-rewrites-rewrite-wins.json` (rewrite-wins side of redirects↔rewrites compose — Codex round 1 P2).
+- Oracle test: ORC-028, ORC-029, ORC-148, ORC-154, ORC-155, ORC-156, ORC-157, ORC-158 (snapshots in tools/probe/snapshots/).
 
 Requirement (draft):
 A `rewrites` entry `{source, destination}` matches the request path against `source` (minimatch or `path-to-regexp`). On match, the server responds with status 200 (no redirect) and serves the file at `destination` (with `path-to-regexp` segments interpolated). Whether rewrites are short-circuited by an existing original-path file depends on the path shape:

@@ -1,0 +1,57 @@
+{
+  "$schemaVersion": 1,
+  "case": "prec-redirects-rewrites-rewrite-wins",
+  "description": "Rewrite-wins side of the redirects↔rewrites compose corner of SRV-ROUT-006: when a request matches a rewrite but does NOT match any redirect, the rewrite fires (status 200). Companion to ORC-032 (`prec-rewrites-redirects#go_root`) which pins the redirect-wins side. cleanUrls disabled to keep the test focused on the redirect-vs-rewrite ordering.",
+  "fixture": {
+    "files": {
+      "api.html": "<p>api-via-rewrite</p>\n"
+    },
+    "serveJson": {
+      "cleanUrls": false,
+      "redirects": [
+        {
+          "source": "/old",
+          "destination": "/new"
+        }
+      ],
+      "rewrites": [
+        {
+          "source": "/api",
+          "destination": "/api.html"
+        }
+      ]
+    }
+  },
+  "serveArgs": [],
+  "volatileHeaders": [
+    "last-modified"
+  ],
+  "volatileBodies": [],
+  "requests": [
+    {
+      "name": "rewrite_fires_when_redirect_doesnt_match",
+      "request": {
+        "method": "GET",
+        "mode": "fetch",
+        "path": "/api"
+      },
+      "response": {
+        "body": {
+          "kind": "text",
+          "length": 23,
+          "sha256": "d30b014db6f932979285d680821e09ae0f3a91920e2e13c33b9edde1cd250da1",
+          "preview": "<p>api-via-rewrite</p>\n"
+        },
+        "headers": {
+          "accept-ranges": "bytes",
+          "content-length": "23",
+          "content-type": "text/html; charset=utf-8",
+          "etag": "\"a31021d69d21b615b325bccb991598756b6c9a39\"",
+          "vary": "Accept-Encoding"
+        },
+        "status": 200,
+        "statusText": "OK"
+      }
+    }
+  ]
+}

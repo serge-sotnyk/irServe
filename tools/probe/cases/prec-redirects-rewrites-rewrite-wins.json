@@ -1,0 +1,26 @@
+{
+  "id": "prec-redirects-rewrites-rewrite-wins",
+  "description": "Rewrite-wins side of the redirects↔rewrites compose corner of SRV-ROUT-006: when a request matches a rewrite but does NOT match any redirect, the rewrite fires (status 200). Companion to ORC-032 (`prec-rewrites-redirects#go_root`) which pins the redirect-wins side. cleanUrls disabled to keep the test focused on the redirect-vs-rewrite ordering.",
+  "fixture": {
+    "files": {
+      "api.html": "<p>api-via-rewrite</p>\n"
+    },
+    "serveJson": {
+      "cleanUrls": false,
+      "redirects": [
+        { "source": "/old", "destination": "/new" }
+      ],
+      "rewrites": [
+        { "source": "/api", "destination": "/api.html" }
+      ]
+    }
+  },
+  "runner": {
+    "l0": {
+      "clean": ["rewrite_fires_when_redirect_doesnt_match"]
+    }
+  },
+  "requests": [
+    { "name": "rewrite_fires_when_redirect_doesnt_match", "method": "GET", "path": "/api" }
+  ]
+}

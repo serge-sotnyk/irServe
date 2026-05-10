@@ -20,7 +20,12 @@ path when no further rule matches — mirroring the reference's
 `serve-handler/src/index.js:97`.
 
 Evidence: SRV-RWRT-001 (status: verified, level: L2); oracle:
-ORC-148 (`cases/rewrites-chain.json#chain_a_to_b_to_c`); D-013.
+ORC-148 (`cases/rewrites-chain.json#chain_a_to_b_to_c`); ORC-154
+(`cases/rewrites-prestat.json#extensioned_skipped`); ORC-155
+(`cases/rewrites-prestat.json#extensionless_wins`); ORC-156
+(`cases/rewrites-prestat.json#extensionless_miss_falls_back`);
+ORC-157 (`cases/rewrites-extensioned-miss.json#extensioned_falls_to_rewrite`);
+D-013.
 
 Implementation: `crates/irserve-core/src/rewrites.rs::apply_rewrites`
 mirrors `applyRewrites` at `serve-handler/src/index.js:91-117`. On

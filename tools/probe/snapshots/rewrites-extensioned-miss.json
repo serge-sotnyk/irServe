@@ -1,0 +1,51 @@
+{
+  "$schemaVersion": 1,
+  "case": "rewrites-extensioned-miss",
+  "description": "Has-extension request whose original file is missing falls into rewrite resolution. Rewrite `/missing.html → /index.html`; only /index.html exists. Request `GET /missing.html` triggers pre-stat (per phase-7 asymmetry per openspec/specs/rewrites/spec.md:24-26), pre-stat fails, rewrite is then consulted, rewritten path /index.html resolves, body of /index.html is served. Mirrors `findRelated`'s `rewrittenPath ? [rewrittenPath] : getPossiblePaths(...)` branch at serve-handler/src/index.js:618-632 — when a rewrite matches, the rewritten path is the only candidate tried, NOT cleanUrls candidates of the original path. cleanUrls disabled in fixture so we don't get distracted by phase-4 redirects.",
+  "fixture": {
+    "files": {
+      "index.html": "<p>index-fallback</p>\n"
+    },
+    "serveJson": {
+      "cleanUrls": false,
+      "rewrites": [
+        {
+          "source": "/missing.html",
+          "destination": "/index.html"
+        }
+      ]
+    }
+  },
+  "serveArgs": [],
+  "volatileHeaders": [
+    "last-modified"
+  ],
+  "volatileBodies": [],
+  "requests": [
+    {
+      "name": "extensioned_falls_to_rewrite",
+      "request": {
+        "method": "GET",
+        "mode": "fetch",
+        "path": "/missing.html"
+      },
+      "response": {
+        "body": {
+          "kind": "text",
+          "length": 22,
+          "sha256": "575abe60bb84e9f79b920e1779da6705335a0c30a456bfe21529375f12f1bf5c",
+          "preview": "<p>index-fallback</p>\n"
+        },
+        "headers": {
+          "accept-ranges": "bytes",
+          "content-length": "22",
+          "content-type": "text/html; charset=utf-8",
+          "etag": "\"55ac65c9b63ab27908f7d041848ed864a444ef8c\"",
+          "vary": "Accept-Encoding"
+        },
+        "status": 200,
+        "statusText": "OK"
+      }
+    }
+  ]
+}

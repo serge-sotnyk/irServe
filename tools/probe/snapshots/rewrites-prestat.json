@@ -1,0 +1,110 @@
+{
+  "$schemaVersion": 1,
+  "case": "rewrites-prestat",
+  "description": "Phase 7 pre-stat asymmetry per openspec/specs/rewrites/spec.md:21-29 and serve-handler/src/index.js:608-642. Three anchors: (a) `extensioned_skipped`: has-extension request whose original file exists is served directly, rewrite does NOT fire; (b) `extensionless_wins`: extensionless rewrite displaces an existing original-path file (no pre-stat); (c) `extensionless_miss_falls_back`: extensionless request whose rewrite target doesn't exist falls back to the original-path's resolve (mirrors the reference's final `lstat(absolutePath)` at index.js:634-642 after `findRelated` returns null). Anchor (c) was the corner that exposed Codex round 1 P1. cleanUrls disabled in fixture to isolate phase-7 behavior.",
+  "fixture": {
+    "files": {
+      "page.html": "<p>page-original</p>\n",
+      "other.html": "<p>other-via-rewrite</p>\n",
+      "about": "<p>about-direct</p>\n",
+      "actual.html": "<p>actual-via-rewrite</p>\n",
+      "direct": "<p>direct-fallback</p>\n"
+    },
+    "serveJson": {
+      "cleanUrls": false,
+      "rewrites": [
+        {
+          "source": "/page.html",
+          "destination": "/other.html"
+        },
+        {
+          "source": "/about",
+          "destination": "/actual.html"
+        },
+        {
+          "source": "/direct",
+          "destination": "/missing.html"
+        }
+      ]
+    }
+  },
+  "serveArgs": [],
+  "volatileHeaders": [
+    "last-modified"
+  ],
+  "volatileBodies": [],
+  "requests": [
+    {
+      "name": "extensioned_skipped",
+      "request": {
+        "method": "GET",
+        "mode": "fetch",
+        "path": "/page.html"
+      },
+      "response": {
+        "body": {
+          "kind": "text",
+          "length": 21,
+          "sha256": "f95dedc1e4c93937e3bb750eb96587ae2d8c0ecbc286fed02fb6c1ed13c29acd",
+          "preview": "<p>page-original</p>\n"
+        },
+        "headers": {
+          "accept-ranges": "bytes",
+          "content-length": "21",
+          "content-type": "text/html; charset=utf-8",
+          "etag": "\"76d4f34a948d2706d684839e5973ba292674cfbe\"",
+          "vary": "Accept-Encoding"
+        },
+        "status": 200,
+        "statusText": "OK"
+      }
+    },
+    {
+      "name": "extensionless_wins",
+      "request": {
+        "method": "GET",
+        "mode": "fetch",
+        "path": "/about"
+      },
+      "response": {
+        "body": {
+          "kind": "text",
+          "length": 26,
+          "sha256": "282cf433725b74c178abff0fabcd26c932c2398d0d504a33d4e47c945cf2b38a",
+          "preview": "<p>actual-via-rewrite</p>\n"
+        },
+        "headers": {
+          "accept-ranges": "bytes",
+          "content-length": "26",
+          "content-type": "text/html; charset=utf-8",
+          "etag": "\"773ee31c907aa25c11e2faf878df50f3747ec054\"",
+          "vary": "Accept-Encoding"
+        },
+        "status": 200,
+        "statusText": "OK"
+      }
+    },
+    {
+      "name": "extensionless_miss_falls_back",
+      "request": {
+        "method": "GET",
+        "mode": "fetch",
+        "path": "/direct"
+      },
+      "response": {
+        "body": {
+          "kind": "binary",
+          "length": 23,
+          "sha256": "21504f022170af3c4853d0c8c2f7afefa32cd9f98a7cf2245f8240301ecd2435"
+        },
+        "headers": {
+          "accept-ranges": "bytes",
+          "content-length": "23",
+          "etag": "\"3be81ad6b900405c801fa5eb390da3f86c80ceab\""
+        },
+        "status": 200,
+        "statusText": "OK"
+      }
+    }
+  ]
+}

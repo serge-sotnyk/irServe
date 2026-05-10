@@ -63,7 +63,10 @@ ORC-083 (trailingSlash↔redirects compose;
 ORC-148 (rewrite chaining;
 `cases/rewrites-chain.json#chain_a_to_b_to_c`), ORC-152
 (`cases/single-with-redirect.json#redirect_wins_over_single` —
-redirect wins over `--single` rewrite).
+explicit redirect wins over `--single` rewrite), ORC-158
+(`cases/prec-redirects-rewrites-rewrite-wins.json#rewrite_fires_when_redirect_doesnt_match`
+— rewrite-wins side of the redirects↔rewrites compose corner;
+companion to ORC-032's redirect-wins side).
 
 Implementation: `crates/irserve-core/src/dispatch.rs::dispatch`
 realizes the pipeline. Stages 1, 2, 5 (cleanUrls + trailingSlash)
@@ -81,12 +84,18 @@ the dispatcher's extension-aware fork:
 
 The redirects↔rewrites compose corner of SRV-ROUT-006 was already
 half-pinned by 6d (`prec-rewrites-redirects#go_root` — redirect-
-wins side); 6e closes the rewrite-wins side via
-`single-with-redirect#redirect_wins_over_single` (redirect still
-fires before `--single`'s catch-all rewrite, proving phase 6
-precedes phase 7). The cleanUrls↔rewrites compose corner is
-pinned by `prec-rewrites-redirects#page_html_cleanurl_default`
-(cleanUrls 301 fires for `/page.html` before any rewrite).
+wins side, when both rules match the same request). 6e closes the
+rewrite-wins side via the new probe
+`prec-redirects-rewrites-rewrite-wins#rewrite_fires_when_redirect_doesnt_match`
+(redirects + rewrites both configured, request matches only the
+rewrite → 200 with the rewrite's destination). The
+`--single`-vs-redirect ordering is pinned separately by
+`single-with-redirect#redirect_wins_over_single` (an explicit
+redirect fires before the synthetic `--single` rewrite, proving
+phase 6 still precedes phase 7 even for `--single`'s catch-all).
+The cleanUrls↔rewrites compose corner is pinned by
+`prec-rewrites-redirects#page_html_cleanurl_default` (cleanUrls 301
+fires for `/page.html` before any rewrite).
 
 #### Scenario: Redirect beats rewrite
 

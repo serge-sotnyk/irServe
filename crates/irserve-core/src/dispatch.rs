@@ -101,11 +101,33 @@ pub async fn dispatch(
 
     let outcome = if !url_has_extension {
         // Extensionless. Apply rewrites first; if matched, resolve
-        // the rewritten path directly. Otherwise, the existing
-        // cleanUrls + resolve chain takes over.
+        // the rewritten path. If the rewritten path doesn't
+        // resolve, fall back to the ORIGINAL path's resolve —
+        // mirrors the reference's final `lstat(absolutePath)` at
+        // `serve-handler/src/index.js:634-642` after `findRelated`
+        // returns null. The fallback is the original path ONLY
+        // (no cleanUrls candidates) because `findRelated`'s
+        // `rewrittenPath ? [rewrittenPath] : getPossiblePaths(...)`
+        // branch at `index.js:618-632` consults cleanUrls
+        // candidates only when no rewrite matched; once a rewrite
+        // is set, only the rewritten path is tried, and the final
+        // lstat on the ORIGINAL absolutePath is the sole fallback
+        // (which can succeed for extensionless original files
+        // that exist as plain files or directories with
+        // `index.html`).
         if let Some(target) = compute_configured_rewrites(&url_path, rewrite_rules) {
-            resolve(&target, root).await
+            match resolve(&target, root).await {
+                ResolveOutcome::NotFound | ResolveOutcome::EscapedRoot => {
+                    resolve(&url_path, root).await
+                }
+                other => other,
+            }
         } else {
+            // No rewrite matched. The reference's `findRelated`
+            // here consults cleanUrls candidates
+            // (`<P>/index.html` then `<P>.html`) for extensionless
+            // requests. Mirrors `getPossiblePaths` at
+            // `serve-handler/src/lib/paths.js`.
             match try_clean_urls_resolve(&url_path, root, clean_urls_view).await {
                 Some(o) => o,
                 None => resolve(&url_path, root).await,
@@ -140,15 +162,24 @@ pub async fn dispatch(
     }
 }
 
-/// Mirror of Node's `path.extname(p)` for our URL-path use case: an
-/// extension is a non-empty `.xxx` substring after the last `/` that
-/// is NOT the leading character of the basename. Trailing-slash paths
-/// (`/foo.txt/`) and dotfiles (`/.bashrc`) have no extension; nested
+/// Mirror of Node's `path.extname(p)` for our URL-path use case.
+///
+/// Node's `path.posix.extname` strips trailing slashes from `p`
+/// before computing the basename, so `path.posix.extname('/foo.txt/')`
+/// returns `'.txt'` (NOT empty). Codex review round 1 P2: the
+/// previous implementation used `rsplit('/').next()` which yields
+/// the empty trailing segment, mis-classifying trailing-slash paths
+/// as extensionless and letting rewrites fire on directory-like
+/// requests where the reference does not.
+///
+/// An extension is a non-empty `.xxx` substring after the last `/`
+/// (post-trailing-slash trim) that is NOT the leading character of
+/// the basename. Dotfiles (`/.bashrc`) have no extension; nested
 /// dotfiles with extensions (`/.bashrc.bak`) do.
 fn url_path_has_extension(path: &str) -> bool {
-    let basename = match path.rsplit('/').next() {
-        Some(b) if !b.is_empty() => b,
-        _ => return false, // empty (root or trailing-slash path)
+    let basename = match path.rsplit('/').find(|b| !b.is_empty()) {
+        Some(b) => b,
+        None => return false, // root or all-empty
     };
     // A leading-dot basename whose ONLY dot is the leading one has no
     // extension. Skip char index 0 when scanning for an extension dot.
@@ -206,7 +237,52 @@ fn redirect_with_status(target: &str, status: u16) -> Response<Body> {
 
 #[cfg(test)]
 mod tests {
-    use super::encode_uri_target;
+    use super::{encode_uri_target, url_path_has_extension};
+
+    #[test]
+    fn extension_basic_paths() {
+        assert!(url_path_has_extension("/foo.txt"));
+        assert!(url_path_has_extension("/dir/foo.css"));
+        assert!(!url_path_has_extension("/about"));
+        assert!(!url_path_has_extension("/dir/sub"));
+    }
+
+    #[test]
+    fn extension_root_and_empty() {
+        assert!(!url_path_has_extension("/"));
+        assert!(!url_path_has_extension(""));
+    }
+
+    #[test]
+    fn extension_dotfile_no_ext() {
+        // `.bashrc` is a dotfile; Node's path.extname returns ''.
+        assert!(!url_path_has_extension("/.bashrc"));
+    }
+
+    #[test]
+    fn extension_nested_dotfile_with_ext() {
+        // `.bashrc.bak` has extension `.bak`.
+        assert!(url_path_has_extension("/.bashrc.bak"));
+    }
+
+    #[test]
+    fn extension_trailing_slash_preserves_extension() {
+        // Codex round 1 P2: Node's `path.extname('/foo.txt/')` ===
+        // '.txt' because trailing slashes are trimmed before
+        // computing the basename. The previous implementation used
+        // `rsplit('/').next()` which captured the empty trailing
+        // segment and mis-classified `/foo.txt/` as extensionless,
+        // letting rewrites fire on directory-like requests where
+        // the reference does not.
+        assert!(url_path_has_extension("/foo.txt/"));
+        assert!(url_path_has_extension("/dir/foo.css/"));
+    }
+
+    #[test]
+    fn extension_trailing_slash_extensionless_stays_extensionless() {
+        assert!(!url_path_has_extension("/about/"));
+        assert!(!url_path_has_extension("/dir/sub/"));
+    }
 
     #[test]
     fn encode_keeps_safe_ascii_path() {
