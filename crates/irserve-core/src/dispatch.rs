@@ -49,6 +49,16 @@ pub async fn dispatch(
         Err(_) => return error_response(StatusCode::BAD_REQUEST, req.headers(), root).await,
     };
 
+    // Phase-10 lexical containment check (SRV-SEC-001). Mirrors the
+    // reference's `isPathInside(path.join(current, relativePath), current)`
+    // gate at `serve-handler/src/index.js:570-580`: a `..` segment that
+    // would pop above the served root yields 400, before any filesystem
+    // I/O. The check is purely lexical to match `path.posix.join`'s
+    // normalization (e.g. leading `//` collapses to `/` and is benign).
+    if lexical_path_escapes_root(&decoded_path) {
+        return error_response(StatusCode::BAD_REQUEST, req.headers(), root).await;
+    }
+
     // Phase 4: cleanUrls 301 (SRV-ROUT-001). Runs on the decoded
     // (uncollapsed) path, before phase 5, matching `shouldRedirect`'s
     // ordering at `serve-handler/src/index.js:121-143`. Wins over
@@ -168,8 +178,15 @@ pub async fn dispatch(
             Ok(bytes) => file_response(&p, bytes),
             Err(_) => error_response(StatusCode::NOT_FOUND, req.headers(), root).await,
         },
-        ResolveOutcome::NotFound | ResolveOutcome::EscapedRoot => {
+        ResolveOutcome::NotFound => {
             error_response(StatusCode::NOT_FOUND, req.headers(), root).await
+        }
+        // Defense-in-depth: lexical check above already short-circuits
+        // `..`-escaping requests at phase 1; this branch covers the rare
+        // case of a symlink (or future routing target) whose canonical
+        // form lands outside the served root.
+        ResolveOutcome::EscapedRoot => {
+            error_response(StatusCode::BAD_REQUEST, req.headers(), root).await
         }
     }
 }
@@ -227,6 +244,28 @@ fn try_percent_decode(s: &str) -> Result<Cow<'_, str>, ()> {
 
 fn is_ascii_hex(b: u8) -> bool {
     matches!(b, b'0'..=b'9' | b'a'..=b'f' | b'A'..=b'F')
+}
+
+/// Returns true if the URL path's `..` segments pop above the served
+/// root. Mirrors the reference's lexical check via
+/// `path.posix.join(root, decoded).startsWith(root)`: empty segments
+/// (from `//` runs) and `.` segments are no-ops; `..` decrements depth
+/// and below-zero depth is the escape signal. Does no filesystem I/O.
+fn lexical_path_escapes_root(decoded_path: &str) -> bool {
+    let mut depth: i32 = 0;
+    for seg in decoded_path.split('/') {
+        match seg {
+            "" | "." => {}
+            ".." => {
+                depth -= 1;
+                if depth < 0 {
+                    return true;
+                }
+            }
+            _ => depth += 1,
+        }
+    }
+    false
 }
 
 /// Mirrors JavaScript's `encodeURI` (the function the reference applies

@@ -8,9 +8,19 @@
   },
   "runner": {
     "l0": {
-      "clean": ["raw_malformed_percent"],
+      "clean": [
+        "raw_dotdot_literal",
+        "raw_dotdot_percent_encoded",
+        "raw_double_slash",
+        "raw_malformed_percent"
+      ],
       "divergent": [],
-      "bodyMayDiffer": ["raw_malformed_percent"]
+      "bodyMayDiffer": [
+        "raw_dotdot_literal",
+        "raw_dotdot_percent_encoded",
+        "raw_double_slash",
+        "raw_malformed_percent"
+      ]
     }
   },
   "requests": [

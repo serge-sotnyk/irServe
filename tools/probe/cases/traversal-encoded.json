@@ -7,6 +7,22 @@
       "secret.txt": "secret\n"
     }
   },
+  "runner": {
+    "l0": {
+      "clean": [
+        "encoded_dotdot",
+        "double_slash_passwd",
+        "raw_dotdot",
+        "encoded_in_subpath"
+      ],
+      "divergent": [],
+      "bodyMayDiffer": [
+        "encoded_dotdot",
+        "double_slash_passwd",
+        "raw_dotdot"
+      ]
+    }
+  },
   "requests": [
     { "name": "encoded_dotdot", "method": "GET", "path": "/%2e%2e/etc/passwd" },
     { "name": "double_slash_passwd", "method": "GET", "path": "//etc/passwd" },
