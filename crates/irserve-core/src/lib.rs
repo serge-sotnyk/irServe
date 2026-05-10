@@ -33,12 +33,23 @@ pub struct ServerConfig {
     /// (`third_party/serve/source/utilities/server.ts:65-70`). Applied
     /// post-dispatch in `server::handler`.
     pub cors: bool,
+    /// SRV-CLI-016: when true, a busy `--listen` address is fatal
+    /// instead of falling back to an ephemeral port. irserve enforces
+    /// the documented contract; the reference declares the flag at
+    /// `third_party/serve/source/utilities/cli.ts:158` but never reads
+    /// it (vercel/serve#751, regression introduced in 14.0.0). See
+    /// `docs/reference/serve/decisions.md` D-016.
+    pub no_port_switching: bool,
 }
 
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
     #[error("io error: {0}")]
     Io(#[from] std::io::Error),
+    /// SRV-CLI-016: requested port was occupied and `--no-port-switching`
+    /// disabled the fallback to an ephemeral port.
+    #[error("listen address {addr} is already in use")]
+    PortInUse { addr: SocketAddr },
 }
 
 pub async fn run(config: ServerConfig) -> Result<(), Error> {

@@ -50,6 +50,16 @@ struct Cli {
     #[arg(short = 'C', long = "cors")]
     cors: bool,
 
+    /// SRV-CLI-016: disable the default ephemeral-port fallback when
+    /// the requested `--listen` address is occupied. Default behavior
+    /// retries on `(host, 0)` mirroring the reference's
+    /// `serve-handler/source/utilities/server.ts:166-178`. The
+    /// reference declares this flag at `cli.ts:158` but never reads
+    /// it (vercel/serve#751); irserve enforces the documented contract
+    /// per D-016.
+    #[arg(long = "no-port-switching")]
+    no_port_switching: bool,
+
     #[arg(short = 'c', long = "config", value_name = "PATH")]
     config: Option<PathBuf>,
 
@@ -126,6 +136,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         listens,
         serve_config,
         cors: cli.cors,
+        no_port_switching: cli.no_port_switching,
     };
     run(config).await?;
     Ok(())

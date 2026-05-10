@@ -1,3 +1,4 @@
+use std::net::SocketAddr;
 use std::path::PathBuf;
 use std::sync::Arc;
 
@@ -130,9 +131,10 @@ pub async fn serve(config: ServerConfig) -> Result<(), Error> {
         )));
     }
 
+    let allow_switching = !config.no_port_switching;
     let mut listeners = Vec::with_capacity(config.listens.len());
     for addr in &config.listens {
-        listeners.push(TcpListener::bind(addr).await?);
+        listeners.push(bind_with_fallback(*addr, allow_switching).await?);
     }
 
     if listeners.len() == 1 {
@@ -161,6 +163,41 @@ pub async fn serve(config: ServerConfig) -> Result<(), Error> {
     Ok(())
 }
 
+/// SRV-CLI-016: bind a listener with documented `--no-port-switching`
+/// semantics. On `EADDRINUSE`:
+/// - `allow_switching=true` (default) — retry once on `(addr.ip(), 0)`,
+///   letting the OS pick a free ephemeral port. Mirrors the reference's
+///   `serve-handler/source/utilities/server.ts:166-178` retry, but unlike
+///   the reference we honor the flag (vercel/serve#751, D-016).
+/// - `allow_switching=false` — surface `Error::PortInUse` so the caller
+///   exits non-zero. The reference declares the flag but never reads it.
+///
+/// All other I/O errors propagate unchanged.
+async fn bind_with_fallback(
+    addr: SocketAddr,
+    allow_switching: bool,
+) -> Result<TcpListener, Error> {
+    match TcpListener::bind(addr).await {
+        Ok(l) => Ok(l),
+        Err(e) if e.kind() == std::io::ErrorKind::AddrInUse => {
+            if !allow_switching {
+                eprintln!(
+                    "error: listen address {addr} is already in use (--no-port-switching is set)"
+                );
+                return Err(Error::PortInUse { addr });
+            }
+            let fallback = SocketAddr::new(addr.ip(), 0);
+            let listener = TcpListener::bind(fallback).await?;
+            let actual = listener.local_addr()?;
+            eprintln!(
+                "warning: listen address {addr} is already in use, switched to {actual}"
+            );
+            Ok(listener)
+        }
+        Err(e) => Err(Error::Io(e)),
+    }
+}
+
 async fn handler(State(state): State<SharedState>, req: Request<Body>) -> Response<Body> {
     let response = dispatch(
         req,
@@ -183,5 +220,47 @@ async fn handler(State(state): State<SharedState>, req: Request<Body>) -> Respon
         apply_cors(response)
     } else {
         response
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::net::{IpAddr, Ipv4Addr};
+
+    #[tokio::test]
+    async fn bind_retries_on_addr_in_use_when_switching_allowed() {
+        let occupier = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let occupied = occupier.local_addr().unwrap();
+
+        let new_listener = bind_with_fallback(occupied, true).await.unwrap();
+        let new_addr = new_listener.local_addr().unwrap();
+        assert_eq!(new_addr.ip(), IpAddr::V4(Ipv4Addr::LOCALHOST));
+        assert_ne!(new_addr.port(), occupied.port());
+        assert_ne!(new_addr.port(), 0);
+    }
+
+    #[tokio::test]
+    async fn bind_fails_on_addr_in_use_when_switching_disabled() {
+        let occupier = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let occupied = occupier.local_addr().unwrap();
+
+        let result = bind_with_fallback(occupied, false).await;
+        match result {
+            Err(Error::PortInUse { addr }) => assert_eq!(addr, occupied),
+            other => panic!("expected PortInUse, got {other:?}"),
+        }
+    }
+
+    #[tokio::test]
+    async fn bind_succeeds_on_free_port() {
+        let l1 = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let free = l1.local_addr().unwrap();
+        drop(l1);
+        // Tiny race window — the kernel may reuse the port. Acceptable
+        // for a smoke test; if it ever flakes, switch to `bind_with_fallback`
+        // through `serve()` directly.
+        let listener = bind_with_fallback(free, false).await.unwrap();
+        assert_eq!(listener.local_addr().unwrap().ip(), free.ip());
     }
 }

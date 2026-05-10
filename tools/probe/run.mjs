@@ -48,10 +48,12 @@ const L0_EXTRA_VOLATILE_HEADERS = ['etag', 'vary', 'accept-ranges'];
 //   D-013).
 // - `-p`, `tcp://` listen URI un-deferred in stage 6h (change 010-cli-fill-in).
 // - `-C`/`--cors` un-deferred in stage 6h (change 010-cli-fill-in).
+// - `--no-port-switching` un-deferred in stage 6h (change 010-cli-fill-in,
+//   D-016): irserve enforces the documented contract while the reference's
+//   flag is a no-op (vercel/serve#751).
 const L0_DEFERRED_FLAGS = new Set([
   '-d', '--debug',
   '-L', '--no-request-logging',
-  '--no-port-switching',
 ]);
 
 function resolveIrserveBin() {
