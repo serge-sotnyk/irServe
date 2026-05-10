@@ -1,0 +1,19 @@
+{
+  "id": "cli-no-request-logging",
+  "description": "SRV-CLI-015: `-L`/`--no-request-logging` is accepted; HTTP behavior is unchanged. The flag silences irserve's per-request log line in stdout, but stdout is not part of the snapshot contract (D-002). This is the acceptance probe; the silencing behavior is exercised manually (see README's Try IrServe section).",
+  "fixture": {
+    "files": {
+      "index.html": "quiet-ok\n"
+    }
+  },
+  "serveArgs": ["--no-request-logging"],
+  "runner": {
+    "l0": {
+      "clean": ["root"],
+      "divergent": []
+    }
+  },
+  "requests": [
+    { "name": "root", "method": "GET", "path": "/" }
+  ]
+}

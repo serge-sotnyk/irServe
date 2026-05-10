@@ -40,6 +40,15 @@ pub struct ServerConfig {
     /// it (vercel/serve#751, regression introduced in 14.0.0). See
     /// `docs/reference/serve/decisions.md` D-016.
     pub no_port_switching: bool,
+    /// SRV-CLI-014: accepted under D-002 (terminal output not contractual).
+    /// When true, irserve appends an elapsed-ms suffix to the per-request
+    /// log line. No other observable effect.
+    pub debug: bool,
+    /// SRV-CLI-015: when true, irserve does NOT emit per-request log
+    /// lines to stdout. When false, `handler` prints a single
+    /// `{method} {path} -> {status}` line per request. Format is
+    /// implementation-defined per D-002.
+    pub no_request_logging: bool,
 }
 
 #[derive(Debug, thiserror::Error)]

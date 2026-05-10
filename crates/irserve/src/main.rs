@@ -60,6 +60,17 @@ struct Cli {
     #[arg(long = "no-port-switching")]
     no_port_switching: bool,
 
+    /// SRV-CLI-014: accepted under D-002 (terminal output not
+    /// contractual). irserve appends an elapsed-ms suffix to each
+    /// per-request log line; no other observable effect.
+    #[arg(short = 'd', long = "debug")]
+    debug: bool,
+
+    /// SRV-CLI-015: silence the per-request log line. Format when
+    /// unset is implementation-defined per D-002.
+    #[arg(short = 'L', long = "no-request-logging")]
+    no_request_logging: bool,
+
     #[arg(short = 'c', long = "config", value_name = "PATH")]
     config: Option<PathBuf>,
 
@@ -137,6 +148,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         serve_config,
         cors: cli.cors,
         no_port_switching: cli.no_port_switching,
+        debug: cli.debug,
+        no_request_logging: cli.no_request_logging,
     };
     run(config).await?;
     Ok(())

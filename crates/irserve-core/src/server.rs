@@ -28,6 +28,8 @@ struct AppState {
     rewrite_rules: Vec<RewriteRuleCompiled>,
     header_rules: Vec<HeaderRuleCompiled>,
     cors: bool,
+    debug: bool,
+    no_request_logging: bool,
 }
 
 type SharedState = Arc<AppState>;
@@ -121,6 +123,8 @@ pub async fn serve(config: ServerConfig) -> Result<(), Error> {
         rewrite_rules,
         header_rules,
         cors: config.cors,
+        debug: config.debug,
+        no_request_logging: config.no_request_logging,
     });
     let app: Router = Router::new().fallback(handler).with_state(state);
 
@@ -199,6 +203,13 @@ async fn bind_with_fallback(
 }
 
 async fn handler(State(state): State<SharedState>, req: Request<Body>) -> Response<Body> {
+    // SRV-CLI-014/015: capture log metadata before dispatch consumes
+    // the request. Format is implementation-defined per D-002 (terminal
+    // output is not contractual).
+    let log_meta = (!state.no_request_logging)
+        .then(|| (req.method().clone(), req.uri().path().to_string()));
+    let start = state.debug.then(std::time::Instant::now);
+
     let response = dispatch(
         req,
         state.root.as_path(),
@@ -216,11 +227,24 @@ async fn handler(State(state): State<SharedState>, req: Request<Body>) -> Respon
     // redirects, which `apply_custom_headers` deliberately skips. Mirrors
     // the reference's unconditional emission at
     // `third_party/serve/source/utilities/server.ts:65-70`.
-    if state.cors {
+    let response = if state.cors {
         apply_cors(response)
     } else {
         response
+    };
+
+    if let Some((method, path)) = log_meta {
+        let status = response.status().as_u16();
+        match start {
+            Some(t) => {
+                let ms = t.elapsed().as_millis();
+                println!("{method} {path} -> {status} ({ms}ms)");
+            }
+            None => println!("{method} {path} -> {status}"),
+        }
     }
+
+    response
 }
 
 #[cfg(test)]

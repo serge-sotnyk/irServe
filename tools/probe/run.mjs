@@ -51,10 +51,10 @@ const L0_EXTRA_VOLATILE_HEADERS = ['etag', 'vary', 'accept-ranges'];
 // - `--no-port-switching` un-deferred in stage 6h (change 010-cli-fill-in,
 //   D-016): irserve enforces the documented contract while the reference's
 //   flag is a no-op (vercel/serve#751).
-const L0_DEFERRED_FLAGS = new Set([
-  '-d', '--debug',
-  '-L', '--no-request-logging',
-]);
+// - `-d`/`--debug` and `-L`/`--no-request-logging` un-deferred in stage 6h
+//   (change 010-cli-fill-in). Both are accepted; per-request log format is
+//   implementation-defined per D-002.
+const L0_DEFERRED_FLAGS = new Set([]);
 
 function resolveIrserveBin() {
   if (process.env.IRSERVE_BIN) return process.env.IRSERVE_BIN;

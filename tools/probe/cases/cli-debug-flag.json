@@ -1,0 +1,19 @@
+{
+  "id": "cli-debug-flag",
+  "description": "SRV-CLI-014: `-d`/`--debug` is accepted; HTTP behavior is unchanged from the no-debug case. Verbosity / log format is implementation-defined per D-002 (terminal output is not contractual). The runner strips stdout/stderr from the diff envelope, so the per-request log line irserve emits under --debug is not part of the snapshot contract.",
+  "fixture": {
+    "files": {
+      "index.html": "debug-ok\n"
+    }
+  },
+  "serveArgs": ["--debug"],
+  "runner": {
+    "l0": {
+      "clean": ["root"],
+      "divergent": []
+    }
+  },
+  "requests": [
+    { "name": "root", "method": "GET", "path": "/" }
+  ]
+}
