@@ -23,15 +23,16 @@
       "name": "docs_dot_segment",
       "request": {
         "method": "GET",
-        "mode": "fetch",
+        "mode": "raw",
         "path": "/docs/./"
       },
+      "requestLine": "GET /docs/./ HTTP/1.1",
       "response": {
         "body": {
           "kind": "text",
-          "length": 4471,
-          "sha256": "d013927348973f5c6b4e77acc92ebd86c382dda87859727ac477279e5ca48ef3",
-          "preview": "<!DOCTYPE html><html lang=\"en\"> <head> <meta charset=\"utf-8\"> <meta name=\"viewport\" content=\"width=device-width, initial-scale=1\"> <title>Files within <FIXTURE_BASENAME>\\docs\\</title> <style>body { ma"
+          "length": 4484,
+          "sha256": "e1b2202834716c5bbefe579551e00e61e9276206fb99ef47e25f6ed30fa9f16b",
+          "preview": "1197\r\n<!DOCTYPE html><html lang=\"en\"> <head> <meta charset=\"utf-8\"> <meta name=\"viewport\" content=\"width=device-width, initial-scale=1\"> <title>Files within <FIXTURE_BASENAME>\\docs\\</title> <style>bod"
         },
         "headers": {
           "content-type": "text/html; charset=utf-8",
@@ -45,15 +46,16 @@
       "name": "docs_sub_parent_segment",
       "request": {
         "method": "GET",
-        "mode": "fetch",
+        "mode": "raw",
         "path": "/docs/sub/../"
       },
+      "requestLine": "GET /docs/sub/../ HTTP/1.1",
       "response": {
         "body": {
           "kind": "text",
-          "length": 4471,
-          "sha256": "d013927348973f5c6b4e77acc92ebd86c382dda87859727ac477279e5ca48ef3",
-          "preview": "<!DOCTYPE html><html lang=\"en\"> <head> <meta charset=\"utf-8\"> <meta name=\"viewport\" content=\"width=device-width, initial-scale=1\"> <title>Files within <FIXTURE_BASENAME>\\docs\\</title> <style>body { ma"
+          "length": 4484,
+          "sha256": "e1b2202834716c5bbefe579551e00e61e9276206fb99ef47e25f6ed30fa9f16b",
+          "preview": "1197\r\n<!DOCTYPE html><html lang=\"en\"> <head> <meta charset=\"utf-8\"> <meta name=\"viewport\" content=\"width=device-width, initial-scale=1\"> <title>Files within <FIXTURE_BASENAME>\\docs\\</title> <style>bod"
         },
         "headers": {
           "content-type": "text/html; charset=utf-8",

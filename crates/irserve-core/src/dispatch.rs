@@ -401,43 +401,32 @@ async fn dispatch_inner(
                 }
                 Ok(RenderResult::Single { path, bytes }) => {
                     // Headers-path mirrors reference's `getHeaders(..,
-                    // absolutePath, stats)` at `index.js:746`, which
-                    // sees the file's actual filesystem path relative
-                    // to served root — NOT the original request URL.
-                    // After a rewrite (`/old → /docs`) where
-                    // renderSingle fires for `docs/photo.png`,
-                    // reference's `absolutePath` was overridden to the
-                    // rewritten file at `index.js:649-665`; so a header
-                    // rule with `source: "/docs/photo.png"` matches and
-                    // a rule for `/old/photo.png` does not (Codex
-                    // review round 2 P2 finding). `path` here is the
-                    // canonical absolute path returned from `resolve()`
-                    // (which is also containment-checked against
-                    // `root`); strip_prefix yields the under-root
-                    // relative form.
-                    let url = match path.strip_prefix(root) {
-                        Ok(rel) => {
-                            let mut s = String::from("/");
-                            s.push_str(&rel.to_string_lossy().replace('\\', "/"));
-                            s
-                        }
-                        // Defensive fallback: containment check upstream
-                        // makes this branch unreachable. If the prefix
-                        // strip ever fails, fall back to the request
-                        // URL form so headers still get a chance to
-                        // apply, rather than silently leaking an
-                        // absolute filesystem path.
-                        Err(_) => {
-                            let prefix = if decoded_path.ends_with('/') {
-                                decoded_path.clone().into_owned()
-                            } else {
-                                format!("{}/", decoded_path)
-                            };
-                            let filename =
-                                path.file_name().and_then(|s| s.to_str()).unwrap_or("");
-                            format!("{prefix}{filename}")
-                        }
+                    // absolutePath, stats)` at `index.js:746`. After
+                    // a rewrite (`/old → /docs`), reference overrode
+                    // `absolutePath` to the rewritten file's resolved
+                    // path at `index.js:649-665`, then `getHeaders`
+                    // ran on it — so a rule for `/docs/photo.png`
+                    // matches and `/old/photo.png` does not.
+                    //
+                    // Build the headers-path from `lexical_url` (the
+                    // URL form the dispatcher tracked through the
+                    // rewrite/resolve chain) plus the file's basename.
+                    // `lexical_url` is the rewrite TARGET when a
+                    // rewrite fired (e.g. `/docs`) and the request
+                    // URL otherwise (preserving raw user-supplied
+                    // casing on Windows: `/MEDIA/` stays `/MEDIA/`).
+                    // Codex review round 2 P2 used the canonicalized
+                    // FS path here, which on Windows folded `/MEDIA/`
+                    // to `/media/` and admitted matches the reference
+                    // would reject — round 3 P2 reverts to the
+                    // lexical form.
+                    let prefix = if lexical_url.ends_with('/') {
+                        lexical_url.clone()
+                    } else {
+                        format!("{}/", lexical_url)
                     };
+                    let filename = path.file_name().and_then(|s| s.to_str()).unwrap_or("");
+                    let url = format!("{prefix}{filename}");
                     (file_response(&path, bytes), Some(url))
                 }
                 Err(_) => {

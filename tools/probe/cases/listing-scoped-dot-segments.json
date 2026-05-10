@@ -18,7 +18,7 @@
     }
   },
   "requests": [
-    { "name": "docs_dot_segment", "method": "GET", "path": "/docs/./" },
-    { "name": "docs_sub_parent_segment", "method": "GET", "path": "/docs/sub/../" }
+    { "name": "docs_dot_segment", "method": "GET", "mode": "raw", "path": "/docs/./" },
+    { "name": "docs_sub_parent_segment", "method": "GET", "mode": "raw", "path": "/docs/sub/../" }
   ]
 }
