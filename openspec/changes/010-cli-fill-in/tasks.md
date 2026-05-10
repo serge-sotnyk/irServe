@@ -22,8 +22,9 @@ shipped.
   via `value_parser = ListenSpec::parse`.
 - [x] 18 unit tests in `listen_spec.rs::tests`: bare port,
   `tcp://127.0.0.1:3010`, `tcp://localhost`, `tcp://localhost:3010`,
-  `tcp://:3010`, `tcp://[::1]:3010`, malformed (`tcp://`,
-  `tcp://host:notnum`), rejected (`pipe:...`, `unix:...`).
+  `tcp://:3010`, `tcp://[::1]:3010`, both-defaults (`tcp://` →
+  `localhost:3000` per Q-001), malformed (`tcp://host:notnum`,
+  unbalanced bracket, `garbage`), rejected (`pipe:...`, `unix:...`).
 - [x] Verify: `cargo test --workspace`; all 78 existing probes
   green.
 - Commit: `feat(stage-6h): slice 1 — ListenSpec type + tcp:// parser`

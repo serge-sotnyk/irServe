@@ -3,10 +3,19 @@ use axum::http::header::{HeaderName, HeaderValue};
 use axum::http::Response;
 
 // SRV-CLI-010: when `--cors` is set, every response carries the four
-// permissive CORS headers the reference emits unconditionally before
+// permissive CORS headers the reference emits as defaults before
 // `serve-handler` runs (`third_party/serve/source/utilities/server.ts:65-70`).
-// Applied as a post-dispatch pass: the headers must layer onto every status
-// (including 3xx, which `apply_custom_headers` deliberately skips).
+//
+// Set-only-if-missing semantics: the reference's `setHeader` calls run
+// BEFORE `serve-handler`, then the handler's user-`headers` rules
+// overwrite via `Object.assign(defaultHeaders, related)` plus a final
+// `response.setHeader` loop (`serve-handler/src/index.js:245-251` and
+// `:767`). A user `serve.json` rule that sets, e.g.,
+// `access-control-allow-origin: https://example.test` therefore wins
+// over the CLI flag's `*`. Mirroring this means we layer CORS in
+// post-dispatch but only fill keys the response is missing — that
+// preserves any value `apply_custom_headers` already wrote inside
+// `dispatch`. Codex review round 1 P1 fix.
 const CORS_HEADERS: &[(&str, &str)] = &[
     ("access-control-allow-origin", "*"),
     ("access-control-allow-headers", "*"),
@@ -19,10 +28,10 @@ pub fn apply_cors(mut response: Response<Body>) -> Response<Body> {
     for (name, value) in CORS_HEADERS {
         // `from_static` panics on invalid input, but our four constants
         // are validated at compile time by the static-string contract.
-        headers.insert(
-            HeaderName::from_static(name),
-            HeaderValue::from_static(value),
-        );
+        let header_name = HeaderName::from_static(name);
+        if !headers.contains_key(&header_name) {
+            headers.insert(header_name, HeaderValue::from_static(value));
+        }
     }
     response
 }
@@ -75,7 +84,10 @@ mod tests {
     }
 
     #[test]
-    fn overwrites_existing_header() {
+    fn preserves_user_set_header() {
+        // Codex review round 1 P1: reference lets a user `serve.json`
+        // rule overwrite the CLI flag's CORS default. `apply_cors` must
+        // mirror by skipping keys already present on the response.
         let mut resp = empty_response(StatusCode::OK);
         resp.headers_mut().insert(
             HeaderName::from_static("access-control-allow-origin"),
@@ -84,7 +96,17 @@ mod tests {
         let resp = apply_cors(resp);
         assert_eq!(
             resp.headers().get("access-control-allow-origin").unwrap(),
-            "*"
+            "https://example.com"
+        );
+        // The other three CORS defaults still fill in.
+        assert_eq!(resp.headers().get("access-control-allow-headers").unwrap(), "*");
+        assert_eq!(
+            resp.headers().get("access-control-allow-credentials").unwrap(),
+            "true"
+        );
+        assert_eq!(
+            resp.headers().get("access-control-allow-private-network").unwrap(),
+            "true"
         );
     }
 }

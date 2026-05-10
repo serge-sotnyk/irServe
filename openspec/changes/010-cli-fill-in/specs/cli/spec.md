@@ -112,18 +112,22 @@ With `-C`/`--cors`, every response SHALL carry
 `Access-Control-Allow-Origin: *`,
 `Access-Control-Allow-Headers: *`,
 `Access-Control-Allow-Credentials: true`, and
-`Access-Control-Allow-Private-Network: true`. The full L3
-differentiated CORS surface (preflight `OPTIONS`,
-`Access-Control-Max-Age`, `Access-Control-Expose-Headers`) is
-documented as a separate L3 requirement under the `cors` capability
-and is not part of this baseline.
+`Access-Control-Allow-Private-Network: true` as defaults. A user
+`serve.json#headers` rule whose key matches one of the four CORS
+header names SHALL override the corresponding default; the other
+three defaults still fill in. The full L3 differentiated CORS
+surface (preflight `OPTIONS`, `Access-Control-Max-Age`,
+`Access-Control-Expose-Headers`) is documented as a separate L3
+requirement under the `cors` capability and is not part of this
+baseline.
 
 Evidence: SRV-CLI-010 (status: verified, level: L1); oracle:
 ORC-054, ORC-055; plus the runner-`l0` partitions of `cors-flag`,
-`cors-applied`, `cors-response-surface`, and `cors-on-redirect`.
+`cors-applied`, `cors-response-surface`, `cors-on-redirect`, and
+`cors-user-override`.
 
-Note (CORS on redirects): the four headers ride on 3xx responses
-too. Mirrors the reference's `setHeader` pre-pass at
+Note (CORS on redirects): the four CORS defaults ride on 3xx
+responses too. Mirrors the reference's `setHeader` pre-pass at
 `third_party/serve/source/utilities/server.ts:65-70`, which runs
 BEFORE `serve-handler` and so survives the redirect branch at
 `serve-handler/src/index.js:586-588` (which does not copy default
@@ -132,26 +136,47 @@ in `server::handler`, placed AFTER `apply_custom_headers` (which
 skips redirections per D-015 finding #2). Verified by
 `cors-on-redirect`.
 
-Note (header overwrite): a user `headers` rule setting any of the
-four CORS keys is overwritten by the post-pass. Mirrors the
-reference's `setHeader` order — the pre-pass writes the values
-before any rule-based header logic runs.
+Note (user-rule precedence): a user `headers` rule setting any of
+the four CORS keys wins over the CLI flag's default. Mirrors the
+reference's order: `server.ts:65-70` calls `setHeader('ACAO','*')`
+BEFORE `serve-handler` runs; `serve-handler` then merges user
+rules via `Object.assign(defaultHeaders, related)`
+(`serve-handler/src/index.js:245`) and writes them back through
+`response.setHeader` (`:767`), overwriting the CLI default. irserve
+mirrors with set-only-if-missing semantics in `apply_cors`: it
+inserts each CORS default only when the response does not already
+carry that header from `apply_custom_headers`. Verified by
+`cors-user-override` (a `**/*.css` rule sets
+`access-control-allow-origin: https://example.test` and the value
+survives intact while the other three defaults fill in).
 
-#### Scenario: ACAO header on every response
+#### Scenario: All four CORS defaults on a clean 200
 
-- GIVEN `serve --cors`
-- WHEN any request is made
-- THEN the response includes `Access-Control-Allow-Origin: *`
+- GIVEN `serve --cors` with no user `headers` rule
+- WHEN any request returns 200
+- THEN the response includes
+  `Access-Control-Allow-Origin: *` and the three companion CORS
+  defaults
 
 #### Scenario: All four CORS headers on a 3xx redirect
 
 - GIVEN `serve --cors` with `serve.json` redirect `/old → /new`
 - WHEN `GET /old`
 - THEN status is 301
-- AND the response carries all four CORS headers
+- AND the response carries all four CORS defaults
   (`access-control-allow-origin`, `access-control-allow-headers`,
   `access-control-allow-credentials`,
   `access-control-allow-private-network`)
+
+#### Scenario: User rule overrides a CORS default
+
+- GIVEN `serve --cors` with a `serve.json#headers` rule that sets
+  `access-control-allow-origin: https://example.test` for the
+  request path
+- WHEN the request returns 200
+- THEN the response includes
+  `Access-Control-Allow-Origin: https://example.test`
+- AND the other three CORS defaults still appear unchanged
 
 ### Requirement: `-d`/`--debug` toggles verbose output
 

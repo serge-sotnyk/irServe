@@ -84,6 +84,8 @@ top-level `cli` array (alternative to `requests`).
 | ORC-065 | config             | `--config <missing>` exits non-zero                       | SRV-CFG-001 (missing-explicit scenario)           | `cases/config-missing-explicit.json#missing_explicit_fatal`     | must-match: exit=non-zero, stdout `kind: empty`, stderr `kind: text` (non-empty). may-differ: exact exit code (D-002) and exact stderr text (D-002).                  | verified |
 | ORC-066 | config             | malformed `serve.json` exits non-zero                     | SRV-CFG-001 (malformed-JSON scenario)             | `cases/config-malformed.json#malformed_json_fatal`              | must-match: exit=non-zero, stdout `kind: empty`, stderr `kind: text` (non-empty). may-differ: exact exit code (D-002) and exact stderr text (D-002).                  | verified |
 | ORC-067 | config             | `--config alt.json` overrides default `serve.json`         | SRV-CLI-009, SRV-CFG-001 (explicit-overrides-default with `public`) | `cases/config-explicit-public.json#alt_config_public_redirects_root` | must-match: status=200, body=`<p>site</p>\n`, content-type `text/html; charset=utf-8` (proves the alt file's `public: site` won over the default's `public: default-dir`). may-differ: ETag, Last-Modified, Vary, Accept-Ranges, Content-Length (transport details). | verified |
+| ORC-163 | cli                | `GET /` with `--listen tcp://127.0.0.1:{port}` URI form    | SRV-CLI-003 (`tcp://host:port` URI; Q-001 defaults documented in spec text) | `cases/cli-tcp-uri.json#root` | must-match: status=200, body=`tcp-uri\n`, content-type `text/html; charset=utf-8`. Mirrors `parseEndpoint` at `third_party/serve/source/utilities/cli.ts:104-143`. The `{port}` substitution + `runner.defaultPortScenario="free-port"` lets the case allocate a free port; Q-001's host/port-omitted defaults are unit-tested in `crates/irserve/src/listen_spec.rs::tests` (cannot be probed without conflicting with the runner's port allocation). | verified |
+| ORC-164 | cli                | `GET /` with `-p {port}` (deprecated alias)                | SRV-CLI-006 (`-p` deprecated alias)             | `cases/cli-p-alias.json#root` | must-match: status=200, body=`p-alias\n`, content-type `text/html; charset=utf-8`. Pins the `'-p': '--listen'` rewrite at `third_party/serve/source/utilities/cli.ts:176-178`. irserve merges `Cli::p` into `Cli::listen` post-parse because clap cannot deposit two distinct flag spellings into the same `Vec`. | verified |
 
 ### L2 — routing behavior
 
@@ -235,6 +237,8 @@ top-level `cli` array (alternative to `requests`).
 | ORC-055 | cors          | `--cors` flag also applies on a 301                                | SRV-CLI-010, SRV-CORS-001                 | `cases/cors-flag.json#html_with_cors`                          | must-match: status=301, ACAO header present                                               | verified |
 | ORC-056 | cors          | OPTIONS preflight under `--cors`                                   | SRV-CORS-001                              | `cases/cors-preflight.json#preflight_options`                  | must-match: status=200, headers `access-control-allow-origin: *`, `access-control-allow-headers: *`, `access-control-allow-credentials: true`, `access-control-allow-private-network: true`. Note: serve does NOT emit `access-control-allow-methods`. | verified |
 | ORC-057 | cors          | `--cors` — full response surface across 200 / 301 / 404 paths      | SRV-CORS-001                              | `cases/cors-response-surface.json` (3 requests)                | must-match: same four ACA-* headers as ORC-056 are present on the 200, 301, and 404 responses uniformly; ACAM still absent.            | verified |
+| ORC-165 | cors          | `GET /old` with `--cors` and `serve.json` redirect `/old → /new`   | SRV-CLI-010 (CORS rides on configured 3xx)  | `cases/cors-on-redirect.json#redirect_with_cors`               | must-match: status=302, `location: /new`, all four CORS headers present (`access-control-allow-origin: *`, `access-control-allow-headers: *`, `access-control-allow-credentials: true`, `access-control-allow-private-network: true`). `contentLengthMayDiffer` (reference uses chunked transfer-encoding on 3xx; irserve emits `content-length: 0`). Pins that the CLI flag's CORS defaults survive the redirect branch where `apply_custom_headers` skips. | verified |
+| ORC-166 | cors          | `GET /asset.css` with `--cors` and a `serve.json` `headers` rule that sets `access-control-allow-origin: https://example.test` | SRV-CLI-010 (user rule overrides CORS default), SRV-HDR-001 | `cases/cors-user-override.json#css_with_user_acao` | must-match: status=200, `access-control-allow-origin: https://example.test`, plus the three other CORS defaults (`access-control-allow-headers: *`, `access-control-allow-credentials: true`, `access-control-allow-private-network: true`). Pins the set-only-if-missing semantics of `apply_cors`: a user `headers` rule whose key matches one of the four CORS keys wins, but the other three defaults still fill in. Mirrors reference's `setHeader('ACAO','*')` at `server.ts:65-70` getting overwritten by `serve-handler`'s `Object.assign(defaultHeaders, related)` + `response.setHeader` loop at `serve-handler/src/index.js:245-251`, `:767`. Codex review round 1 P1. | verified |
 | ORC-058 | compression   | Default GET with `Accept-Encoding: gzip, deflate`                  | SRV-CLI-012                               | `cases/compression-default.json#with_accept_encoding`          | must-match: status=200, `Vary: Accept-Encoding` present (compression negotiation hook)    | verified |
 | ORC-059 | static-files  | Custom 404 page (`404.html`) under both Accept variants            | SRV-FILE-002, SRV-FILE-003                | `cases/notfound-custom.json` (2 requests)                      | must-match: HTML accept → status=404 + body=`404.html`; JSON accept → status=404 + content-type `application/json; charset=utf-8` + templated JSON body (the custom `404.html` is HTML-only; JSON clients always get the built-in JSON template). | verified |
 
@@ -249,24 +253,30 @@ in `inventory.md`.
   env-var scenario). The no-flag-no-env scenario remains source-evidence
   only because port 3000 cannot be reliably reserved on developer
   machines.
-- **SRV-CLI-003** (`-l tcp://host:port`) — single TCP-URI parse, no
-  observable HTTP-level divergence vs. SRV-CLI-002. Treated as transitive;
-  no dedicated probe. Status stays `accepted`.
+- ~~**SRV-CLI-003** (`-l tcp://host:port`)~~ — closed in Stage 6h via
+  ORC-163 (`cases/cli-tcp-uri.json#root`). Q-001 defaults
+  (host=`localhost`, port=`3000` when omitted) closed in spec text; both
+  defaults are unit-tested in `crates/irserve/src/listen_spec.rs::tests`
+  rather than probed because the runner's port allocator would conflict
+  with the suspect-defaults case.
 - **SRV-CLI-004** (UNIX socket bind, L4 deferred) — Linux-only; oracle
   requires non-Windows CI.
 - **SRV-CLI-005** (Windows named pipe, L4 deferred) — pipe-bind is L4.
-- **SRV-CLI-006** (`-p` deprecated alias) — covered transitively by every
-  `-l` probe; no dedicated ORC.
+- ~~**SRV-CLI-006** (`-p` deprecated alias)~~ — closed in Stage 6h via
+  ORC-164 (`cases/cli-p-alias.json#root`).
 - **SRV-CLI-011** (`--no-clipboard` suppression) — every probe passes the
   flag so the startup path is exercised, but the actual contract (no
   clipboard write) is unobservable via HTTP and the runner does not
   inspect clipboard state. Stays `accepted`. Per `D-005`, IrServe never
   modifies the clipboard, so an oracle test is not planned.
-- **SRV-CLI-016** (`--no-port-switching` failure-to-start) — every probe
-  passes the flag with an already-free port, so only the happy path is
-  exercised. The actual contract (refuse to fall back when the port is
-  occupied) requires a probe that occupies the port first; deferred to
-  Stage 5b. Stays `accepted`.
+- **SRV-CLI-016** (`--no-port-switching` failure-to-start) — promoted to
+  `adapted` in Stage 6h per **D-016** (irserve enforces the documented
+  contract while the reference's flag is a no-op since v14.0.0,
+  vercel/serve#751). The fail-mode is verified by integration tests in
+  `crates/irserve-core/src/server.rs::tests` rather than by an oracle
+  probe — pre-binding a port from the runner before spawn is impractical
+  for one case. The runner's reference-side injection at
+  `tools/probe/run.mjs:172` is a no-op upstream and harmless.
 - ~~**SRV-CLI-007** scenario 3~~ — closed in Stage 3 review round 1 by
   ORC-062 (`cli-positional-error.json`). The runner gained a CLI-mode
   branch that snapshots exit code + stdout/stderr.
