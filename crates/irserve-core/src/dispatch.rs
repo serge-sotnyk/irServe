@@ -12,7 +12,7 @@ use crate::clean_urls::{
 use crate::config::ServeConfig;
 use crate::custom_headers::{apply_custom_headers, HeaderRuleCompiled};
 use crate::error::error_response;
-use crate::listing::{render as render_listing, DirectoryListingView, UnlistedFilter};
+use crate::listing::{render as render_listing, DirectoryListingView, RenderResult, UnlistedFilter};
 use crate::mime::mime_for;
 use crate::normalize::collapse_slashes;
 use crate::redirects::{compute_configured_redirects, RedirectRuleCompiled};
@@ -322,42 +322,26 @@ async fn dispatch_inner(
                 (resp, None)
             }
         },
-        // Stage 6g phase 11: directory listing branch. When
-        // `directoryListing` scope admits the request path, render an
-        // HTML listing (Slice 2). Otherwise fall through to 404 —
-        // mirrors `serve-handler/src/index.js:644-680` where a
-        // `directory` truthy result emits 200 + `setHeader` and
-        // returns BEFORE the success-site `getHeaders` call. Listing
-        // responses therefore bypass `apply_custom_headers` (returned
-        // `headers_path` is `None`), matching reference behavior. JSON
-        // content negotiation, `unlisted`, and `renderSingle` land in
-        // slices 3-5.
+        // Stage 6g phase 11: directory listing branch. Mirrors
+        // `serve-handler/src/index.js:325-374, 644-680`:
+        //
+        //   * If `directoryListing` scope rejects AND `renderSingle`
+        //     is off, return 404 (`index.js:336` early-`return {}`).
+        //   * Otherwise read the directory; if `renderSingle` is on
+        //     AND the raw entry count is exactly 1 AND that entry is
+        //     a file, serve the file directly. Reference reroutes
+        //     this through the file-serving site at `index.js:746`,
+        //     so custom headers DO apply (matched against the file's
+        //     URL).
+        //   * Otherwise render the listing (HTML or JSON per Accept)
+        //     after `unlisted` filtering. Listing responses bypass
+        //     `apply_custom_headers` — reference returns BEFORE the
+        //     `getHeaders` site (`index.js:644-672`), the same way
+        //     3xx redirects skip headers.
         ResolveOutcome::Directory(absolute) => {
-            if listing_view.applicable(&decoded_path) {
-                match render_listing(
-                    &absolute,
-                    &decoded_path,
-                    root,
-                    req.headers(),
-                    unlisted_filter,
-                )
-                .await
-                {
-                    Ok(resp) => (resp, None),
-                    Err(_) => {
-                        let resp = error_response(
-                            StatusCode::NOT_FOUND,
-                            req.headers(),
-                            root,
-                            header_rules,
-                            &decoded_path,
-                            false,
-                        )
-                        .await;
-                        (resp, None)
-                    }
-                }
-            } else {
+            let render_single = serve_config.render_single.unwrap_or(false);
+            let listing_applicable = listing_view.applicable(&decoded_path);
+            if !listing_applicable && !render_single {
                 let resp = error_response(
                     StatusCode::NOT_FOUND,
                     req.headers(),
@@ -367,7 +351,49 @@ async fn dispatch_inner(
                     false,
                 )
                 .await;
-                (resp, None)
+                return (resp, None);
+            }
+            match render_listing(
+                &absolute,
+                &decoded_path,
+                root,
+                req.headers(),
+                unlisted_filter,
+                render_single,
+            )
+            .await
+            {
+                Ok(RenderResult::Direct(resp)) => (resp, None),
+                Ok(RenderResult::Single { path, bytes }) => {
+                    // Headers-path is the URL form `<request>/<filename>`.
+                    // Reference's `getHeaders(.., absolutePath, stats)` at
+                    // `index.js:746` matches against the file's path
+                    // relative to served root; for a single file under a
+                    // listed directory that is the URL form built here.
+                    let prefix = if decoded_path.ends_with('/') {
+                        decoded_path.clone().into_owned()
+                    } else {
+                        format!("{}/", decoded_path)
+                    };
+                    let filename = path
+                        .file_name()
+                        .and_then(|s| s.to_str())
+                        .unwrap_or("");
+                    let url = format!("{prefix}{filename}");
+                    (file_response(&path, bytes), Some(url))
+                }
+                Err(_) => {
+                    let resp = error_response(
+                        StatusCode::NOT_FOUND,
+                        req.headers(),
+                        root,
+                        header_rules,
+                        &decoded_path,
+                        false,
+                    )
+                    .await;
+                    (resp, None)
+                }
             }
         }
         ResolveOutcome::NotFound => {

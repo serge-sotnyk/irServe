@@ -9,6 +9,12 @@
       "renderSingle": true
     }
   },
+  "runner": {
+    "l0": {
+      "clean": ["single_file"],
+      "divergent": []
+    }
+  },
   "requests": [
     { "name": "single_file", "method": "GET", "path": "/media/" }
   ]

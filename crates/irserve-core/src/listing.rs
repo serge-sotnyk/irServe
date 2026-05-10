@@ -23,7 +23,7 @@
 //! markup). JSON content negotiation, `unlisted` filtering, and
 //! `renderSingle` short-circuit land in slices 3-5.
 
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use axum::body::Body;
 use axum::http::header::{HeaderValue, ACCEPT, CONTENT_TYPE};
@@ -33,6 +33,32 @@ use serde::Serialize;
 
 use crate::config::BoolOrGlobs;
 use crate::normalize::collapse_slashes;
+
+/// Outcome of attempting to render a directory listing.
+///
+/// `Direct` is the common path: the renderer returned a complete
+/// `Response<Body>` (HTML listing, JSON listing). The dispatcher
+/// returns it as-is and skips the custom-header post-pass — mirrors
+/// reference's listing branch which bypasses `getHeaders` per
+/// `serve-handler/src/index.js:644-672`.
+///
+/// `Single` is the `renderSingle` short-circuit. The dispatcher
+/// builds a file response from the raw bytes (mirroring the file
+/// path's normal 200 site) and applies custom headers against the
+/// file's URL — reference at `index.js:649-665` overrides
+/// `absolutePath`/`stats` and lets the request continue to the
+/// success-site `getHeaders` call (`index.js:746`).
+pub enum RenderResult {
+    Direct(Response<Body>),
+    Single {
+        /// Canonical absolute filesystem path of the single file
+        /// (already containment-checked: parent `dir` was returned
+        /// from `resolve()` which canonicalized + checked against
+        /// `root`).
+        path: PathBuf,
+        bytes: Vec<u8>,
+    },
+}
 
 /// Precompiled view of `serve.json#directoryListing`. Built once at
 /// server start so the dispatcher can do per-request scope checks
@@ -224,19 +250,28 @@ pub async fn render(
     root: &Path,
     request_headers: &HeaderMap,
     unlisted_filter: &UnlistedFilter,
-) -> Result<Response<Body>, std::io::Error> {
-    // Read entries first; `unlisted` filtering happens AFTER. Slice 5
-    // needs the unfiltered count for the `renderSingle` short-circuit
-    // (mirrors reference: `canRenderSingle` is decided BEFORE
-    // `canBeListed` runs, so a `.DS_Store` + 1-real-file directory
-    // does NOT trigger renderSingle — count is 2).
+    render_single: bool,
+) -> Result<RenderResult, std::io::Error> {
+    // Read raw entries FIRST. The `renderSingle` count check uses
+    // the unfiltered count, mirroring reference's `canRenderSingle
+    // = renderSingle && (files.length === 1)` decision at
+    // `serve-handler/src/index.js:342` — that line runs BEFORE the
+    // `canBeListed` filter at `index.js:387-391`, so a directory
+    // containing `.DS_Store` plus one real file does NOT trigger
+    // renderSingle (count is 2).
     let raw_entries = read_sorted_entries(dir).await?;
-    let entries = apply_unlisted_filter(raw_entries, unlisted_filter);
-    if accepts_json(request_headers) {
-        Ok(json_response(&entries, dir, root))
-    } else {
-        Ok(html_response(&entries, decoded_url, dir, root))
+    if render_single && raw_entries.len() == 1 && !raw_entries[0].is_dir {
+        let path = dir.join(&raw_entries[0].name);
+        let bytes = tokio::fs::read(&path).await?;
+        return Ok(RenderResult::Single { path, bytes });
     }
+    let entries = apply_unlisted_filter(raw_entries, unlisted_filter);
+    let resp = if accepts_json(request_headers) {
+        json_response(&entries, dir, root)
+    } else {
+        html_response(&entries, decoded_url, dir, root)
+    };
+    Ok(RenderResult::Direct(resp))
 }
 
 fn apply_unlisted_filter(entries: Vec<Entry>, filter: &UnlistedFilter) -> Vec<Entry> {
@@ -599,6 +634,27 @@ mod tests {
         UnlistedFilter::from_config(&[]).0
     }
 
+    /// Test helper: unwrap to a `Response<Body>` and panic if the
+    /// renderer fired the `RenderResult::Single` short-circuit.
+    /// Use the explicit `match` form in tests that exercise
+    /// `renderSingle` semantics.
+    async fn render_direct(
+        dir: &Path,
+        decoded_url: &str,
+        root: &Path,
+        headers: &HeaderMap,
+        filter: &UnlistedFilter,
+        render_single: bool,
+    ) -> Response<Body> {
+        match render(dir, decoded_url, root, headers, filter, render_single)
+            .await
+            .unwrap()
+        {
+            RenderResult::Direct(resp) => resp,
+            RenderResult::Single { .. } => panic!("expected Direct, got Single"),
+        }
+    }
+
     #[tokio::test]
     async fn render_html_lists_entries_dirs_first() {
         let dir = tempdir().unwrap();
@@ -606,7 +662,7 @@ mod tests {
         fs::write(root.join("a.txt"), "a").unwrap();
         fs::write(root.join("b.txt"), "b").unwrap();
         fs::create_dir_all(root.join("zfolder")).unwrap();
-        let resp = render(&root, "/", &root, &empty_headers(), &empty_filter()).await.unwrap();
+        let resp = render_direct(&root, "/", &root, &empty_headers(), &empty_filter(), false).await;
         assert_eq!(resp.status(), StatusCode::OK);
         assert_eq!(
             resp.headers()
@@ -633,7 +689,7 @@ mod tests {
         fs::create_dir_all(root.join("sub")).unwrap();
         fs::write(root.join("sub/a.txt"), "x").unwrap();
         let sub = fs::canonicalize(root.join("sub")).unwrap();
-        let resp = render(&sub, "/sub/", &root, &empty_headers(), &empty_filter()).await.unwrap();
+        let resp = render_direct(&sub, "/sub/", &root, &empty_headers(), &empty_filter(), false).await;
         let body = axum::body::to_bytes(resp.into_body(), usize::MAX)
             .await
             .unwrap();
@@ -657,7 +713,7 @@ mod tests {
         // when `trailingSlash` is set, so requests like `GET /sub`
         // can land at the listing renderer with a trailing-slash-less
         // URL. Hrefs must still resolve correctly.
-        let resp = render(&sub, "/sub", &root, &empty_headers(), &empty_filter()).await.unwrap();
+        let resp = render_direct(&sub, "/sub", &root, &empty_headers(), &empty_filter(), false).await;
         let body = axum::body::to_bytes(resp.into_body(), usize::MAX)
             .await
             .unwrap();
@@ -674,7 +730,7 @@ mod tests {
         let root = fs::canonicalize(dir.path()).unwrap();
         fs::write(root.join("a.txt"), "ab").unwrap();
         fs::create_dir_all(root.join("sub")).unwrap();
-        let resp = render(&root, "/", &root, &json_headers(), &empty_filter()).await.unwrap();
+        let resp = render_direct(&root, "/", &root, &json_headers(), &empty_filter(), false).await;
         assert_eq!(resp.status(), StatusCode::OK);
         assert_eq!(
             resp.headers()
@@ -710,9 +766,15 @@ mod tests {
         fs::create_dir_all(root.join("docs/api")).unwrap();
         fs::write(root.join("docs/api/index.json"), "{}").unwrap();
         let nested = fs::canonicalize(root.join("docs/api")).unwrap();
-        let resp = render(&nested, "/docs/api/", &root, &json_headers(), &empty_filter())
-            .await
-            .unwrap();
+        let resp = render_direct(
+            &nested,
+            "/docs/api/",
+            &root,
+            &json_headers(),
+            &empty_filter(),
+            false,
+        )
+        .await;
         let bytes = axum::body::to_bytes(resp.into_body(), usize::MAX)
             .await
             .unwrap();
@@ -736,7 +798,7 @@ mod tests {
         let dir = tempdir().unwrap();
         let root = fs::canonicalize(dir.path()).unwrap();
         fs::write(root.join(".bashrc"), "x").unwrap();
-        let resp = render(&root, "/", &root, &json_headers(), &empty_filter()).await.unwrap();
+        let resp = render_direct(&root, "/", &root, &json_headers(), &empty_filter(), false).await;
         let bytes = axum::body::to_bytes(resp.into_body(), usize::MAX)
             .await
             .unwrap();
@@ -844,9 +906,7 @@ mod tests {
         fs::write(root.join("secret.txt"), "shh").unwrap();
         fs::write(root.join(".DS_Store"), "ds").unwrap();
         let (filter, _) = UnlistedFilter::from_config(&["secret.txt".to_string()]);
-        let resp = render(&root, "/", &root, &empty_headers(), &filter)
-            .await
-            .unwrap();
+        let resp = render_direct(&root, "/", &root, &empty_headers(), &filter, false).await;
         let bytes = axum::body::to_bytes(resp.into_body(), usize::MAX)
             .await
             .unwrap();
@@ -862,6 +922,120 @@ mod tests {
         );
     }
 
+    // ----- renderSingle short-circuit ------------------------------
+
+    #[tokio::test]
+    async fn render_single_fires_for_single_file_directory() {
+        let dir = tempdir().unwrap();
+        let root = fs::canonicalize(dir.path()).unwrap();
+        fs::create_dir_all(root.join("media")).unwrap();
+        fs::write(root.join("media/photo.png"), b"PNG").unwrap();
+        let media = fs::canonicalize(root.join("media")).unwrap();
+        let result = render(
+            &media,
+            "/media/",
+            &root,
+            &empty_headers(),
+            &empty_filter(),
+            true,
+        )
+        .await
+        .unwrap();
+        match result {
+            RenderResult::Single { path, bytes } => {
+                assert!(path.ends_with("photo.png"));
+                assert_eq!(bytes, b"PNG");
+            }
+            RenderResult::Direct(_) => panic!("expected Single, got Direct"),
+        }
+    }
+
+    #[tokio::test]
+    async fn render_single_skips_when_count_is_two() {
+        let dir = tempdir().unwrap();
+        let root = fs::canonicalize(dir.path()).unwrap();
+        fs::create_dir_all(root.join("media")).unwrap();
+        fs::write(root.join("media/a.png"), b"A").unwrap();
+        fs::write(root.join("media/b.png"), b"B").unwrap();
+        let media = fs::canonicalize(root.join("media")).unwrap();
+        let result = render(
+            &media,
+            "/media/",
+            &root,
+            &empty_headers(),
+            &empty_filter(),
+            true,
+        )
+        .await
+        .unwrap();
+        assert!(matches!(result, RenderResult::Direct(_)));
+    }
+
+    #[tokio::test]
+    async fn render_single_count_is_pre_filter() {
+        // `.DS_Store` + 1 file → reference's `canRenderSingle` is
+        // `renderSingle && files.length === 1` BEFORE the unlisted
+        // filter; here count is 2, so renderSingle does NOT fire
+        // (matches reference at `serve-handler/src/index.js:342`).
+        // Kickoff interview decision #3 mirrors this literally.
+        let dir = tempdir().unwrap();
+        let root = fs::canonicalize(dir.path()).unwrap();
+        fs::create_dir_all(root.join("media")).unwrap();
+        fs::write(root.join("media/photo.png"), b"PNG").unwrap();
+        fs::write(root.join("media/.DS_Store"), b"ds").unwrap();
+        let media = fs::canonicalize(root.join("media")).unwrap();
+        let result = render(
+            &media,
+            "/media/",
+            &root,
+            &empty_headers(),
+            &empty_filter(),
+            true,
+        )
+        .await
+        .unwrap();
+        assert!(matches!(result, RenderResult::Direct(_)));
+    }
+
+    #[tokio::test]
+    async fn render_single_skips_for_single_subdirectory() {
+        let dir = tempdir().unwrap();
+        let root = fs::canonicalize(dir.path()).unwrap();
+        fs::create_dir_all(root.join("media/sub")).unwrap();
+        let media = fs::canonicalize(root.join("media")).unwrap();
+        let result = render(
+            &media,
+            "/media/",
+            &root,
+            &empty_headers(),
+            &empty_filter(),
+            true,
+        )
+        .await
+        .unwrap();
+        assert!(matches!(result, RenderResult::Direct(_)));
+    }
+
+    #[tokio::test]
+    async fn render_single_off_renders_listing() {
+        let dir = tempdir().unwrap();
+        let root = fs::canonicalize(dir.path()).unwrap();
+        fs::create_dir_all(root.join("media")).unwrap();
+        fs::write(root.join("media/photo.png"), b"PNG").unwrap();
+        let media = fs::canonicalize(root.join("media")).unwrap();
+        let result = render(
+            &media,
+            "/media/",
+            &root,
+            &empty_headers(),
+            &empty_filter(),
+            false,
+        )
+        .await
+        .unwrap();
+        assert!(matches!(result, RenderResult::Direct(_)));
+    }
+
     #[tokio::test]
     async fn render_json_filters_unlisted_entries() {
         let dir = tempdir().unwrap();
@@ -872,9 +1046,7 @@ mod tests {
         fs::create_dir_all(root.join(".git")).unwrap();
         fs::write(root.join(".git/HEAD"), "ref").unwrap();
         let (filter, _) = UnlistedFilter::from_config(&["secret.txt".to_string()]);
-        let resp = render(&root, "/", &root, &json_headers(), &filter)
-            .await
-            .unwrap();
+        let resp = render_direct(&root, "/", &root, &json_headers(), &filter, false).await;
         let bytes = axum::body::to_bytes(resp.into_body(), usize::MAX)
             .await
             .unwrap();
