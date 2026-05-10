@@ -126,15 +126,20 @@ enum PatSeg {
     /// Pure literal (no glob meta-characters).
     Literal(String),
     /// Single-segment glob with at least one of `*`, `?`, `[`, `{`.
-    /// `starts_with_dot` is the literal-leading-dot flag — true when
-    /// the user-typed pattern segment starts with `.` (e.g. `.*`,
-    /// `.?html`, `.foo*`), false for magic-leading segments like
-    /// `*foo`, `[.]y`, `?abc`. Mirrors minimatch's
-    /// "leading dot will not be matched by GLOB unless the pattern
-    /// itself starts with a literal dot".
+    /// `matcher` matches the full segment; `dot_matcher` is `Some`
+    /// when at least one of the segment's top-level brace
+    /// alternatives begins with a literal `.` — and contains a
+    /// matcher built from ONLY those alternatives. Codex review
+    /// round 10 P1.2: with a single boolean `starts_with_dot`,
+    /// patterns like `{.x,*}` admitted any dotfile because globset's
+    /// `*` alt matches dotfiles even though minimatch only allows
+    /// the dot-prefixed alt to do so. The split-matcher design lets
+    /// us route dotfile paths to the dot-restricted matcher and
+    /// non-dot paths to the full matcher, mirroring minimatch's
+    /// per-alternative `dot: false` rule.
     Wildcard {
         matcher: GlobMatcher,
-        starts_with_dot: bool,
+        dot_matcher: Option<GlobMatcher>,
     },
     /// Globstar — matches zero or more path segments, with each
     /// expanded segment subject to the same `dot: false` rule.
@@ -158,20 +163,25 @@ fn match_segments(pat: &[PatSeg], path: &[&str]) -> bool {
         },
         Some(PatSeg::Wildcard {
             matcher,
-            starts_with_dot,
+            dot_matcher,
         }) => match path.first() {
             None => false,
             Some(seg) => {
-                // minimatch `dot: false`: a path segment that begins
-                // with `.` is NOT matched by a glob pattern unless
-                // the pattern segment itself begins with a literal
-                // `.`. `[.]y` first char is `[` (magic), so it does
-                // NOT permit leading-dot matches even though the
-                // bracket class contains `.`.
-                if seg.starts_with('.') && !starts_with_dot {
-                    return false;
-                }
-                if matcher.is_match(seg) {
+                // minimatch's `dot: false` is per-alternative.
+                // For dotfile paths, route to `dot_matcher` (built
+                // from only the dot-prefixed brace alternatives, or
+                // `None` if no such alt exists). For non-dot paths,
+                // use the full `matcher`. Codex review round 10
+                // P1.2.
+                let chosen = if seg.starts_with('.') {
+                    match dot_matcher {
+                        Some(m) => m,
+                        None => return false,
+                    }
+                } else {
+                    matcher
+                };
+                if chosen.is_match(seg) {
                     match_segments(&pat[1..], &path[1..])
                 } else {
                     false
@@ -225,57 +235,76 @@ fn match_segments(pat: &[PatSeg], path: &[&str]) -> bool {
 }
 
 fn classify_pattern_segment(seg: &str) -> Result<PatSeg, globset::Error> {
-    if seg == "**" {
+    let de_escaped = de_escape(seg);
+    // Codex review round 10 P1.1: the `**` check must happen on the
+    // de-escaped form. Sources like `\**` produce the same
+    // de-escaped string (`**`) and minimatch parses them as
+    // globstar. (The `\*\*` case minimatch parses as TWO single-
+    // segment globs rather than globstar — a quirk we don't
+    // mirror; documented as a known divergence in D-012.)
+    if de_escaped == "**" {
         return Ok(PatSeg::DoubleStar);
     }
-    // Codex review round 9 P1 corrected the backslash handling.
-    // Empirical probe of minimatch 3.1.5 (the version pinned by
-    // serve-handler) shows that `\X` in a pattern is effectively
-    // transparent — the backslash is not consumed as an escape
-    // for X in `*`/`?`/`[`/`{`. Specifically:
-    //   * `/s/\*` matches `/s/foo` (the `*` is still wildcard).
-    //   * `/q/\?` matches `/q/a` (the `?` is still single-char glob).
-    //   * `/br/\[ab]` matches `/br/a` (the `[ab]` is still bracket class).
-    //   * `/bc/\{a,b}` matches `/bc/a` (the `{a,b}` is still alternation).
-    // The ONLY observable effect of `\.` is to bypass the dot
-    // rule (since the de-escaped form starts with literal `.`).
-    // We mirror by stripping `\X` to `X` uniformly before
-    // classifying — that gives minimatch-faithful behavior for
-    // all five cases. The previous round-8 fix used
-    // `GlobBuilder::backslash_escape(true)` which made globset
-    // treat `\*` as literal `*` (under-matching).
-    let de_escaped = de_escape(seg);
     let has_glob = de_escaped
         .chars()
         .any(|c| matches!(c, '*' | '?' | '[' | '{'));
     if !has_glob {
         return Ok(PatSeg::Literal(de_escaped));
     }
-    let glob = GlobBuilder::new(&de_escaped)
+    // If globset rejects the de-escaped pattern (e.g. unbalanced
+    // `[` or `{`), fall back to a Literal segment with the
+    // de-escaped form. Codex review round 10 P2 surfaced this for
+    // sources like `/u/\[` — the de-escaped `[` is invalid
+    // globset, but minimatch matches a literal `[` request path.
+    let glob = match GlobBuilder::new(&de_escaped)
         .literal_separator(true)
-        .build()?;
+        .build()
+    {
+        Ok(g) => g,
+        Err(_) => return Ok(PatSeg::Literal(de_escaped)),
+    };
+    let dot_matcher = build_dot_only_matcher(&de_escaped)?;
     Ok(PatSeg::Wildcard {
         matcher: glob.compile_matcher(),
-        starts_with_dot: segment_can_start_with_dot(&de_escaped),
+        dot_matcher,
     })
 }
 
-/// Returns true when at least one expansion of the segment begins
-/// with a literal `.`. Mirrors minimatch's brace expansion happening
-/// before the dot rule is applied: `{.x,y}` admits a leading-dot
-/// path segment because the `.x` alternative starts with `.`. The
-/// segment-leading `.` itself (no braces) trivially returns true.
-/// Codex review round 6 P1 added the brace case. (Codex round 9
-/// removed the round-8 `\.` check because the caller now
-/// de-escapes the segment before classification, so a `\.`-leading
-/// pattern becomes a `.`-leading one and falls into the trivial
-/// branch.)
-fn segment_can_start_with_dot(seg: &str) -> bool {
+/// Build a `GlobMatcher` that only matches the dot-prefixed brace
+/// alternatives within a segment, or `None` if no alternative
+/// begins with a literal `.`. Used at match time to route dotfile
+/// paths through a stricter matcher, mirroring minimatch's
+/// per-alt `dot: false` rule. Codex review round 10 P1.2.
+fn build_dot_only_matcher(seg: &str) -> Result<Option<GlobMatcher>, globset::Error> {
+    let dot_alts = collect_dot_starting_alternatives(seg);
+    if dot_alts.is_empty() {
+        return Ok(None);
+    }
+    let pattern = if dot_alts.len() == 1 {
+        dot_alts.into_iter().next().expect("len==1")
+    } else {
+        format!("{{{}}}", dot_alts.join(","))
+    };
+    let glob = match GlobBuilder::new(&pattern)
+        .literal_separator(true)
+        .build()
+    {
+        Ok(g) => g,
+        Err(_) => return Ok(None),
+    };
+    Ok(Some(glob.compile_matcher()))
+}
+
+/// Return the alternatives within `seg` that begin with a literal
+/// `.`. For a non-brace segment, returns `[seg]` if it starts with
+/// `.`, else empty. For a brace segment, splits the top-level
+/// alternatives and recurses.
+fn collect_dot_starting_alternatives(seg: &str) -> Vec<String> {
     if seg.starts_with('.') {
-        return true;
+        return vec![seg.to_string()];
     }
     if !seg.starts_with('{') {
-        return false;
+        return Vec::new();
     }
     let bytes = seg.as_bytes();
     let mut depth = 0usize;
@@ -292,17 +321,22 @@ fn segment_can_start_with_dot(seg: &str) -> bool {
         }
     }
     let Some(close) = close_idx else {
-        return false;
+        return Vec::new();
     };
     let inner = &seg[1..close];
-    split_top_level_alternatives(inner)
-        .iter()
-        .any(|alt| segment_can_start_with_dot(alt))
+    let suffix = &seg[close + 1..];
+    let mut out = Vec::new();
+    for alt in split_top_level_alternatives(inner) {
+        for nested in collect_dot_starting_alternatives(alt) {
+            out.push(format!("{}{}", nested, suffix));
+        }
+    }
+    out
 }
 
 /// Split a brace-inner string on top-level commas. Nested braces are
 /// kept intact so `{a,{b,c}}` splits to `["a", "{b,c}"]`, allowing
-/// the recursion in `segment_can_start_with_dot` to descend.
+/// callers (e.g. `collect_dot_starting_alternatives`) to recurse.
 fn split_top_level_alternatives(s: &str) -> Vec<&str> {
     let mut parts = Vec::new();
     let mut depth = 0usize;
@@ -599,11 +633,9 @@ fn path_posix_resolve(path: &str) -> String {
 /// round-7 implementation kept the backslash in `Literal.source`
 /// and the comparison against the request path failed.
 ///
-/// Wildcard-variant sources don't need this because globset's
-/// own glob compiler treats `\X` as an escape and produces the
-/// correct compiled regex; only the dot-rule check needs to
-/// look past the leading `\` (handled in
-/// `segment_can_start_with_dot`).
+/// Codex round 9 unified the handling: ALL segments are
+/// de-escaped before classification, so the same backslash logic
+/// applies to Literal, Wildcard, and DoubleStar variants.
 fn de_escape(s: &str) -> String {
     let mut out = String::with_capacity(s.len());
     let mut chars = s.chars();
@@ -1140,6 +1172,48 @@ mod tests {
     }
 
     #[test]
+    fn escaped_doublestar_classifies_as_globstar() {
+        // Codex review round 10 P1.1: the `seg == "**"` check now
+        // runs on the de-escaped form. Source `\**` (which
+        // de-escapes to `**`) should be DoubleStar — minimatch
+        // parses `\**` as globstar.
+        let rules = compile(&[rule("/a/\\**", "/hit", None)]);
+        let (target, _) = compute_configured_redirects("/a/x/y", &rules)
+            .expect("`\\**` should match like globstar");
+        assert_eq!(target, "/hit");
+        assert!(compute_configured_redirects("/a/x", &rules).is_some());
+    }
+
+    #[test]
+    fn brace_with_dot_alt_rejects_other_dotfile() {
+        // Codex review round 10 P1.2: minimatch's `dot: false` is
+        // PER-ALTERNATIVE. `{.x,*}` admits `.x` (via the `.x` alt)
+        // but rejects `.y` because the only dot-prefixed alt is
+        // `.x` literal, and `*` rejects dotfiles.
+        let rules = compile(&[rule("/x/{.x,*}", "/hit", None)]);
+        // `.x` matches via the dot-prefixed alt.
+        assert!(compute_configured_redirects("/x/.x", &rules).is_some());
+        // Non-dot path matches via the `*` alt.
+        assert!(compute_configured_redirects("/x/abc", &rules).is_some());
+        // Other dotfile is REJECTED — `.x` literal alt doesn't
+        // match `.y`, and `*` rejects dotfiles per `dot: false`.
+        assert!(compute_configured_redirects("/x/.y", &rules).is_none());
+    }
+
+    #[test]
+    fn unmatched_bracket_source_falls_back_to_literal() {
+        // Codex review round 10 P2: the de-escaped form `[` is
+        // invalid globset (unmatched bracket). The classifier
+        // falls back to a Literal segment with the de-escaped
+        // form. So `/u/\[` literal-matches `[` (which a request
+        // path can carry as `%5B` decoded to `[`).
+        let rules = compile(&[rule("/u/\\[", "/hit", None)]);
+        let (target, _) = compute_configured_redirects("/u/[", &rules)
+            .expect("`\\[` should literal-match `[`");
+        assert_eq!(target, "/hit");
+    }
+
+    #[test]
     fn wildcard_with_escaped_star_keeps_glob_meta() {
         // Codex review round 9 P1: minimatch 3.1.5 (the version
         // pinned by serve-handler) treats `\X` for X in `*`/`?`/
@@ -1559,17 +1633,28 @@ mod tests {
     // ----- compile_rules error handling -----------------------------
 
     #[test]
-    fn compile_rules_skips_invalid_glob() {
+    fn compile_rules_falls_back_to_literal_on_globset_error() {
+        // Codex review round 10 P2: when globset rejects the
+        // de-escaped pattern (e.g. unmatched `[`), classify falls
+        // back to a Literal segment with the de-escaped form. This
+        // makes `/u/\[` literal-match a `[` request path. The
+        // round-1..9 behavior had this rule silently dropped at
+        // compile time. Both rules compile now; the
+        // `bad-but-falls-back` rule literal-matches its raw form
+        // (which real URL paths rarely carry).
         let rules = vec![
             rule("/good/*", "/g", None),
             rule("[invalid", "/bad", None),
         ];
         let (compiled, invalid) = compile_rules(&rules);
-        assert_eq!(compiled.len(), 1);
-        assert_eq!(invalid.len(), 1);
-        assert_eq!(invalid[0].source, "[invalid");
+        assert_eq!(compiled.len(), 2);
+        assert_eq!(invalid.len(), 0);
         // Valid rule still works.
         assert!(compute_configured_redirects("/good/x", &compiled).is_some());
+        // The "invalid" rule literal-matches its de-escaped form
+        // — `slasher_join_normalize` prepends `/` so source
+        // `[invalid` becomes `/[invalid`.
+        assert!(compute_configured_redirects("/[invalid", &compiled).is_some());
     }
 
     // ----- destination passthrough ----------------------------------

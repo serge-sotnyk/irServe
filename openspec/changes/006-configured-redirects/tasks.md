@@ -701,3 +701,66 @@
   tools/probe/run.mjs --all --target=reference --snapshot=verify`
   55/55 (was 54); `npx -y @fission-ai/openspec@latest validate
   --all --strict` — 14/14.
+
+## 13. Codex review round 10 (P1 + P1 + P2 + P3 fixes)
+
+- [x] 13.1 **P1.1 — escaped globstar.** The `seg == "**"` check
+  in `classify_pattern_segment` ran BEFORE round-9's de-escape,
+  so `\**` (which de-escapes to `**`) was classified as a
+  single-segment Wildcard instead of DoubleStar. Empirically
+  `minimatch('/a/x/y', '/a/\\**')` → true (globstar). Fix: move
+  de-escape before the `==` check. The closely-related `\*\*`
+  case is documented as a known divergence (minimatch parses it
+  as two single-segment globs because escape positions of
+  consecutive stars matter; mirroring requires a fuller
+  minimatch parser).
+- [x] 13.2 **P1.2 — per-alt dot rule for braces.** Round-6's
+  single `starts_with_dot: bool` over-permitted brace patterns:
+  `{.x,*}` admitted any dotfile via the `*` alt because
+  globset's `*` matches dotfiles regardless. Empirically
+  minimatch's `dot: false` is per-alternative — only the
+  dot-prefixed alt admits dotfile paths. Fix: replace
+  `starts_with_dot` with `dot_matcher: Option<GlobMatcher>` —
+  `Some` when at least one alt begins with `.`, containing a
+  matcher built from ONLY those dot-prefixed alts. At match
+  time, dotfile paths route to `dot_matcher` (None → reject);
+  non-dot paths use the full matcher. New helper
+  `collect_dot_starting_alternatives` walks brace alts
+  recursively. Removed the now-redundant
+  `segment_can_start_with_dot` helper.
+- [x] 13.3 **P2 — globset-error fallback to Literal.** The
+  round-9 unified de-escape produces invalid globset patterns
+  for sources like `\[` (de-escaped `[` is unmatched bracket).
+  The rule was silently dropped. Reference matches the literal
+  `[` request path. Fix: in `classify_pattern_segment`, on
+  globset compile error, fall back to a Literal segment with
+  the de-escaped form. Updates the
+  `compile_rules_skips_invalid_glob` test to
+  `compile_rules_falls_back_to_literal_on_globset_error`.
+- [x] 13.4 New unit tests in `redirects.rs`:
+  `escaped_doublestar_classifies_as_globstar` (P1.1),
+  `brace_with_dot_alt_rejects_other_dotfile` (P1.2),
+  `unmatched_bracket_source_falls_back_to_literal` (P2).
+  Plus the `compile_rules_falls_back_to_literal_on_globset_error`
+  rewrite. Three new tests; one updated; redirects suite at 87.
+- [x] 13.5 New probe `tools/probe/cases/redirects-edge-corners.json`
+  (5 anchors, ORC-128..132): `\**` globstar, brace per-alt dot
+  rule (3 anchors), `\[` literal fallback.
+- [x] 13.6 **P3 — anchor count fix.** The round-9 wording in
+  the spec delta said "40 anchors total" for the range
+  `ORC-030, ORC-084..ORC-127`. The range `084..127` IS 44
+  anchors; plus `ORC-030` is 45. Round 10 extends through
+  ORC-132 — 49 + 1 = 50 anchors total. Updated wording in the
+  spec delta and `tasks.md`.
+- [x] 13.7 D-012 in `decisions.md` extended with all three
+  round-10 fixes; `design.md` §8 stop-the-line item 9 added;
+  `inventory.md` SRV-RDIR-001 oracle list extended through
+  ORC-132; `006-configured-redirects` delta
+  `specs/redirects/spec.md` updated to "50 anchors" over the
+  `ORC-084..ORC-132` range.
+- [x] 13.8 Verify: `cargo test -p irserve-core redirects` 87/87
+  green (was 84); `cargo test --test oracle` 35 passed (was
+  34, +1 case from new probe), 21 skipped, 0 failed; `node
+  tools/probe/run.mjs --all --target=reference --snapshot=verify`
+  56/56 (was 55); `npx -y @fission-ai/openspec@latest validate
+  --all --strict` — 14/14.

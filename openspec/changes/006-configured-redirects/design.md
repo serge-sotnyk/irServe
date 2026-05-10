@@ -473,6 +473,25 @@ plan:
    `.`-prefix branch. Pinned by ORC-123 (`\*` keeps glob),
    ORC-124 (`\?`), ORC-125/126 (`\[ab]`), ORC-127 (`\{a,b}`).
 
+9. **Three more minimatch corners (Codex round 10).** P1.1: the
+   `seg == "**"` check ran before de-escape, so `\**` was
+   classified as Wildcard not DoubleStar. Decision: move de-escape
+   before the `**` check (covers `\**`); the closely-related
+   `\*\*` (parsed by minimatch as two single-segment globs, NOT
+   globstar) is documented as a known divergence. P1.2: the
+   single `starts_with_dot: bool` flag on Wildcard over-permitted
+   brace patterns like `{.x,*}` to admit any dotfile because
+   globset's `*` alt matches dotfiles regardless of `dot: false`.
+   Decision: replace with `dot_matcher: Option<GlobMatcher>`
+   containing a matcher built from ONLY dot-prefixed alts;
+   dotfile paths route to `dot_matcher` (None → reject), non-dot
+   paths use the full matcher. P2: globset rejects de-escaped
+   patterns like `[` (unmatched bracket); the rule was silently
+   dropped. Decision: fall back to a Literal segment with the
+   de-escaped form on globset compile error. Pinned by ORC-128
+   (escaped globstar), ORC-129..131 (brace per-alt dot rule),
+   ORC-132 (`\[` literal fallback).
+
 ## 9. Hard stops
 
 - `third_party/` — read-only.
