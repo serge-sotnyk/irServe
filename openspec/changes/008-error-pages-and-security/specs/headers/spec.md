@@ -52,7 +52,9 @@ Evidence: SRV-HDR-001 (status: verified, level: L2); oracle: ORC-053
 headers correctly absent), ORC-159
 (`cases/headers-on-error.json#not_found_carries_x_test`), ORC-160
 (`cases/headers-accumulate.json#css_carries_both`), ORC-161
-(`cases/headers-after-cleanurls.json#extensionless_resolves_to_html`);
+(`cases/headers-after-cleanurls.json#extensionless_resolves_to_html`),
+ORC-162
+(`cases/error-page-400-headers.json#traversal_serves_custom_400_with_headers`);
 D-015.
 
 Implementation: `crates/irserve-core/src/custom_headers.rs::compile_rules`
@@ -67,17 +69,41 @@ wraps the existing pipeline (`dispatch_inner`) and applies
 ONLY when `dispatch_inner` returns `(_, Some(path))` —
 `dispatch_inner` returns `None` for paths that already applied
 custom headers per-branch (error responses) or that should skip them
-entirely (3xx redirects, traversal 400). On the success file path,
-`dispatch_inner` returns `Some(url_path_for_resolved_file(p, root))`,
-which strips the canonicalized root prefix from the resolved
-`PathBuf` and presents the URL form (`/page.html` for a `/page`
-request resolved via cleanUrls). On 4xx error paths,
-`error_response` itself applies headers per `sendError`'s branches
-at `index.js:467-524`: JSON skips entirely, custom `<status>.html`
-matches against `/<status>.html`, fallback HTML matches against the
-request path; the lexical-escape and malformed-decode 400 sites pass
-`&[]` so the 400 carries no custom headers (mirrors the empirical
-reference behavior captured in D-015).
+entirely (3xx redirects).
+
+On the success file path, `dispatch_inner` tracks a `lexical_url`
+String alongside the `ResolveOutcome`: the URL form of the path that
+ultimately resolved (`/page.html` when cleanUrls picked the
+`<P>.html` candidate, `/page/index.html` when it picked
+`<P>/index.html`, the rewrite's destination string when a rewrite
+matched, otherwise the original `url_path`). Codex review round 3 P2:
+the prior round-2 fix derived the matching path from the
+canonicalized `PathBuf`, which on Windows folds case (`canonicalize`
+of `/ASSET.CSS` yields `/asset.css`) and admitted matches that
+reference's case-sensitive minimatch rejects. Reference's
+`getHeaders` runs against the lexical `path.relative(current,
+absolutePath)` where `absolutePath` is the candidate's lexical form
+that `findRelated` selected — never canonicalized.
+
+On 4xx error paths, `error_response(status, request_headers, root,
+header_rules, request_path, skip_fallback_headers)` applies headers
+per `sendError`'s branches at `index.js:467-524`:
+
+- JSON-preferring client: skip headers entirely (reference returns
+  before `getHeaders` at `index.js:477-487`).
+- Custom `<status>.html` exists: ALWAYS apply headers matched
+  against `/<status>.html`. Codex review round 3 P1: the prior
+  round-2 fix passed `&[]` for traversal/decode 400 sites, which
+  incorrectly suppressed headers on the custom-page branch too.
+- Fallback HTML (no custom page): apply headers matched against the
+  request path, then FORCE `Content-Type: text/html; charset=utf-8`
+  AFTER the apply pass — mirrors reference's order at
+  `index.js:519-520` so a user rule cannot override the fallback's
+  content type. `skip_fallback_headers=true` is set by callers whose
+  reference equivalent invokes `getHeaders` with an outside-root
+  `absolutePath` (lexical-escape 400, malformed-decode 400, symlink-
+  escape 400) — empirically those calls fail to match common rules
+  in practice, and skipping cleanly mirrors that absence (D-015).
 
 #### Scenario: Single rule applies to a matching path
 

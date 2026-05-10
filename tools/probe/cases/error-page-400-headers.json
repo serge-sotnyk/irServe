@@ -1,0 +1,34 @@
+{
+  "id": "error-page-400-headers",
+  "description": "Custom `400.html` at the served root receives custom headers from `serve.json` matched against `/400.html`. Mirrors reference's `getHeaders(.., errorPage, stats)` at `serve-handler/src/index.js:508` — the custom-page branch always invokes getHeaders, even when sendError was triggered by a path-traversal that would otherwise fail to match user rules in the fallback HTML branch. Codex review round 3 P1.",
+  "fixture": {
+    "files": {
+      "index.html": "<p>home</p>\n",
+      "400.html": "<p>custom-bad-request</p>\n"
+    },
+    "serveJson": {
+      "headers": [
+        {
+          "source": "**",
+          "headers": [{ "key": "X-Error-Page", "value": "yes" }]
+        }
+      ]
+    }
+  },
+  "snapshot": {
+    "extraTrackedHeaders": ["x-error-page"]
+  },
+  "runner": {
+    "l0": {
+      "clean": ["traversal_serves_custom_400_with_headers"],
+      "divergent": []
+    }
+  },
+  "requests": [
+    {
+      "name": "traversal_serves_custom_400_with_headers",
+      "mode": "raw",
+      "path": "/../package.json"
+    }
+  ]
+}

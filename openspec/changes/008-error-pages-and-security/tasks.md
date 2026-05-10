@@ -168,3 +168,54 @@ review round 1 (P1 + P2 fixes)`.
 - [x] **P2**: Change package completeness. Added
   `specs/static-files/spec.md` and `specs/security/spec.md` MOD
   deltas; ticked all slice-6 checkboxes above.
+
+## Codex review round 2 (P1 + P2 fixes)
+
+- [x] **P1**: Success-path header matching uses the FINAL resolved
+  file path, not the pre-resolution URL. cleanUrls maps `GET /page`
+  to `/page.html`; reference's `getHeaders` is called with the
+  resolved `absolutePath` per `index.js:746`, so a `**/*.html`
+  source rule applies. Round 2 implemented this by stripping the
+  canonicalized root from `ResolveOutcome::File`'s PathBuf — round
+  3 supersedes this with lexical tracking (see below).
+- [x] **P1**: Traversal 400 must not carry custom headers. Round 2
+  passed `&[]` for the lexical-escape, malformed-decode, and
+  EscapedRoot 400 sites — round 3 refines this with a
+  `skip_fallback_headers` parameter so the custom-page branch can
+  still apply headers (Codex round 3 P1 corrective).
+- [x] **P1**: Header source matching is case-sensitive minimatch
+  only. Replaced `path_pattern::Matcher` reuse with a slim
+  `HeaderMatcher` enum (Literal / Glob). `:name` and case-only
+  differences no longer match.
+- [x] **P2**: `specs/headers/spec.md` aligned with the post-round-1
+  null-prune semantics and the new `HeaderMatcher`.
+- [x] New probe `cases/headers-after-cleanurls.json` (ORC-161) pins
+  the resolved-path matching contract.
+- Commit: `docs(stage-6f): address Codex review round 2 (P1 + P2 fixes)`.
+
+## Codex review round 3 (P1 + P2 fixes)
+
+- [x] **P1**: Custom `<status>.html` branch always applies user
+  headers. Round 2's `&[]` blanket on 400 sites also suppressed the
+  custom-page branch — round 3 splits via `skip_fallback_headers`
+  on `error_response`, with `header_rules` always real. Custom
+  `400.html` + `**` rule now emits `x-error-page: yes`, mirroring
+  reference's `getHeaders(.., errorPage, stats)` at `index.js:508`.
+- [x] **P1**: Fallback HTML force-overrides Content-Type. After
+  `apply_custom_headers` runs in the fallback branch, irserve forces
+  `Content-Type: text/html; charset=utf-8` last, mirroring
+  reference's order at `index.js:519-520`. A user rule with
+  `value: application/x-custom` does NOT override the fallback's
+  content type.
+- [x] **P2**: Success-path matching uses the lexical resolved URL
+  (`/page.html`, `/page/index.html`, the rewrite's destination
+  string), not the canonicalized PathBuf. The Windows `canonicalize`
+  case-folding regression (`/ASSET.CSS` → `/asset.css`) is gone —
+  irserve's `**/*.css` source rule no longer matches `GET /ASSET.CSS`
+  on a Windows fs whose on-disk file is `asset.css`, mirroring
+  reference's case-sensitive minimatch on the lexical `path.relative`
+  of the un-canonicalized `absolutePath`.
+- [x] New probe `cases/error-page-400-headers.json` (ORC-162) pins
+  the custom-page-branch headers contract for traversal-triggered
+  400.
+- Commit: `docs(stage-6f): address Codex review round 3 (P1 + P2 fixes)`.

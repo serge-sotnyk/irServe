@@ -93,15 +93,23 @@ async fn dispatch_inner(
         Ok(p) => p,
         Err(_) => {
             // Reference's URIError catch passes `'/'` as absolutePath
-            // to sendError (`index.js:563`), so getHeaders runs against
-            // a degenerate relative path that no realistic user rule
-            // intentionally targets. Mirror by passing `&[]` here so
-            // the malformed-decode 400 carries no custom headers, and
-            // D-015's "all 400 responses skip custom headers" invariant
-            // holds. Codex review round 2 P1.
-            let resp =
-                error_response(StatusCode::BAD_REQUEST, req.headers(), root, &[], &raw_path)
-                    .await;
+            // to sendError (`index.js:563`), so the fallback HTML
+            // `getHeaders` call runs against a degenerate relative
+            // path that no realistic user rule intentionally targets.
+            // We mirror that absence with `skip_fallback_headers=true`,
+            // but the custom `<status>.html` branch still applies user
+            // rules — reference invokes `getHeaders(.., errorPage,
+            // stats)` at `index.js:508` whether or not the URIError
+            // path was outside root. Codex review round 3 P1.
+            let resp = error_response(
+                StatusCode::BAD_REQUEST,
+                req.headers(),
+                root,
+                header_rules,
+                &raw_path,
+                true,
+            )
+            .await;
             return (resp, None);
         }
     };
@@ -113,15 +121,25 @@ async fn dispatch_inner(
     // I/O. The check is purely lexical to match `path.posix.join`'s
     // normalization (e.g. leading `//` collapses to `/` and is benign).
     //
-    // Empirically, the reference does NOT apply custom headers to
-    // traversal-400 responses: getHeaders' `path.relative(current,
-    // outsideAbsolutePath)` produces a `../`-prefixed string whose
-    // slasher-normalized form does not match user rules in practice
-    // (D-015). Pass `&[]` so irserve mirrors that empirical absence.
+    // Empirically, reference's fallback `getHeaders(.., absolutePath,
+    // null)` for traversal 400 fails to match common rules like `**`
+    // because `path.relative(current, outsideAbsolutePath)` produces a
+    // `../`-prefixed string whose slasher-normalized form is brittle
+    // (D-015). Skip the fallback branch's header application, but
+    // keep the custom `<status>.html` branch on — Codex review round 3
+    // P1: a user-supplied `400.html` MUST still receive its rule-set
+    // headers (reference's `getHeaders(.., errorPage, stats)` at
+    // `index.js:508` runs regardless).
     if lexical_path_escapes_root(&decoded_path) {
-        let resp =
-            error_response(StatusCode::BAD_REQUEST, req.headers(), root, &[], &decoded_path)
-                .await;
+        let resp = error_response(
+            StatusCode::BAD_REQUEST,
+            req.headers(),
+            root,
+            header_rules,
+            &decoded_path,
+            true,
+        )
+        .await;
         return (resp, None);
     }
 
@@ -187,39 +205,61 @@ async fn dispatch_inner(
     // semantics).
     let url_has_extension = url_path_has_extension(&url_path);
 
-    let outcome = if !url_has_extension {
+    // `lexical_url` tracks the URL form of the path that ultimately
+    // resolved (or attempted to resolve). For successes it feeds
+    // `apply_custom_headers` as the matching path, mirroring
+    // reference's `path.relative(current, absolutePath)` lookup inside
+    // `getHeaders` (where `absolutePath` was updated by `findRelated`
+    // to the resolved candidate's lexical path, NOT canonicalized).
+    // Codex review round 3 P2: the prior implementation used the
+    // canonicalized `PathBuf`, which on Windows folds `/ASSET.CSS`'s
+    // case to `/asset.css` and admits matches that reference's
+    // case-sensitive minimatch rejects.
+    let url_path_str: String = url_path.clone().into_owned();
+    let trimmed = url_path_str
+        .trim_start_matches('/')
+        .trim_end_matches('/');
+    let cleanurls_index_url = if trimmed.is_empty() {
+        "/index.html".to_string()
+    } else {
+        format!("/{}/index.html", trimmed)
+    };
+    let cleanurls_flat_url = if trimmed.is_empty() {
+        // try_clean_urls_resolve never produces a `<P>.html` candidate
+        // for the empty-P root; this string is unreachable as a
+        // lexical-url winner, but we set it for completeness.
+        url_path_str.clone()
+    } else {
+        format!("/{}.html", trimmed)
+    };
+
+    let (outcome, lexical_url): (ResolveOutcome, String) = if !url_has_extension {
         // Extensionless. Apply rewrites first; if matched, resolve
-        // the rewritten path. If the rewritten path doesn't
-        // resolve, fall back to the ORIGINAL path's resolve —
-        // mirrors the reference's final `lstat(absolutePath)` at
+        // the rewritten path. If the rewritten path doesn't resolve,
+        // fall back to the ORIGINAL path's resolve — mirrors the
+        // reference's final `lstat(absolutePath)` at
         // `serve-handler/src/index.js:634-642` after `findRelated`
-        // returns null. The fallback is the original path ONLY
-        // (no cleanUrls candidates) because `findRelated`'s
-        // `rewrittenPath ? [rewrittenPath] : getPossiblePaths(...)`
-        // branch at `index.js:618-632` consults cleanUrls
-        // candidates only when no rewrite matched; once a rewrite
-        // is set, only the rewritten path is tried, and the final
-        // lstat on the ORIGINAL absolutePath is the sole fallback
-        // (which can succeed for extensionless original files
-        // that exist as plain files or directories with
-        // `index.html`).
+        // returns null. The fallback is the original path ONLY (no
+        // cleanUrls candidates).
         if let Some(target) = compute_configured_rewrites(&url_path, rewrite_rules) {
             match resolve(&target, root).await {
                 ResolveOutcome::NotFound | ResolveOutcome::EscapedRoot => {
-                    resolve(&url_path, root).await
+                    (resolve(&url_path, root).await, url_path_str.clone())
                 }
-                other => other,
+                other => (other, target),
             }
         } else {
-            // No rewrite matched. The reference's `findRelated`
-            // here consults cleanUrls candidates
-            // (`<P>/index.html` then `<P>.html`) for extensionless
-            // requests. Mirrors `getPossiblePaths` at
-            // `serve-handler/src/index.js:276` (called from
-            // `findRelated` at `index.js:282`).
+            // No rewrite matched. The reference's `findRelated` here
+            // consults cleanUrls candidates (`<P>/index.html` then
+            // `<P>.html`) for extensionless requests. The variant
+            // distinguishes which candidate succeeded:
+            //   ResolveOutcome::Index → `<P>/index.html`
+            //   ResolveOutcome::File  → `<P>.html`
             match try_clean_urls_resolve(&url_path, root, clean_urls_view).await {
-                Some(o) => o,
-                None => resolve(&url_path, root).await,
+                Some(o @ ResolveOutcome::Index(_)) => (o, cleanurls_index_url.clone()),
+                Some(o @ ResolveOutcome::File(_)) => (o, cleanurls_flat_url.clone()),
+                Some(o) => (o, url_path_str.clone()),
+                None => (resolve(&url_path, root).await, url_path_str.clone()),
             }
         }
     } else {
@@ -231,35 +271,24 @@ async fn dispatch_inner(
         match resolve(&url_path, root).await {
             ResolveOutcome::NotFound => {
                 if let Some(target) = compute_configured_rewrites(&url_path, rewrite_rules) {
-                    resolve(&target, root).await
+                    let r = resolve(&target, root).await;
+                    (r, target)
                 } else {
-                    try_clean_urls_resolve(&url_path, root, clean_urls_view)
-                        .await
-                        .unwrap_or(ResolveOutcome::NotFound)
+                    match try_clean_urls_resolve(&url_path, root, clean_urls_view).await {
+                        Some(o @ ResolveOutcome::Index(_)) => (o, cleanurls_index_url.clone()),
+                        Some(o @ ResolveOutcome::File(_)) => (o, cleanurls_flat_url.clone()),
+                        Some(o) => (o, url_path_str.clone()),
+                        None => (ResolveOutcome::NotFound, url_path_str.clone()),
+                    }
                 }
             }
-            other => other,
+            other => (other, url_path_str.clone()),
         }
     };
 
     match outcome {
         ResolveOutcome::File(p) | ResolveOutcome::Index(p) => match tokio::fs::read(&p).await {
-            Ok(bytes) => {
-                // Reference applies `getHeaders` to `slasher(path.relative(
-                // current, finalAbsolutePath))` — the FINAL resolved file
-                // path AFTER cleanUrls / rewrite resolution
-                // (`index.js:622-625` for cleanUrls, `:746` for the
-                // success-site getHeaders call). Compute the equivalent
-                // here from `p` (canonicalized PathBuf) by stripping the
-                // canonicalized root prefix and converting to a
-                // POSIX-style URL form. Codex review round 2 P1: the
-                // prior implementation used the pre-resolution
-                // `url_path`, so headers like `**/*.html` failed to
-                // match `/page` resolving to `/page.html`.
-                let header_path = url_path_for_resolved_file(&p, root)
-                    .unwrap_or_else(|| url_path.clone().into_owned());
-                (file_response(&p, bytes), Some(header_path))
-            }
+            Ok(bytes) => (file_response(&p, bytes), Some(lexical_url)),
             Err(_) => {
                 let resp = error_response(
                     StatusCode::NOT_FOUND,
@@ -267,6 +296,7 @@ async fn dispatch_inner(
                     root,
                     header_rules,
                     &decoded_path,
+                    false,
                 )
                 .await;
                 (resp, None)
@@ -279,38 +309,30 @@ async fn dispatch_inner(
                 root,
                 header_rules,
                 &decoded_path,
+                false,
             )
             .await;
             (resp, None)
         }
-        // Defense-in-depth: lexical check above already short-circuits
-        // `..`-escaping requests at phase 1; this branch covers the rare
-        // case of a symlink (or future routing target) whose canonical
-        // form lands outside the served root. Pass `&[]` so the 400
-        // response carries no custom headers — same invariant as the
-        // lexical-escape branch above (D-015).
+        // Defense-in-depth: the lexical check at phase 1 already
+        // short-circuits `..`-escaping requests; this branch covers
+        // symlink/canonicalize-based escapes. Skip the fallback HTML
+        // branch's header application (mirrors lexical-escape) but
+        // keep the custom `<status>.html` branch on — same reasoning
+        // as the lexical-escape site (Codex review round 3 P1).
         ResolveOutcome::EscapedRoot => {
-            let resp =
-                error_response(StatusCode::BAD_REQUEST, req.headers(), root, &[], &decoded_path)
-                    .await;
+            let resp = error_response(
+                StatusCode::BAD_REQUEST,
+                req.headers(),
+                root,
+                header_rules,
+                &decoded_path,
+                true,
+            )
+            .await;
             (resp, None)
         }
     }
-}
-
-/// Convert a canonicalized resolved file path into its URL-equivalent
-/// for header source matching: `/page.html`, `/asset.css`, etc.
-/// Mirrors `slasher(path.relative(current, absolutePath))` at
-/// `serve-handler/src/index.js:198+207`. Returns `None` if `resolved`
-/// is not a child of `root` (which should not happen post-canonicalize
-/// + containment check, but we keep the call site defensive).
-fn url_path_for_resolved_file(resolved: &Path, root: &Path) -> Option<String> {
-    let rel = resolved.strip_prefix(root).ok()?;
-    let with_forward_slashes = rel.to_string_lossy().replace('\\', "/");
-    Some(format!(
-        "/{}",
-        with_forward_slashes.trim_start_matches('/')
-    ))
 }
 
 /// Mirror of Node's `path.extname(p)` for our URL-path use case.

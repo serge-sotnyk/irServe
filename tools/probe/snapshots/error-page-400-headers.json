@@ -1,0 +1,58 @@
+{
+  "$schemaVersion": 1,
+  "case": "error-page-400-headers",
+  "description": "Custom `400.html` at the served root receives custom headers from `serve.json` matched against `/400.html`. Mirrors reference's `getHeaders(.., errorPage, stats)` at `serve-handler/src/index.js:508` — the custom-page branch always invokes getHeaders, even when sendError was triggered by a path-traversal that would otherwise fail to match user rules in the fallback HTML branch. Codex review round 3 P1.",
+  "fixture": {
+    "files": {
+      "index.html": "<p>home</p>\n",
+      "400.html": "<p>custom-bad-request</p>\n"
+    },
+    "serveJson": {
+      "headers": [
+        {
+          "source": "**",
+          "headers": [
+            {
+              "key": "X-Error-Page",
+              "value": "yes"
+            }
+          ]
+        }
+      ]
+    }
+  },
+  "serveArgs": [],
+  "volatileHeaders": [
+    "last-modified"
+  ],
+  "volatileBodies": [],
+  "requests": [
+    {
+      "name": "traversal_serves_custom_400_with_headers",
+      "request": {
+        "method": "GET",
+        "mode": "raw",
+        "path": "/../package.json"
+      },
+      "requestLine": "GET /../package.json HTTP/1.1",
+      "response": {
+        "body": {
+          "kind": "text",
+          "length": 26,
+          "sha256": "6890af560d4148e35fc3232f8cb8dee2618f524886a7ab7ee613af79d20921ad",
+          "preview": "<p>custom-bad-request</p>\n"
+        },
+        "headers": {
+          "accept-ranges": "bytes",
+          "content-length": "26",
+          "content-type": "text/html; charset=utf-8",
+          "etag": "\"fffb820e1ac94b7b1b8c29969d4329eed4e25c01\"",
+          "vary": "Accept-Encoding",
+          "x-error-page": "yes"
+        },
+        "status": 400,
+        "statusText": "Bad Request"
+      }
+    }
+  ]
+}
