@@ -1,3 +1,4 @@
+use std::borrow::Cow;
 use std::path::Path;
 
 use axum::body::Body;
@@ -37,8 +38,16 @@ pub async fn dispatch(
     // reference's `decodedPath` invariant (`serve-handler/src/index.js:561`).
     // Subsequent phases operate on this decoded form so that encoded
     // forms like `%2F%2F` collapse identically to literal `//`.
+    //
+    // Phase-1 strict syntactic gate (SRV-SEC-002): a `%` not followed by
+    // exactly two ASCII-hex chars is malformed, mirroring `decodeURIComponent`'s
+    // URIError branch at `index.js:561-567`. Short-circuit to 400 before
+    // any phase 2+ runs.
     let raw_path = req.uri().path();
-    let decoded_path = percent_decode_str(raw_path).decode_utf8_lossy();
+    let decoded_path = match try_percent_decode(raw_path) {
+        Ok(p) => p,
+        Err(_) => return error_response(StatusCode::BAD_REQUEST, req.headers(), root).await,
+    };
 
     // Phase 4: cleanUrls 301 (SRV-ROUT-001). Runs on the decoded
     // (uncollapsed) path, before phase 5, matching `shouldRedirect`'s
@@ -187,6 +196,37 @@ fn url_path_has_extension(path: &str) -> bool {
     // A leading-dot basename whose ONLY dot is the leading one has no
     // extension. Skip char index 0 when scanning for an extension dot.
     basename.char_indices().skip(1).any(|(_, ch)| ch == '.')
+}
+
+/// Single-pass URL decode with strict syntactic validation. Returns `Err`
+/// if any `%` is not followed by exactly two ASCII-hex chars; otherwise
+/// returns the lossy-UTF-8 decoded form (mirrors the existing decoder
+/// for valid escapes — invalid UTF-8 sequences become U+FFFD, matching
+/// the prior `decode_utf8_lossy` semantics).
+///
+/// Reference: `serve-handler/src/index.js:561-567` —
+/// `try { relativePath = decodeURIComponent(...) } catch (URIError) { 400 }`.
+fn try_percent_decode(s: &str) -> Result<Cow<'_, str>, ()> {
+    let bytes = s.as_bytes();
+    let mut i = 0;
+    while i < bytes.len() {
+        if bytes[i] == b'%' {
+            if i + 2 >= bytes.len()
+                || !is_ascii_hex(bytes[i + 1])
+                || !is_ascii_hex(bytes[i + 2])
+            {
+                return Err(());
+            }
+            i += 3;
+        } else {
+            i += 1;
+        }
+    }
+    Ok(percent_decode_str(s).decode_utf8_lossy())
+}
+
+fn is_ascii_hex(b: u8) -> bool {
+    matches!(b, b'0'..=b'9' | b'a'..=b'f' | b'A'..=b'F')
 }
 
 /// Mirrors JavaScript's `encodeURI` (the function the reference applies

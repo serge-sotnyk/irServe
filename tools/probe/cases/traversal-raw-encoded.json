@@ -6,6 +6,13 @@
       "public/index.html": "<!doctype html><title>safe</title>\n"
     }
   },
+  "runner": {
+    "l0": {
+      "clean": ["raw_malformed_percent"],
+      "divergent": [],
+      "bodyMayDiffer": ["raw_malformed_percent"]
+    }
+  },
   "requests": [
     {
       "name": "raw_dotdot_literal",
