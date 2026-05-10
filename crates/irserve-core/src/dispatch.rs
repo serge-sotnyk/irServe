@@ -127,7 +127,8 @@ pub async fn dispatch(
             // here consults cleanUrls candidates
             // (`<P>/index.html` then `<P>.html`) for extensionless
             // requests. Mirrors `getPossiblePaths` at
-            // `serve-handler/src/lib/paths.js`.
+            // `serve-handler/src/index.js:276` (called from
+            // `findRelated` at `index.js:282`).
             match try_clean_urls_resolve(&url_path, root, clean_urls_view).await {
                 Some(o) => o,
                 None => resolve(&url_path, root).await,
