@@ -82,7 +82,10 @@ pub struct HeaderRule {
 #[serde(deny_unknown_fields)]
 pub struct HeaderItem {
     pub key: String,
-    pub value: String,
+    /// `value: null` deletes a previously-applied header with the same
+    /// key (case-insensitive) — mirrors `serve-handler/src/index.js:247-251`
+    /// (SRV-HDR-002). String values insert/replace as expected.
+    pub value: Option<String>,
 }
 
 /// Outcome of loading `serve.json` (or its deprecated fallbacks).
