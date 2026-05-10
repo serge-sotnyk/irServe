@@ -1,0 +1,45 @@
+{
+  "$schemaVersion": 1,
+  "case": "cli-tcp-uri",
+  "description": "SRV-CLI-003: `-l tcp://host:port` URI form binds the given host on the given port. The case allocates a free port via `runner.defaultPortScenario=\"free-port\"` and substitutes it into the tcp:// URI via `{port}`. Mirrors `third_party/serve/source/utilities/cli.ts:104-143` (`parseEndpoint`). Q-001 default-host/port behavior is unit-tested in `crates/irserve/src/listen_spec.rs::tests` rather than here, since exercising it would conflict with the runner's port allocation.",
+  "fixture": {
+    "files": {
+      "index.html": "tcp-uri\n"
+    }
+  },
+  "serveArgs": [
+    "--listen",
+    "tcp://127.0.0.1:{port}"
+  ],
+  "volatileHeaders": [
+    "last-modified"
+  ],
+  "volatileBodies": [],
+  "requests": [
+    {
+      "name": "root",
+      "request": {
+        "method": "GET",
+        "mode": "fetch",
+        "path": "/"
+      },
+      "response": {
+        "body": {
+          "kind": "text",
+          "length": 8,
+          "sha256": "8fd9e4f6719019676262e0fe5f8439c352416a260c9e755194a8fec66a7a130f",
+          "preview": "tcp-uri\n"
+        },
+        "headers": {
+          "accept-ranges": "bytes",
+          "content-length": "8",
+          "content-type": "text/html; charset=utf-8",
+          "etag": "\"ef6b53488fb5c5d2d9cc832c7d1246cd758e21fb\"",
+          "vary": "Accept-Encoding"
+        },
+        "status": 200,
+        "statusText": "OK"
+      }
+    }
+  ]
+}

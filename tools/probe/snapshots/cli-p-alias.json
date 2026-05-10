@@ -1,0 +1,45 @@
+{
+  "$schemaVersion": 1,
+  "case": "cli-p-alias",
+  "description": "SRV-CLI-006: `-p PORT` is a deprecated alias for `-l`/`--listen` accepting the same value forms. Mirrors `third_party/serve/source/utilities/cli.ts:176-178` which declares `'-p': '--listen'`. The case allocates a free port via `runner.defaultPortScenario=\"free-port\"` and feeds it through the alias.",
+  "fixture": {
+    "files": {
+      "index.html": "p-alias\n"
+    }
+  },
+  "serveArgs": [
+    "-p",
+    "{port}"
+  ],
+  "volatileHeaders": [
+    "last-modified"
+  ],
+  "volatileBodies": [],
+  "requests": [
+    {
+      "name": "root",
+      "request": {
+        "method": "GET",
+        "mode": "fetch",
+        "path": "/"
+      },
+      "response": {
+        "body": {
+          "kind": "text",
+          "length": 8,
+          "sha256": "d8797373ff2d5b944eca4e2d6aa457dfd24bdfdd63ef0dbaa9a172d0ef45dc9c",
+          "preview": "p-alias\n"
+        },
+        "headers": {
+          "accept-ranges": "bytes",
+          "content-length": "8",
+          "content-type": "text/html; charset=utf-8",
+          "etag": "\"b8afe99dee5d6cf20818c81111f951f546254fac\"",
+          "vary": "Accept-Encoding"
+        },
+        "status": 200,
+        "statusText": "OK"
+      }
+    }
+  ]
+}

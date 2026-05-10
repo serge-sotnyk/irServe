@@ -47,7 +47,7 @@
     },
     "serveArgs": {
       "type": "array",
-      "description": "Extra command-line arguments passed to `node third_party/serve/build/main.js` after the runner's own --listen / --no-clipboard / --no-port-switching.",
+      "description": "Extra command-line arguments passed to `node third_party/serve/build/main.js` after the runner's own --listen / --no-clipboard / --no-port-switching. The literal token `{port}` in any element is substituted with the runner-allocated port before spawn (paired with `runner.defaultPortScenario=\"free-port\"`).",
       "items": { "type": "string" }
     },
     "runner": {
@@ -61,8 +61,8 @@
         },
         "defaultPortScenario": {
           "type": "string",
-          "enum": ["no-flag-no-env", "env-var"],
-          "description": "Required when `skipAutoListen` is true. `no-flag-no-env`: runner reserves port 3000 (aborts if occupied) and HTTP-probes 3000. `env-var`: runner allocates a free port P, exports `PORT=P` into the spawned process env, and HTTP-probes P."
+          "enum": ["no-flag-no-env", "env-var", "free-port"],
+          "description": "Required when `skipAutoListen` is true. `no-flag-no-env`: runner reserves port 3000 (aborts if occupied) and HTTP-probes 3000. `env-var`: runner allocates a free port P, exports `PORT=P` into the spawned process env, and HTTP-probes P. `free-port`: runner allocates a free port P; the case's serveArgs reference it via `{port}` substitution (e.g. `--listen tcp://127.0.0.1:{port}` or `-p {port}`). HTTP probes P."
         },
         "l0": {
           "type": "object",

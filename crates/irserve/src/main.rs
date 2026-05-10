@@ -28,6 +28,18 @@ struct Cli {
     )]
     listen: Vec<ListenSpec>,
 
+    /// SRV-CLI-006: deprecated short alias for `-l`/`--listen`. Mirrors
+    /// `third_party/serve/source/utilities/cli.ts:176-178`. Hidden from
+    /// help output to discourage new use; merged with `--listen` after parse.
+    #[arg(
+        short = 'p',
+        value_name = "LISTEN",
+        value_parser = ListenSpec::parse,
+        action = ArgAction::Append,
+        hide = true
+    )]
+    p: Vec<ListenSpec>,
+
     #[arg(short = 'n', long = "no-clipboard")]
     no_clipboard: bool,
 
@@ -64,7 +76,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let cli = Cli::parse();
     let _ = cli.no_clipboard; // accepted as no-op per D-005
 
-    let listens = resolve_listens(cli.listen)?;
+    let mut combined_listens = cli.listen;
+    combined_listens.extend(cli.p);
+    let listens = resolve_listens(combined_listens)?;
 
     let loaded = load_serve_json(&cli.directory, cli.config.as_deref())?;
     if let Some(loaded) = &loaded {

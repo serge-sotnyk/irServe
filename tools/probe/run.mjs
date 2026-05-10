@@ -46,8 +46,8 @@ const L0_EXTRA_VOLATILE_HEADERS = ['etag', 'vary', 'accept-ranges'];
 // - `-c`/`--config` un-deferred in stage 6a (change 003-load-serve-json).
 // - `-s`/`--single` un-deferred in stage 6e (change 007-configured-rewrites,
 //   D-013).
+// - `-p`, `tcp://` listen URI un-deferred in stage 6h (change 010-cli-fill-in).
 const L0_DEFERRED_FLAGS = new Set([
-  '-p',
   '-C', '--cors',
   '-d', '--debug',
   '-L', '--no-request-logging',
@@ -145,15 +145,6 @@ function findDeferredL0Flag(extraArgs) {
   for (let i = 0; i < args.length; i++) {
     const a = args[i];
     if (L0_DEFERRED_FLAGS.has(a)) return a;
-    if (a === '-l' || a === '--listen') {
-      const v = args[i + 1];
-      if (typeof v === 'string' && v.startsWith('tcp://')) {
-        return `${a} ${v}`;
-      }
-    } else if (a.startsWith('-l=') || a.startsWith('--listen=')) {
-      const v = a.slice(a.indexOf('=') + 1);
-      if (v.startsWith('tcp://')) return a;
-    }
   }
   return null;
 }
@@ -161,17 +152,23 @@ function findDeferredL0Flag(extraArgs) {
 function spawnServe({ port, fixtureDir, extraArgs, target = 'reference', skipAutoListen = false, extraEnv = {} }) {
   const isIrserve = target === 'irserve';
   const baseEnv = { ...process.env, NO_UPDATE_CHECK: '1', FORCE_COLOR: '0', ...extraEnv };
+  // `{port}` substitution lets cases that own their own --listen value
+  // (e.g. `--listen tcp://127.0.0.1:{port}` or `-p {port}`) reference the
+  // runner-allocated free port without hard-coding it.
+  const substitutedExtra = (extraArgs ?? []).map((a) =>
+    typeof a === 'string' ? a.replace(/\{port\}/g, String(port)) : a,
+  );
   let cmd;
   let args;
   if (isIrserve) {
     const injected = ['--no-clipboard'];
     if (!skipAutoListen) injected.unshift('--listen', String(port));
-    args = [...injected, ...(extraArgs ?? []), fixtureDir];
+    args = [...injected, ...substitutedExtra, fixtureDir];
     cmd = IRSERVE_BIN;
   } else {
     const injected = ['--no-clipboard', '--no-port-switching'];
     if (!skipAutoListen) injected.unshift('--listen', String(port));
-    args = [SERVE_ENTRY, ...injected, ...(extraArgs ?? []), fixtureDir];
+    args = [SERVE_ENTRY, ...injected, ...substitutedExtra, fixtureDir];
     cmd = process.execPath;
   }
   const child = spawn(cmd, args, {
@@ -927,6 +924,11 @@ async function runProbe(probeId, options = {}) {
         const allocated = await getFreePort();
         extraEnv.PORT = String(allocated);
         port = allocated;
+      } else if (defaultPortScenario === 'free-port') {
+        // The case owns its own --listen value (e.g. `tcp://127.0.0.1:{port}`
+        // or `-p {port}`). The runner allocates a free port and the case's
+        // serveArgs reference it via the `{port}` substitution.
+        port = await getFreePort();
       } else {
         throw new Error(`case "${probeId}": unknown runner.defaultPortScenario "${defaultPortScenario}"`);
       }
