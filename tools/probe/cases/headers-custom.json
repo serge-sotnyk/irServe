@@ -20,6 +20,13 @@
   "snapshot": {
     "extraTrackedHeaders": ["x-custom"]
   },
+  "runner": {
+    "l0": {
+      "clean": ["html_get"],
+      "divergent": [],
+      "contentLengthMayDiffer": ["html_get"]
+    }
+  },
   "requests": [
     { "name": "html_get", "method": "GET", "path": "/page.html" }
   ]

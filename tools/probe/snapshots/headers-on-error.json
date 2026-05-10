@@ -1,0 +1,53 @@
+{
+  "$schemaVersion": 1,
+  "case": "headers-on-error",
+  "description": "Custom `headers` rules apply to 404 error responses (SRV-HDR-001). Mirrors `serve-handler/src/index.js:519` where `sendError` calls `getHeaders(...)` before writing the response. Note: 400 path-traversal responses fall in a different bucket — reference's `getHeaders` is invoked with an `absolutePath` outside `current`, so `path.relative` yields a `../`-prefixed string that minimatch's `slasher`-normalized form does not match `**` against. That nuance is out of scope for this probe.",
+  "fixture": {
+    "files": {
+      "index.html": "<p>home</p>\n"
+    },
+    "serveJson": {
+      "headers": [
+        {
+          "source": "**",
+          "headers": [
+            {
+              "key": "X-Test",
+              "value": "yes"
+            }
+          ]
+        }
+      ]
+    }
+  },
+  "serveArgs": [],
+  "volatileHeaders": [
+    "last-modified"
+  ],
+  "volatileBodies": [],
+  "requests": [
+    {
+      "name": "not_found_carries_x_test",
+      "request": {
+        "method": "GET",
+        "mode": "fetch",
+        "path": "/no-such"
+      },
+      "response": {
+        "body": {
+          "kind": "text",
+          "length": 1641,
+          "sha256": "8c45c679f40c3f81c111fbf2398d568189c3ab34d8a9704ad225cd8efe1b819f",
+          "preview": "<!DOCTYPE html><head> <meta name=\"viewport\" content=\"width=device-width, initial-scale=1, user-scalable=no\"/> <style> body { margin: 0; font-family: -apple-system, BlinkMacSystemFont, \"Segoe UI\", \"Rob"
+        },
+        "headers": {
+          "content-type": "text/html; charset=utf-8",
+          "vary": "Accept-Encoding",
+          "x-test": "yes"
+        },
+        "status": 404,
+        "statusText": "Not Found"
+      }
+    }
+  ]
+}

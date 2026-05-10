@@ -20,6 +20,12 @@
   "snapshot": {
     "extraTrackedHeaders": ["x-custom"]
   },
+  "runner": {
+    "l0": {
+      "clean": ["css_get"],
+      "divergent": []
+    }
+  },
   "requests": [
     { "name": "css_get", "method": "GET", "path": "/asset.css" }
   ]

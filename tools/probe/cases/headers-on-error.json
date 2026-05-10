@@ -1,0 +1,32 @@
+{
+  "id": "headers-on-error",
+  "description": "Custom `headers` rules apply to 404 error responses (SRV-HDR-001). Mirrors `serve-handler/src/index.js:519` where `sendError` calls `getHeaders(...)` before writing the response. Note: 400 path-traversal responses fall in a different bucket — reference's `getHeaders` is invoked with an `absolutePath` outside `current`, so `path.relative` yields a `../`-prefixed string that minimatch's `slasher`-normalized form does not match `**` against. That nuance is out of scope for this probe.",
+  "fixture": {
+    "files": {
+      "index.html": "<p>home</p>\n"
+    },
+    "serveJson": {
+      "headers": [
+        {
+          "source": "**",
+          "headers": [
+            { "key": "X-Test", "value": "yes" }
+          ]
+        }
+      ]
+    }
+  },
+  "snapshot": {
+    "extraTrackedHeaders": ["x-test"]
+  },
+  "runner": {
+    "l0": {
+      "clean": ["not_found_carries_x_test"],
+      "divergent": [],
+      "bodyMayDiffer": ["not_found_carries_x_test"]
+    }
+  },
+  "requests": [
+    { "name": "not_found_carries_x_test", "method": "GET", "path": "/no-such" }
+  ]
+}

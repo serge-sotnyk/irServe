@@ -2,6 +2,7 @@
 
 mod clean_urls;
 pub mod config;
+mod custom_headers;
 mod dispatch;
 mod error;
 mod mime;

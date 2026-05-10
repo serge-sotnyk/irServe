@@ -10,6 +10,7 @@ use crate::clean_urls::{
     compute_clean_urls_redirect, try_clean_urls_resolve, CleanUrlsView,
 };
 use crate::config::ServeConfig;
+use crate::custom_headers::{apply_custom_headers, HeaderRuleCompiled};
 use crate::error::error_response;
 use crate::mime::mime_for;
 use crate::normalize::collapse_slashes;
@@ -19,6 +20,38 @@ use crate::rewrites::{compute_configured_rewrites, RewriteRuleCompiled};
 use crate::trailing_slash::compute_trailing_slash_redirect;
 
 pub async fn dispatch(
+    req: Request<Body>,
+    root: &Path,
+    serve_config: &ServeConfig,
+    clean_urls_view: &CleanUrlsView,
+    redirect_rules: &[RedirectRuleCompiled],
+    rewrite_rules: &[RewriteRuleCompiled],
+    header_rules: &[HeaderRuleCompiled],
+) -> Response<Body> {
+    // Compute the path used for header matching ONCE at the entry,
+    // before dispatch_inner consumes `req`. Mirrors `getHeaders(..,
+    // relativePath)` at `serve-handler/src/index.js:519` — header
+    // matching uses the post-decode (and post-collapse) request path.
+    // If decoding fails, fall back to the raw URI path so 400 responses
+    // still pick up source rules that match the raw form.
+    let raw_path = req.uri().path().to_string();
+    let path_for_headers: String = match try_percent_decode(&raw_path) {
+        Ok(p) => collapse_slashes(&p).into_owned(),
+        Err(_) => raw_path.clone(),
+    };
+    let response = dispatch_inner(
+        req,
+        root,
+        serve_config,
+        clean_urls_view,
+        redirect_rules,
+        rewrite_rules,
+    )
+    .await;
+    apply_custom_headers(response, &path_for_headers, header_rules)
+}
+
+async fn dispatch_inner(
     req: Request<Body>,
     root: &Path,
     serve_config: &ServeConfig,

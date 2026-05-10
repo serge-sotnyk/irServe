@@ -9,6 +9,7 @@ use tokio::net::TcpListener;
 
 use crate::clean_urls::CleanUrlsView;
 use crate::config::ServeConfig;
+use crate::custom_headers::{compile_rules as compile_header_rules, HeaderRuleCompiled};
 use crate::dispatch::dispatch;
 use crate::redirects::{compile_rules as compile_redirect_rules, RedirectRuleCompiled};
 use crate::rewrites::{compile_rules as compile_rewrite_rules, RewriteRuleCompiled};
@@ -20,6 +21,7 @@ struct AppState {
     clean_urls_view: CleanUrlsView,
     redirect_rules: Vec<RedirectRuleCompiled>,
     rewrite_rules: Vec<RewriteRuleCompiled>,
+    header_rules: Vec<HeaderRuleCompiled>,
 }
 
 type SharedState = Arc<AppState>;
@@ -68,12 +70,27 @@ pub async fn serve(config: ServerConfig) -> Result<(), Error> {
             inv.source, inv.error
         );
     }
+    // Custom-headers rule compilation (Stage 6f, SRV-HDR-001). Same
+    // contract as redirects/rewrites: invalid sources are reported via
+    // stderr and skipped; remaining rules continue to apply. Headers
+    // run as a post-dispatch pass so they layer onto every response,
+    // including 4xx error pages — mirrors the reference's getHeaders
+    // call at `serve-handler/src/index.js:519`.
+    let (header_rules, invalid_headers) =
+        compile_header_rules(&config.serve_config.headers);
+    for inv in &invalid_headers {
+        eprintln!(
+            "warning: header source {:?} skipped (invalid pattern): {}",
+            inv.source, inv.error
+        );
+    }
     let state: SharedState = Arc::new(AppState {
         root: config.root,
         serve_config: config.serve_config,
         clean_urls_view,
         redirect_rules,
         rewrite_rules,
+        header_rules,
     });
     let app: Router = Router::new().fallback(handler).with_state(state);
 
@@ -123,6 +140,7 @@ async fn handler(State(state): State<SharedState>, req: Request<Body>) -> Respon
         &state.clean_urls_view,
         &state.redirect_rules,
         &state.rewrite_rules,
+        &state.header_rules,
     )
     .await
 }

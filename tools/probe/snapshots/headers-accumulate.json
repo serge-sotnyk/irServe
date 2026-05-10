@@ -1,0 +1,66 @@
+{
+  "$schemaVersion": 1,
+  "case": "headers-accumulate",
+  "description": "Multiple matching `headers` rules accumulate — the loop in `serve-handler/src/index.js:200-210` never breaks, so distinct keys from different rules layer onto the response. Backs SRV-HDR-001.",
+  "fixture": {
+    "files": {
+      "asset.css": "body{}\n"
+    },
+    "serveJson": {
+      "headers": [
+        {
+          "source": "**",
+          "headers": [
+            {
+              "key": "X-One",
+              "value": "1"
+            }
+          ]
+        },
+        {
+          "source": "**/*.css",
+          "headers": [
+            {
+              "key": "X-Two",
+              "value": "2"
+            }
+          ]
+        }
+      ]
+    }
+  },
+  "serveArgs": [],
+  "volatileHeaders": [
+    "last-modified"
+  ],
+  "volatileBodies": [],
+  "requests": [
+    {
+      "name": "css_carries_both",
+      "request": {
+        "method": "GET",
+        "mode": "fetch",
+        "path": "/asset.css"
+      },
+      "response": {
+        "body": {
+          "kind": "text",
+          "length": 7,
+          "sha256": "2708d73bf31c36cdfa1aa466551ed101017280fa546caba4473cfef6e92a93b5",
+          "preview": "body{}\n"
+        },
+        "headers": {
+          "accept-ranges": "bytes",
+          "content-length": "7",
+          "content-type": "text/css; charset=utf-8",
+          "etag": "\"3daef43df4ef7acd6f554df47081815e1e7eb8ff\"",
+          "vary": "Accept-Encoding",
+          "x-one": "1",
+          "x-two": "2"
+        },
+        "status": 200,
+        "statusText": "OK"
+      }
+    }
+  ]
+}

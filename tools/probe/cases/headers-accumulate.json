@@ -1,0 +1,27 @@
+{
+  "id": "headers-accumulate",
+  "description": "Multiple matching `headers` rules accumulate — the loop in `serve-handler/src/index.js:200-210` never breaks, so distinct keys from different rules layer onto the response. Backs SRV-HDR-001.",
+  "fixture": {
+    "files": {
+      "asset.css": "body{}\n"
+    },
+    "serveJson": {
+      "headers": [
+        { "source": "**", "headers": [{ "key": "X-One", "value": "1" }] },
+        { "source": "**/*.css", "headers": [{ "key": "X-Two", "value": "2" }] }
+      ]
+    }
+  },
+  "snapshot": {
+    "extraTrackedHeaders": ["x-one", "x-two"]
+  },
+  "runner": {
+    "l0": {
+      "clean": ["css_carries_both"],
+      "divergent": []
+    }
+  },
+  "requests": [
+    { "name": "css_carries_both", "method": "GET", "path": "/asset.css" }
+  ]
+}
