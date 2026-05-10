@@ -9,6 +9,7 @@ mod notfound;
 mod path_pattern;
 mod redirects;
 mod resolve;
+mod rewrites;
 mod server;
 mod trailing_slash;
 

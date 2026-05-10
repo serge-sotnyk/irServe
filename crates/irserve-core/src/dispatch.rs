@@ -14,6 +14,7 @@ use crate::normalize::collapse_slashes;
 use crate::notfound::not_found_response;
 use crate::redirects::{compute_configured_redirects, RedirectRuleCompiled};
 use crate::resolve::{resolve, ResolveOutcome};
+use crate::rewrites::{compute_configured_rewrites, RewriteRuleCompiled};
 use crate::trailing_slash::compute_trailing_slash_redirect;
 
 pub async fn dispatch(
@@ -22,6 +23,7 @@ pub async fn dispatch(
     serve_config: &ServeConfig,
     clean_urls_view: &CleanUrlsView,
     redirect_rules: &[RedirectRuleCompiled],
+    rewrite_rules: &[RewriteRuleCompiled],
 ) -> Response<Body> {
     // Phase 1–2: method gate (existing).
     if req.method() != Method::GET && req.method() != Method::HEAD {
@@ -72,39 +74,59 @@ pub async fn dispatch(
     if let Some((target, status)) = compute_configured_redirects(&url_path, redirect_rules) {
         return redirect_with_status(&target, status);
     }
-    // Phase 7: rewrites + --single (Stage 6e).
-
-    // Phase 8: cleanUrls resolution (SRV-ROUT-002). Mirrors
-    // `serve-handler/src/index.js:608-642` precisely:
+    // Phase 7: configured rewrites + `--single` SPA fallback
+    // (Stage 6e). Phase 7 interleaves with phases 8/9 per the
+    // pre-stat asymmetry mandated by `openspec/specs/rewrites/spec.md`
+    // and mirrored from `serve-handler/src/index.js:608-642`:
     //
-    //   * For paths WITH an extension, the reference does a pre-stat
-    //     first (`index.js:608-616`) and only falls into `findRelated`
-    //     when that pre-stat misses. This avoids `findRelated`
-    //     shadowing a real `/foo.css` file via `/foo.css.html`.
-    //   * For paths WITHOUT an extension, no pre-stat — `findRelated`
-    //     runs first, so an existing `<P>.html` is preferred over a
-    //     bare extensionless file at `<P>` (matches the SRV-ROUT-006
-    //     scenario "If P has no extension … the original path SHALL be
-    //     attempted only at stage 6").
+    //   * Has-extension + file exists → pre-stat short-circuits;
+    //     rewrites are NEVER consulted (`index.js:608-616`).
+    //   * Has-extension + file missing → apply rewrites; the
+    //     rewritten path's resolution wins over `<P>.html` cleanUrls
+    //     candidates (mirrors `findRelated`'s
+    //     `rewrittenPath ? [rewrittenPath] : getPossiblePaths(...)`
+    //     branch).
+    //   * Extensionless → apply rewrites unconditionally; a matching
+    //     rewrite serves its destination even when the extensionless
+    //     original exists as a regular file (per spec
+    //     `openspec/specs/rewrites/spec.md:27-29`).
     //
-    // We map this onto our existing `resolve()` (which combines
-    // pre-stat + directory index handling) by gating the phase-8
-    // attempt: extensionless paths try phase 8 first; has-extension
-    // paths try phase 8 only if `resolve()` reported NotFound.
+    // Phase 8 (cleanUrls resolution, SRV-ROUT-002) and phase 9
+    // (final resolve) are wired below. Phase 8 only runs as the
+    // post-rewrite fallback when no rewrite matched — when a rewrite
+    // matches, only the rewritten path is tried (mirrors
+    // `findRelated`'s "rewrittenPath wins, no further candidates"
+    // semantics).
     let url_has_extension = url_path_has_extension(&url_path);
 
     let outcome = if !url_has_extension {
-        // Extensionless: phase 8 first, then phase 9 fallback.
-        match try_clean_urls_resolve(&url_path, root, clean_urls_view).await {
-            Some(o) => o,
-            None => resolve(&url_path, root).await,
+        // Extensionless. Apply rewrites first; if matched, resolve
+        // the rewritten path directly. Otherwise, the existing
+        // cleanUrls + resolve chain takes over.
+        if let Some(target) = compute_configured_rewrites(&url_path, rewrite_rules) {
+            resolve(&target, root).await
+        } else {
+            match try_clean_urls_resolve(&url_path, root, clean_urls_view).await {
+                Some(o) => o,
+                None => resolve(&url_path, root).await,
+            }
         }
     } else {
-        // Has-ext: phase 9 first; if NotFound, fall to phase 8.
+        // Has-extension. Pre-stat the original path first; if it
+        // resolves, serve it (rewrites NEVER consulted). On miss,
+        // apply rewrites; if a rewrite matched, resolve its
+        // destination. If no rewrite matched, fall back to the
+        // existing cleanUrls candidate.
         match resolve(&url_path, root).await {
-            ResolveOutcome::NotFound => try_clean_urls_resolve(&url_path, root, clean_urls_view)
-                .await
-                .unwrap_or(ResolveOutcome::NotFound),
+            ResolveOutcome::NotFound => {
+                if let Some(target) = compute_configured_rewrites(&url_path, rewrite_rules) {
+                    resolve(&target, root).await
+                } else {
+                    try_clean_urls_resolve(&url_path, root, clean_urls_view)
+                        .await
+                        .unwrap_or(ResolveOutcome::NotFound)
+                }
+            }
             other => other,
         }
     };

@@ -10,7 +10,8 @@ use tokio::net::TcpListener;
 use crate::clean_urls::CleanUrlsView;
 use crate::config::ServeConfig;
 use crate::dispatch::dispatch;
-use crate::redirects::{compile_rules, RedirectRuleCompiled};
+use crate::redirects::{compile_rules as compile_redirect_rules, RedirectRuleCompiled};
+use crate::rewrites::{compile_rules as compile_rewrite_rules, RewriteRuleCompiled};
 use crate::{Error, ServerConfig};
 
 struct AppState {
@@ -18,6 +19,7 @@ struct AppState {
     serve_config: ServeConfig,
     clean_urls_view: CleanUrlsView,
     redirect_rules: Vec<RedirectRuleCompiled>,
+    rewrite_rules: Vec<RewriteRuleCompiled>,
 }
 
 type SharedState = Arc<AppState>;
@@ -44,10 +46,25 @@ pub async fn serve(config: ServerConfig) -> Result<(), Error> {
     // and skipped; other rules continue to work. Mirrors the
     // reference's silent try/catch around `pathToRegExp` + minimatch
     // fallback in `sourceMatches` (`serve-handler/src/index.js:38-67`).
-    let (redirect_rules, invalid_redirects) = compile_rules(&config.serve_config.redirects);
+    let (redirect_rules, invalid_redirects) =
+        compile_redirect_rules(&config.serve_config.redirects);
     for inv in &invalid_redirects {
         eprintln!(
             "warning: redirect source {:?} skipped (invalid pattern): {}",
+            inv.source, inv.error
+        );
+    }
+    // Rewrite rule compilation surfaces patterns that fail to produce
+    // a valid `regex::Regex`. Same contract as redirects: invalid
+    // rules are reported via stderr and skipped; other rules continue
+    // to work. Mirrors the reference's silent try/catch around
+    // `pathToRegExp` + minimatch fallback in `sourceMatches`
+    // (`serve-handler/src/index.js:38-67`).
+    let (rewrite_rules, invalid_rewrites) =
+        compile_rewrite_rules(&config.serve_config.rewrites);
+    for inv in &invalid_rewrites {
+        eprintln!(
+            "warning: rewrite source {:?} skipped (invalid pattern): {}",
             inv.source, inv.error
         );
     }
@@ -56,6 +73,7 @@ pub async fn serve(config: ServerConfig) -> Result<(), Error> {
         serve_config: config.serve_config,
         clean_urls_view,
         redirect_rules,
+        rewrite_rules,
     });
     let app: Router = Router::new().fallback(handler).with_state(state);
 
@@ -104,6 +122,7 @@ async fn handler(State(state): State<SharedState>, req: Request<Body>) -> Respon
         &state.serve_config,
         &state.clean_urls_view,
         &state.redirect_rules,
+        &state.rewrite_rules,
     )
     .await
 }

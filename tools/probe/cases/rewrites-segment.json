@@ -13,6 +13,11 @@
       ]
     }
   },
+  "runner": {
+    "l0": {
+      "clean": ["spa_fallback"]
+    }
+  },
   "requests": [
     { "name": "segment_rewrite", "method": "GET", "path": "/projects/123/edit" },
     { "name": "spa_fallback", "method": "GET", "path": "/spa/some/deep/path" }
