@@ -111,29 +111,60 @@ slice and lands last so spec deltas reflect what was actually shipped.
   - [x] `proposal.md`
   - [x] `design.md`
   - [x] `tasks.md` (this file)
-  - [ ] `specs/static-files/spec.md` — MODIFIED Requirement: SRV-FILE-003
-    oracle list extended for irserve coverage (no requirement-text
-    change).
-  - [ ] `specs/security/spec.md` — MODIFIED Requirements: un-defer
-    ORC-038/039/040/041 (SRV-SEC-001) and ORC-034/035/036/037
-    (SRV-SEC-002) into the irserve-clean partition.
-  - [ ] `specs/headers/spec.md` — ADDED capability with two
+  - [x] `specs/static-files/spec.md` — MODIFIED Requirement:
+    SRV-FILE-003 with D-015 evidence + Compatibility note covering
+    irserve's per-branch error_response wiring (Codex review round 1).
+  - [x] `specs/security/spec.md` — MODIFIED Requirements: SRV-SEC-001
+    + SRV-SEC-002 with D-015 evidence + Compatibility note covering
+    strict UTF-8 decode and lexical containment (Codex review round 1).
+  - [x] `specs/headers/spec.md` — ADDED capability with two
     Requirements: SRV-HDR-001 (glob source + accumulate +
     case-insensitive override; 3xx-skip), SRV-HDR-002 (`value: null`
     deletes after accumulate; reference-CLI unreachable per @zeit
     schema).
-- [ ] `docs/reference/serve/decisions.md`: append `D-015` (un-defer
+- [x] `docs/reference/serve/decisions.md`: append `D-015` (un-defer
   6f SRVs; methodology signals on traversal-raw snapshot resync,
   3xx-skip, 400-no-headers, schema-rejects-null).
-- [ ] `docs/reference/serve/inventory.md`: refresh oracle/L0 status
-  notes for SRV-FILE-003, SRV-SEC-001, SRV-SEC-002, SRV-HDR-001,
-  SRV-HDR-002.
-- [ ] `docs/reference/serve/oracle-matrix.md`: append ORC-159
-  (headers-on-error) and ORC-160 (headers-accumulate); update
-  ORC-007/031/034-041/053/059 status notes.
-- [ ] `README.md`: flip Stage 6f row to `done`; update "What is NOT
+- [x] `docs/reference/serve/oracle-matrix.md`: append ORC-159
+  (headers-on-error) and ORC-160 (headers-accumulate).
+- [x] `README.md`: flip Stage 6f row to `done`; update "What is NOT
   yet observable" + "Try IrServe" with custom-error-page +
   custom-headers + path-traversal-400 examples.
-- [ ] `docs/stage6_l1_l2_capabilities.md`: flip 6f row to `done`.
-- [ ] Run `npx -y @fission-ai/openspec@latest validate --all --strict`.
+- [x] `docs/stage6_l1_l2_capabilities.md`: flip 6f row to `done`.
+- [x] Run `npx -y @fission-ai/openspec@latest validate --all --strict`
+  (16/16 pass; 008 change validates with three spec deltas after
+  Codex round 1).
 - Commit: `docs(stage-6f): spec deltas + decisions log + meta`.
+
+## Codex review round 1 (P1 + P2 fixes)
+
+After the above commit landed, Codex flagged five issues. All five
+fixes ship in a single commit titled `docs(stage-6f): address Codex
+review round 1 (P1 + P2 fixes)`.
+
+- [x] **P1**: `headers.source` `:name` patterns must be literal (no
+  path-to-regexp routing). Reference's `sourceMatches` only enables
+  segments when called with `allowSegments` truthy, and the
+  `getHeaders` site at `index.js:207` does not pass that arg. Added
+  `path_pattern::Matcher::compile_no_segments`; `custom_headers`
+  uses it in place of `Matcher::compile`.
+- [x] **P1**: `apply_custom_headers` must mirror `sendError`'s
+  per-branch behavior. Refactored: `error_response(status, headers,
+  root, header_rules, request_path)` applies headers internally —
+  JSON branch skips entirely; custom-page branch matches against
+  `/<status>.html`; fallback HTML branch matches against the request
+  path. `dispatch_inner` returns `(Response, Option<String>)` so the
+  outer wrapper applies headers ONLY for success / 405 paths.
+- [x] **P1**: `value: null` prune order. Reference's two-stage merge
+  (`Object.assign` then prune) gives last-write-wins per key; the
+  prior two-pass implementation deleted any key that had ever been
+  null in any matched rule. Replaced with single-pass insert/remove,
+  which produces the same final state. New regression test
+  `later_set_value_wins_over_earlier_null_prune`.
+- [x] **P2**: Strict UTF-8 in `try_percent_decode`. Switched from
+  `decode_utf8_lossy()` to `decode_utf8()` so `/%FF` (valid `%xx`
+  syntax but invalid UTF-8 byte sequence) returns 400, mirroring
+  `decodeURIComponent`'s URIError. Closes the gap noted in D-010.
+- [x] **P2**: Change package completeness. Added
+  `specs/static-files/spec.md` and `specs/security/spec.md` MOD
+  deltas; ticked all slice-6 checkboxes above.

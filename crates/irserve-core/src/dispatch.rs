@@ -28,27 +28,32 @@ pub async fn dispatch(
     rewrite_rules: &[RewriteRuleCompiled],
     header_rules: &[HeaderRuleCompiled],
 ) -> Response<Body> {
-    // Compute the path used for header matching ONCE at the entry,
-    // before dispatch_inner consumes `req`. Mirrors `getHeaders(..,
-    // relativePath)` at `serve-handler/src/index.js:519` — header
-    // matching uses the post-decode (and post-collapse) request path.
-    // If decoding fails, fall back to the raw URI path so 400 responses
-    // still pick up source rules that match the raw form.
-    let raw_path = req.uri().path().to_string();
-    let path_for_headers: String = match try_percent_decode(&raw_path) {
-        Ok(p) => collapse_slashes(&p).into_owned(),
-        Err(_) => raw_path.clone(),
-    };
-    let response = dispatch_inner(
+    // dispatch_inner returns (response, headers_path):
+    //
+    // - `Some(path)` — caller (this wrapper) applies `apply_custom_headers`
+    //   with that path. Used for plain success / 405 paths whose
+    //   reference equivalent flows through `getHeaders` at the success
+    //   site (`serve-handler/src/index.js:746`) and/or where the
+    //   matching path is the request path itself.
+    // - `None` — headers either are not applicable (3xx redirects per
+    //   `index.js:586-588` bypass `getHeaders`) or have already been
+    //   applied per-branch inside `error_response` (Codex review round
+    //   1 P1: JSON errors skip; custom `<status>.html` matches against
+    //   the page path; fallback HTML matches against the request path).
+    let (response, headers_path) = dispatch_inner(
         req,
         root,
         serve_config,
         clean_urls_view,
         redirect_rules,
         rewrite_rules,
+        header_rules,
     )
     .await;
-    apply_custom_headers(response, &path_for_headers, header_rules)
+    match headers_path {
+        Some(p) => apply_custom_headers(response, &p, header_rules),
+        None => response,
+    }
 }
 
 async fn dispatch_inner(
@@ -58,13 +63,17 @@ async fn dispatch_inner(
     clean_urls_view: &CleanUrlsView,
     redirect_rules: &[RedirectRuleCompiled],
     rewrite_rules: &[RewriteRuleCompiled],
-) -> Response<Body> {
-    // Phase 1–2: method gate (existing).
+    header_rules: &[HeaderRuleCompiled],
+) -> (Response<Body>, Option<String>) {
+    // Phase 1–2: method gate (existing). 405 carries the request's
+    // raw URI path forward so that `apply_custom_headers` matches
+    // against it (decode hasn't run yet).
     if req.method() != Method::GET && req.method() != Method::HEAD {
-        return Response::builder()
+        let resp = Response::builder()
             .status(StatusCode::METHOD_NOT_ALLOWED)
             .body(Body::empty())
             .expect("405 response should always build");
+        return (resp, Some(req.uri().path().to_string()));
     }
 
     // Decode the URI path once at the dispatcher entry. Mirrors the
@@ -72,14 +81,22 @@ async fn dispatch_inner(
     // Subsequent phases operate on this decoded form so that encoded
     // forms like `%2F%2F` collapse identically to literal `//`.
     //
-    // Phase-1 strict syntactic gate (SRV-SEC-002): a `%` not followed by
-    // exactly two ASCII-hex chars is malformed, mirroring `decodeURIComponent`'s
-    // URIError branch at `index.js:561-567`. Short-circuit to 400 before
-    // any phase 2+ runs.
-    let raw_path = req.uri().path();
-    let decoded_path = match try_percent_decode(raw_path) {
+    // Phase-1 strict syntactic + UTF-8 gate (SRV-SEC-002): a malformed
+    // `%xx` OR a byte sequence that decodes to invalid UTF-8 yields 400,
+    // mirroring `decodeURIComponent`'s URIError branch at
+    // `index.js:561-567`. Short-circuit BEFORE any phase 2+ runs. The
+    // 400 response goes through `error_response` which applies custom
+    // headers per-branch internally; the `None` headers_path tells the
+    // wrapper not to apply twice.
+    let raw_path = req.uri().path().to_string();
+    let decoded_path = match try_percent_decode(&raw_path) {
         Ok(p) => p,
-        Err(_) => return error_response(StatusCode::BAD_REQUEST, req.headers(), root).await,
+        Err(_) => {
+            let resp =
+                error_response(StatusCode::BAD_REQUEST, req.headers(), root, header_rules, &raw_path)
+                    .await;
+            return (resp, None);
+        }
     };
 
     // Phase-10 lexical containment check (SRV-SEC-001). Mirrors the
@@ -89,7 +106,10 @@ async fn dispatch_inner(
     // I/O. The check is purely lexical to match `path.posix.join`'s
     // normalization (e.g. leading `//` collapses to `/` and is benign).
     if lexical_path_escapes_root(&decoded_path) {
-        return error_response(StatusCode::BAD_REQUEST, req.headers(), root).await;
+        let resp =
+            error_response(StatusCode::BAD_REQUEST, req.headers(), root, header_rules, &decoded_path)
+                .await;
+        return (resp, None);
     }
 
     // Phase 4: cleanUrls 301 (SRV-ROUT-001). Runs on the decoded
@@ -97,9 +117,12 @@ async fn dispatch_inner(
     // ordering at `serve-handler/src/index.js:121-143`. Wins over
     // trailingSlash, redirects, rewrites, and the existing-file
     // pre-stat (per SRV-ROUT-006 scenario "cleanUrls 301 wins over
-    // existing-file short-circuit").
+    // existing-file short-circuit"). 3xx redirects skip custom-header
+    // application — reference's redirect path at `index.js:586-588`
+    // builds the response via `response.writeHead(redirect.statusCode,
+    // { Location: ... })` without going through `getHeaders`.
     if let Some(target) = compute_clean_urls_redirect(&decoded_path, clean_urls_view) {
-        return redirect_301(&target);
+        return (redirect_301(&target), None);
     }
 
     // Phase 5: trailingSlash 301 (SRV-ROUT-003 / SRV-ROUT-004), with the
@@ -109,7 +132,7 @@ async fn dispatch_inner(
     if let Some(target) =
         compute_trailing_slash_redirect(&decoded_path, serve_config.trailing_slash)
     {
-        return redirect_301(&target);
+        return (redirect_301(&target), None);
     }
 
     // Phase 3: silent multi-slash collapse for resolve-and-onwards
@@ -124,7 +147,7 @@ async fn dispatch_inner(
     // status code defaults to 301 when the rule has no `type` override
     // (`index.js:179`, `statusCode: type || defaultType`).
     if let Some((target, status)) = compute_configured_redirects(&url_path, redirect_rules) {
-        return redirect_with_status(&target, status);
+        return (redirect_with_status(&target, status), None);
     }
     // Phase 7: configured rewrites + `--single` SPA fallback
     // (Stage 6e). Phase 7 interleaves with phases 8/9 per the
@@ -206,20 +229,51 @@ async fn dispatch_inner(
         }
     };
 
+    // Success path uses the (post-collapse, post-rewrite) request path
+    // for `apply_custom_headers` matching — mirrors reference's
+    // `getHeaders` call at the success site (`index.js:746`) and the
+    // `slasher(relativePath)` lookup inside `getHeaders`.
+    let success_path: String = url_path.clone().into_owned();
     match outcome {
         ResolveOutcome::File(p) | ResolveOutcome::Index(p) => match tokio::fs::read(&p).await {
-            Ok(bytes) => file_response(&p, bytes),
-            Err(_) => error_response(StatusCode::NOT_FOUND, req.headers(), root).await,
+            Ok(bytes) => (file_response(&p, bytes), Some(success_path)),
+            Err(_) => {
+                let resp = error_response(
+                    StatusCode::NOT_FOUND,
+                    req.headers(),
+                    root,
+                    header_rules,
+                    &decoded_path,
+                )
+                .await;
+                (resp, None)
+            }
         },
         ResolveOutcome::NotFound => {
-            error_response(StatusCode::NOT_FOUND, req.headers(), root).await
+            let resp = error_response(
+                StatusCode::NOT_FOUND,
+                req.headers(),
+                root,
+                header_rules,
+                &decoded_path,
+            )
+            .await;
+            (resp, None)
         }
         // Defense-in-depth: lexical check above already short-circuits
         // `..`-escaping requests at phase 1; this branch covers the rare
         // case of a symlink (or future routing target) whose canonical
         // form lands outside the served root.
         ResolveOutcome::EscapedRoot => {
-            error_response(StatusCode::BAD_REQUEST, req.headers(), root).await
+            let resp = error_response(
+                StatusCode::BAD_REQUEST,
+                req.headers(),
+                root,
+                header_rules,
+                &decoded_path,
+            )
+            .await;
+            (resp, None)
         }
     }
 }
@@ -248,14 +302,18 @@ fn url_path_has_extension(path: &str) -> bool {
     basename.char_indices().skip(1).any(|(_, ch)| ch == '.')
 }
 
-/// Single-pass URL decode with strict syntactic validation. Returns `Err`
-/// if any `%` is not followed by exactly two ASCII-hex chars; otherwise
-/// returns the lossy-UTF-8 decoded form (mirrors the existing decoder
-/// for valid escapes — invalid UTF-8 sequences become U+FFFD, matching
-/// the prior `decode_utf8_lossy` semantics).
+/// Single-pass URL decode with strict syntactic AND UTF-8 validation.
+/// Returns `Err` if any `%` is not followed by exactly two ASCII-hex
+/// chars, OR if the resulting byte sequence is not valid UTF-8.
 ///
 /// Reference: `serve-handler/src/index.js:561-567` —
 /// `try { relativePath = decodeURIComponent(...) } catch (URIError) { 400 }`.
+/// `decodeURIComponent` throws URIError on both malformed `%xx` syntax
+/// AND on byte sequences that are valid escapes but invalid UTF-8
+/// (e.g. `/%FF` — a single 0xFF byte that does not start a valid
+/// UTF-8 sequence). Codex review round 1 P2 surfaced that the prior
+/// `decode_utf8_lossy()` silently mapped invalid UTF-8 to U+FFFD,
+/// admitting requests that the reference rejects with 400.
 fn try_percent_decode(s: &str) -> Result<Cow<'_, str>, ()> {
     let bytes = s.as_bytes();
     let mut i = 0;
@@ -272,7 +330,7 @@ fn try_percent_decode(s: &str) -> Result<Cow<'_, str>, ()> {
             i += 1;
         }
     }
-    Ok(percent_decode_str(s).decode_utf8_lossy())
+    percent_decode_str(s).decode_utf8().map_err(|_| ())
 }
 
 fn is_ascii_hex(b: u8) -> bool {

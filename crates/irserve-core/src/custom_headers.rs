@@ -9,7 +9,10 @@
 //!   last-write-wins (`index.js:245`, `Object.assign(defaultHeaders,
 //!   related)`).
 //! - `value: null` (SRV-HDR-002) deletes a previously-applied header
-//!   after accumulate, mirroring `index.js:247-251`.
+//!   per the merged-map prune at `index.js:247-251`. IrServe folds
+//!   the accumulate+prune into a single insert/remove pass per item
+//!   (last-write-wins per key reproduces the same final state as
+//!   the reference's two-stage `Object.assign`-then-prune).
 //!
 //! Custom headers apply to every successful and error response. They
 //! are skipped on 3xx redirects (mirrors the reference's
@@ -52,9 +55,11 @@ pub fn compile_rules(
     let mut compiled = Vec::with_capacity(rules.len());
     let mut invalid = Vec::new();
     for rule in rules {
-        // Headers have no destination template — pass a placeholder
-        // that the matcher will store verbatim and never render.
-        match Matcher::compile(&rule.source, "/") {
+        // Headers use minimatch-only matching (`:name` is literal `:`)
+        // per `serve-handler/src/index.js:207`'s `sourceMatches` call
+        // without `allowSegments`. The placeholder destination is
+        // stored verbatim and never rendered.
+        match Matcher::compile_no_segments(&rule.source, "/") {
             Ok(matcher) => compiled.push(HeaderRuleCompiled {
                 matcher,
                 headers: rule.headers.clone(),
@@ -88,37 +93,34 @@ pub fn apply_custom_headers(
     if rules.is_empty() || response.status().is_redirection() {
         return response;
     }
-    // First pass: insert/replace per accumulating rules. Mirror
-    // reference's `appendHeaders` loop at `index.js:200-210`.
+    // Single pass: walk rules in order; for each matched item, either
+    // insert (Some(value)) or remove (None). Last-write-wins per key
+    // is automatic. This mirrors reference's two-stage merge at
+    // `index.js:200-251`:
+    //
+    //   related = Object.assign(related, lastRule's keys, ...);
+    //   headers = Object.assign(defaultHeaders, related);
+    //   for (k in headers) if (headers[k] === null) delete headers[k];
+    //
+    // Equivalently: the *final* value at each key (after accumulate)
+    // is what's written; if that final value is null, the key is
+    // deleted. So an early `null` followed by a later non-null value
+    // for the same key results in the non-null value present. Single
+    // insert/remove per item, applied left-to-right, matches that
+    // semantics — Codex review round 1 P1.
     for rule in rules {
         if rule.matcher.try_match(request_path).is_some() {
             for item in &rule.headers {
                 let Ok(name) = HeaderName::from_bytes(item.key.as_bytes()) else {
                     continue;
                 };
-                let Some(value_str) = item.value.as_deref() else {
-                    // Null-pruning is applied in the second pass so that
-                    // its delete-after-accumulate semantics matches
-                    // `index.js:245-251` (Object.assign first, prune last).
-                    continue;
-                };
-                let Ok(value) = HeaderValue::from_str(value_str) else {
-                    continue;
-                };
-                response.headers_mut().insert(name, value);
-            }
-        }
-    }
-    // Second pass: SRV-HDR-002 null-prune. After accumulate + merge,
-    // any matched rule whose `value: null` removes a previously-set
-    // header with the same key (case-insensitive). Mirrors
-    // `index.js:247-251` (`for ... in` loop deleting headers[key] === null
-    // entries from the merged map).
-    for rule in rules {
-        if rule.matcher.try_match(request_path).is_some() {
-            for item in &rule.headers {
-                if item.value.is_none() {
-                    if let Ok(name) = HeaderName::from_bytes(item.key.as_bytes()) {
+                match item.value.as_deref() {
+                    Some(value_str) => {
+                        if let Ok(value) = HeaderValue::from_str(value_str) {
+                            response.headers_mut().insert(name, value);
+                        }
+                    }
+                    None => {
                         response.headers_mut().remove(&name);
                     }
                 }
@@ -233,6 +235,46 @@ mod tests {
         ]);
         let resp = apply_custom_headers(ok_response(), "/data.json", &rules);
         assert_eq!(resp.headers().get("x-set").unwrap(), "v");
+    }
+
+    #[test]
+    fn later_set_value_wins_over_earlier_null_prune() {
+        // Codex review round 1 P1: null-prune order. Reference's
+        // two-stage merge (Object.assign-then-prune) preserves a key
+        // whose FINAL value is non-null, even if an earlier matched
+        // rule set it to null. The single-pass insert/remove
+        // implementation must give the same result.
+        let rules = build(&[
+            header_rule("**", &[("X-Set", None)]),
+            header_rule("**", &[("X-Set", Some("v"))]),
+        ]);
+        let resp = apply_custom_headers(ok_response(), "/x", &rules);
+        assert_eq!(
+            resp.headers().get("x-set").unwrap(),
+            "v",
+            "later non-null write must win over earlier null entry"
+        );
+    }
+
+    #[test]
+    fn name_segment_in_source_is_literal_not_capture() {
+        // Codex review round 1 P1: `:name` source is minimatch-only
+        // for headers (reference's `sourceMatches` skips path-to-regexp
+        // when `allowSegments` is falsy, `index.js:38-67`). Source
+        // `/api/:id` must match only the literal path `/api/:id`, not
+        // `/api/42`.
+        let rules = build(&[header_rule("/api/:id", &[("X-Param", Some("yes"))])]);
+        let no_match = apply_custom_headers(ok_response(), "/api/42", &rules);
+        assert!(
+            no_match.headers().get("x-param").is_none(),
+            "headers source `:name` must NOT capture-match `/api/42`"
+        );
+        let literal_match = apply_custom_headers(ok_response(), "/api/:id", &rules);
+        assert_eq!(
+            literal_match.headers().get("x-param").unwrap(),
+            "yes",
+            "headers source `/api/:id` must match the literal path `/api/:id`"
+        );
     }
 
     #[test]
