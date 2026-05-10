@@ -9,9 +9,9 @@ use crate::clean_urls::{
     compute_clean_urls_redirect, try_clean_urls_resolve, CleanUrlsView,
 };
 use crate::config::ServeConfig;
+use crate::error::error_response;
 use crate::mime::mime_for;
 use crate::normalize::collapse_slashes;
-use crate::notfound::not_found_response;
 use crate::redirects::{compute_configured_redirects, RedirectRuleCompiled};
 use crate::resolve::{resolve, ResolveOutcome};
 use crate::rewrites::{compute_configured_rewrites, RewriteRuleCompiled};
@@ -157,9 +157,11 @@ pub async fn dispatch(
     match outcome {
         ResolveOutcome::File(p) | ResolveOutcome::Index(p) => match tokio::fs::read(&p).await {
             Ok(bytes) => file_response(&p, bytes),
-            Err(_) => not_found_response(req.headers()),
+            Err(_) => error_response(StatusCode::NOT_FOUND, req.headers(), root).await,
         },
-        ResolveOutcome::NotFound | ResolveOutcome::EscapedRoot => not_found_response(req.headers()),
+        ResolveOutcome::NotFound | ResolveOutcome::EscapedRoot => {
+            error_response(StatusCode::NOT_FOUND, req.headers(), root).await
+        }
     }
 }
 

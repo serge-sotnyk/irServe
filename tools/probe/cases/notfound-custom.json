@@ -7,6 +7,13 @@
       "404.html": "<h1>custom-404-page</h1>\n"
     }
   },
+  "runner": {
+    "l0": {
+      "clean": ["missing_html_custom", "missing_html_custom_json_accept"],
+      "divergent": [],
+      "contentLengthMayDiffer": ["missing_html_custom_json_accept"]
+    }
+  },
   "requests": [
     { "name": "missing_html_custom", "method": "GET", "path": "/does-not-exist" },
     { "name": "missing_html_custom_json_accept", "method": "GET", "path": "/does-not-exist", "headers": { "accept": "application/json" } }

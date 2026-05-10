@@ -7,6 +7,12 @@
       "404.html": "<p>custom-not-found</p>\n"
     }
   },
+  "runner": {
+    "l0": {
+      "clean": ["missing_with_custom_404"],
+      "divergent": []
+    }
+  },
   "requests": [
     { "name": "missing_with_custom_404", "method": "GET", "path": "/no-such-page" }
   ]

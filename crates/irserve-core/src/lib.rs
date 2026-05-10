@@ -3,9 +3,9 @@
 mod clean_urls;
 pub mod config;
 mod dispatch;
+mod error;
 mod mime;
 mod normalize;
-mod notfound;
 mod path_pattern;
 mod redirects;
 mod resolve;
