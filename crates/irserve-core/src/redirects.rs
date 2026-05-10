@@ -36,12 +36,35 @@ pub struct RedirectRuleCompiled {
 #[derive(Debug)]
 enum Matcher {
     /// Source has no glob meta-characters and no `:param` segments.
-    /// Mirrors the reference's `pathToRegExp("/old", [])` behavior:
-    /// the resulting regex `^/old/?$` matches both `/old` and `/old/`,
-    /// so we accept an optional single trailing slash on either side.
-    /// Destination is rendered verbatim.
+    /// Stores TWO comparison forms because the reference's
+    /// `sourceMatches` runs both path-to-regexp and minimatch:
+    ///
+    /// - `source_ptr` mirrors path-to-regexp's interpretation:
+    ///   non-trailing `\X` consumes both characters and emits `X`,
+    ///   trailing `\` is preserved as a literal `\`. Mirrors the
+    ///   regex `^/old/?$` behavior, so we also accept an optional
+    ///   trailing slash on either side.
+    /// - `source_mm` mirrors minimatch's segment-level
+    ///   interpretation: `\X` (for any X except `*`/`?`/`{`) is
+    ///   parsed as escape + literal X, so the segment-string used
+    ///   for matching is the same as `source_ptr`. The split on `\`
+    ///   inside a segment is what makes minimatch *also* match
+    ///   request paths that literally contain `\X` — empirically,
+    ///   `minimatch('/u/\\f', '/u/\\f')` is true. We capture this
+    ///   by additionally accepting the raw, un-de-escaped source
+    ///   string when present (`source_mm = Some(raw)` when raw
+    ///   differs from `source_ptr`).
+    ///
+    /// A trailing unescaped `\` in the source has no corresponding
+    /// minimatch match against any `path.posix.resolve`-d request
+    /// path (minimatch turns the trailing `\` into a synthetic `/`
+    /// suffix that the resolved path strips), so we set
+    /// `source_mm = None` in that case to avoid spurious matches.
+    /// Codex review round 11 P1 surfaced both halves of this
+    /// asymmetry.
     Literal {
-        source: String,
+        source_ptr: String,
+        source_mm: Option<String>,
         destination: String,
     },
     /// Source has `?`/`[`/`{` glob meta or `!`-prefix, but no `*`
@@ -398,6 +421,14 @@ const ENCODE_URI_COMPONENT_SET: &AsciiSet = &CONTROLS
 /// where unparseable patterns are silently treated as never-matching:
 /// surface invalid rules to the bin layer for stderr warnings; the
 /// server keeps running and other rules continue to work.
+///
+/// Most malformed sources are recovered before reaching this struct:
+/// `classify_pattern_segment` falls back to a Literal segment when
+/// globset rejects the de-escaped form (Codex review round 10 P2),
+/// so rules with sources like `/u/\[` are kept as literal-`[`
+/// matchers rather than dropped. Only patterns that fail
+/// `regex::Regex::new` (for `:name`/`*` Pattern matchers) propagate
+/// here.
 #[derive(Debug)]
 pub struct InvalidRedirect {
     pub source: String,
@@ -469,14 +500,31 @@ fn compile_one(rule: &RedirectRule) -> Result<RedirectRuleCompiled, CompileError
         // plus `?` as a single-char glob, but our regex compiles
         // `?` as a literal `\?` that real URLs don't carry. Build
         // glob_fallback for every Pattern matcher.
-        let segments: Result<Vec<PatSeg>, globset::Error> = body
-            .split('/')
-            .filter(|s| !s.is_empty())
-            .map(classify_pattern_segment)
-            .collect();
-        let glob_fallback = Some(GlobFallback {
-            segments: segments?,
-        });
+        // Disable glob_fallback when the source body ends with an
+        // unescaped `\`: minimatch turns the trailing `\` into a
+        // synthetic `/` suffix in the compiled regex, and
+        // `path.posix.resolve` strips trailing slashes from the
+        // request path, so the minimatch branch can never match
+        // such sources against any resolved request path. The
+        // Pattern's primary regex (which preserves the trailing
+        // `\` as a literal) still handles the
+        // `request-with-literal-backslash` case correctly. Codex
+        // review round 11 P1: source `/v/*\` previously
+        // over-matched `/v/x` via the glob_fallback's `*` segment
+        // (since the per-segment classifier silently dropped the
+        // trailing `\`).
+        let glob_fallback = if ends_with_unescaped_backslash(&body) {
+            None
+        } else {
+            let segments: Result<Vec<PatSeg>, globset::Error> = body
+                .split('/')
+                .filter(|s| !s.is_empty())
+                .map(classify_pattern_segment)
+                .collect();
+            Some(GlobFallback {
+                segments: segments?,
+            })
+        };
         Matcher::Pattern {
             regex,
             dest_template,
@@ -494,13 +542,37 @@ fn compile_one(rule: &RedirectRule) -> Result<RedirectRuleCompiled, CompileError
             destination: normalized_dest,
         }
     } else {
-        // De-escape `\X` sequences so a source like `/g/\.x`
-        // literal-matches a request path `/g/.x`. Codex review
-        // round 8 P2 — minimatch and path-to-regexp both treat
-        // `\X` as a literal `X`; our `Literal` variant compares
-        // strings directly so we strip escapes at compile time.
+        // Build TWO match forms, mirroring path-to-regexp and
+        // minimatch.
+        //
+        // `source_ptr` mirrors path-to-regexp: `\X` → `X` (escape
+        // consumed); trailing `\` → kept as literal `\`. Codex
+        // review round 8 P2 introduced de-escape because minimatch
+        // and path-to-regexp both treat `\X` as a literal `X`;
+        // round 11 P1 surfaced that the trailing `\` is NOT
+        // dropped by path-to-regexp — it's emitted as a literal
+        // `\` in the compiled regex, so the regex requires a
+        // literal `\` at end of path.
+        //
+        // `source_mm` is `Some(body)` when the raw source body
+        // differs from `source_ptr` AND the body has no trailing
+        // unescaped `\`. This mirrors minimatch's empirical
+        // behavior: `minimatch('/u/\\f', '/u/\\f')` returns true
+        // because the segment-level matcher treats the request's
+        // literal `\X` as equivalent to the pattern's `\X` (after
+        // the parser's per-segment normalization). Trailing `\`
+        // is excluded because minimatch produces a regex with a
+        // synthetic trailing `/` that `path.posix.resolve` always
+        // strips.
+        let source_ptr = de_escape_keep_trailing(&body);
+        let source_mm = if body != source_ptr && !ends_with_unescaped_backslash(&body) {
+            Some(body.clone())
+        } else {
+            None
+        };
         Matcher::Literal {
-            source: de_escape(&body),
+            source_ptr,
+            source_mm,
             destination: normalized_dest,
         }
     };
@@ -636,6 +708,17 @@ fn path_posix_resolve(path: &str) -> String {
 /// Codex round 9 unified the handling: ALL segments are
 /// de-escaped before classification, so the same backslash logic
 /// applies to Literal, Wildcard, and DoubleStar variants.
+///
+/// A trailing unescaped `\` (with no character to escape) is
+/// silently dropped by this function. The Literal-class compiler
+/// uses the trailing-preserving variant
+/// (`de_escape_keep_trailing`) instead, but per-segment classifiers
+/// (used by Glob and the Pattern glob_fallback) keep the original
+/// drop semantics — globset has no representation for a
+/// trailing-only `\`, and the glob_fallback's contract for
+/// trailing-`\`-bearing sources is "never match" (enforced at
+/// compile time by skipping the fallback when the body ends with
+/// an unescaped `\`).
 fn de_escape(s: &str) -> String {
     let mut out = String::with_capacity(s.len());
     let mut chars = s.chars();
@@ -650,6 +733,50 @@ fn de_escape(s: &str) -> String {
         }
     }
     out
+}
+
+/// Like `de_escape`, but preserves a trailing unescaped `\` as
+/// a literal `\`. Mirrors path-to-regexp's behavior in v3.3.0:
+/// the `\\.` regex token captures escape pairs, but a trailing
+/// `\` with nothing after doesn't match the token and falls
+/// through to the literal accumulator, which `escapeString`s it
+/// to `\\` in the final regex (matching a literal `\` in the
+/// request path).
+///
+/// Codex review round 11 P1: source `/u/foo\` should match a
+/// request path that literally ends in `\` (e.g. decoded from
+/// `%5C`), not strip the `\` and over-match `/u/foo`.
+fn de_escape_keep_trailing(s: &str) -> String {
+    let mut out = String::with_capacity(s.len());
+    let mut chars = s.chars().peekable();
+    while let Some(c) = chars.next() {
+        if c == '\\' {
+            if let Some(&next) = chars.peek() {
+                chars.next();
+                out.push(next);
+            } else {
+                // Trailing `\` with nothing to escape: keep as
+                // literal `\`. Mirrors path-to-regexp's literal
+                // accumulator branch.
+                out.push('\\');
+            }
+        } else {
+            out.push(c);
+        }
+    }
+    out
+}
+
+/// Returns `true` when `s` ends with an unescaped `\` — i.e. an
+/// odd number of trailing backslashes. Used to decide whether the
+/// Pattern matcher's `glob_fallback` should be active: minimatch
+/// turns a trailing `\` into a synthetic `/` suffix in the
+/// compiled regex, and `path.posix.resolve` always strips trailing
+/// slashes from the request path, so a trailing-`\`-bearing source
+/// never matches via minimatch. Codex review round 11 P1.
+fn ends_with_unescaped_backslash(s: &str) -> bool {
+    let trailing_bs = s.chars().rev().take_while(|c| *c == '\\').count();
+    trailing_bs % 2 == 1
 }
 
 /// Mirrors the truthy branch of `url.parse(dest).protocol` in Node:
@@ -710,14 +837,27 @@ impl RedirectRuleCompiled {
         let path = resolved.as_str();
         match &self.matcher {
             Matcher::Literal {
-                source,
+                source_ptr,
+                source_mm,
                 destination,
             } => {
-                if literal_matches(source, path) {
-                    Some(destination.clone())
-                } else {
-                    None
+                if literal_matches(source_ptr, path) {
+                    return Some(destination.clone());
                 }
+                // Minimatch fallback for inner-`\X` sources like
+                // `/u/\f`: the segment-level minimatch matcher
+                // accepts the raw request path that literally
+                // contains `\X` (Codex review round 11 P1). We
+                // mirror via direct string comparison against the
+                // raw source body — this is exact for the no-glob,
+                // no-trailing-backslash case which is when
+                // `source_mm` is `Some`.
+                if let Some(mm) = source_mm {
+                    if literal_matches(mm, path) {
+                        return Some(destination.clone());
+                    }
+                }
+                None
             }
             Matcher::Glob {
                 segments,
@@ -1211,6 +1351,81 @@ mod tests {
         let (target, _) = compute_configured_redirects("/u/[", &rules)
             .expect("`\\[` should literal-match `[`");
         assert_eq!(target, "/hit");
+    }
+
+    #[test]
+    fn literal_source_with_trailing_backslash_requires_literal_backslash() {
+        // Codex review round 11 P1: source `/u/foo\` should match
+        // a request path that literally ends in `\` (e.g. decoded
+        // from `%5C`), NOT strip the trailing `\` and over-match
+        // `/u/foo`. Reference (path-to-regexp v3.3.0) preserves
+        // the trailing `\` in the compiled regex as a literal `\`,
+        // and minimatch's regex requires a synthetic trailing `/`
+        // that `path.posix.resolve` always strips, so only the
+        // path-to-regexp branch is active for trailing-`\` sources.
+        let rules = compile(&[rule("/u/foo\\", "/literal-trailing-bs", None)]);
+        // Path without trailing backslash: must NOT match.
+        assert!(compute_configured_redirects("/u/foo", &rules).is_none());
+        // Path with literal trailing backslash (decoded from %5C):
+        // must match.
+        let (target, _) = compute_configured_redirects("/u/foo\\", &rules)
+            .expect("trailing-`\\` source should match path with literal trailing `\\`");
+        assert_eq!(target, "/literal-trailing-bs");
+    }
+
+    #[test]
+    fn literal_source_with_inner_escape_matches_both_forms() {
+        // Codex review round 11 P1: source `/u/\f` (inner `\X`
+        // where X is non-glob-special) matches both `/u/f` (the
+        // path-to-regexp de-escaped form) AND `/u/\f` (minimatch's
+        // segment-level matcher accepts the raw form, empirically
+        // verified via `minimatch('/u/\\f', '/u/\\f') === true`).
+        let rules = compile(&[rule("/u/\\f", "/inner-esc", None)]);
+        let (target, _) = compute_configured_redirects("/u/f", &rules)
+            .expect("de-escaped form should match `/u/f`");
+        assert_eq!(target, "/inner-esc");
+        let (target, _) = compute_configured_redirects("/u/\\f", &rules)
+            .expect("raw form should also match `/u/\\f` (minimatch transparency)");
+        assert_eq!(target, "/inner-esc");
+    }
+
+    #[test]
+    fn star_source_with_trailing_backslash_disables_glob_fallback() {
+        // Codex review round 11 P1: source `/v/*\` (Pattern with
+        // glob meta `*` plus trailing `\`). The Pattern's primary
+        // regex correctly requires a literal `\` at end of path
+        // (`(.*)\\\/?$`). The glob_fallback previously dropped the
+        // trailing `\` from the pattern segment and ended up with
+        // a bare `*` segment that admitted ANY single segment,
+        // over-matching `/v/x`. After the round-11 fix, the
+        // glob_fallback is disabled when the source body ends with
+        // an unescaped `\` (minimatch's compiled regex requires a
+        // synthetic trailing `/` that `path.posix.resolve` always
+        // strips, so the fallback can never match a resolved path
+        // anyway).
+        let rules = compile(&[rule("/v/*\\", "/glob-trailing-bs", None)]);
+        // Path with literal trailing `\`: matches via Pattern's
+        // primary regex, captures `x`.
+        let (target, _) = compute_configured_redirects("/v/x\\", &rules)
+            .expect("Pattern regex should match path with literal `\\` end");
+        assert_eq!(target, "/glob-trailing-bs");
+        // Path without trailing `\`: must NOT match (regex
+        // requires literal `\`, glob_fallback disabled).
+        assert!(compute_configured_redirects("/v/x", &rules).is_none());
+    }
+
+    #[test]
+    fn ends_with_unescaped_backslash_helper() {
+        // Sanity-check the helper that drives the round-11 P1
+        // glob_fallback gating decision.
+        assert!(super::ends_with_unescaped_backslash("/u/foo\\"));
+        assert!(super::ends_with_unescaped_backslash("\\"));
+        assert!(super::ends_with_unescaped_backslash("/v/*\\"));
+        // Even number of trailing backslashes: the last `\` is
+        // itself escaped, so the body does NOT end unescaped.
+        assert!(!super::ends_with_unescaped_backslash("/u/foo\\\\"));
+        assert!(!super::ends_with_unescaped_backslash("/u/foo"));
+        assert!(!super::ends_with_unescaped_backslash(""));
     }
 
     #[test]

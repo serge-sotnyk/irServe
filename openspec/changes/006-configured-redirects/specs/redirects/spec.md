@@ -18,14 +18,16 @@ divergence is tracked as Q-012 in
 cleanUrls capability (see SRV-ROUT-001/002).
 
 Evidence: SRV-RDIR-001 (status: verified, level: L2); oracle:
-ORC-030 plus the contiguous range ORC-084..ORC-132 (50 anchors
-total — the range is 49 entries, plus ORC-030 — covering literal,
-glob, `:name`, `*`, `**`, brace alt, bracket, backslash escape,
-negation, resolve, dot-rule, and globset-error fallback corners.
-See `oracle-matrix.md` for the full enumeration). Codex round 9
-P3 corrected the count to 40; round 10 P3 corrected to 45 for
-the `084..127` range; the present 50-anchor count covers the
-round-10 additions through `084..132`.
+ORC-030 plus the contiguous range ORC-084..ORC-138 (56 anchors
+total — the range is 55 entries, plus ORC-030 — covering literal,
+glob, `:name`, `*`, `**`, brace alt, bracket, backslash escape
+(both inner and trailing), negation, resolve, dot-rule, globset-
+error fallback, and minimatch-vs-path-to-regexp request-path-with-
+literal-`\` corners. See `oracle-matrix.md` for the full
+enumeration). Codex round 9 P3 corrected the count to 40; round 10
+P3 corrected to 50 for the `084..132` range; round 11 extended
+through ORC-133..138 (56 total) for the trailing-`\` and inner-
+escape backslash corners.
 
 Note: Redirects fire after the cleanUrls / trailingSlash redirect
 stage; see the routing capability's "Operation precedence in the

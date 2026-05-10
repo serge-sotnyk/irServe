@@ -36,15 +36,18 @@ pub async fn serve(config: ServerConfig) -> Result<(), Error> {
             inv.pattern, inv.error
         );
     }
-    // Same treatment for redirect rules: an invalid glob source is
-    // silently dropped at the reference (try/catch around
-    // `pathToRegExp` + minimatch fallback in `sourceMatches`); mirror
-    // by warning to stderr and dropping the rule. Other rules continue
-    // to work.
+    // Redirect rule compilation surfaces patterns that fail to
+    // produce a valid `regex::Regex` (the rare case — most malformed
+    // sources are recovered to a Literal segment by
+    // `classify_pattern_segment`'s globset-error fallback, Codex
+    // round 10 P2). Anything that still fails is reported via stderr
+    // and skipped; other rules continue to work. Mirrors the
+    // reference's silent try/catch around `pathToRegExp` + minimatch
+    // fallback in `sourceMatches` (`serve-handler/src/index.js:38-67`).
     let (redirect_rules, invalid_redirects) = compile_rules(&config.serve_config.redirects);
     for inv in &invalid_redirects {
         eprintln!(
-            "warning: redirect source {:?} skipped (invalid glob): {}",
+            "warning: redirect source {:?} skipped (invalid pattern): {}",
             inv.source, inv.error
         );
     }

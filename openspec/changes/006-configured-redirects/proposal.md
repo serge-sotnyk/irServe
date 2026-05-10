@@ -89,13 +89,20 @@ with the trailingSlash↔redirects compose corner.
   `dispatch.rs` (which generalizes the existing `redirect_301`).
 
 - **Compile-time error handling.** `compile_rules` returns
-  `(Vec<RedirectRuleCompiled>, Vec<InvalidRedirect>)`. Invalid glob
-  patterns and invalid path-pattern regexes are silently skipped at
-  startup with a stderr warning emitted from `server.rs::serve`,
-  mirroring the cleanUrls treatment from 6c and the reference's
-  silent try/catch at `index.js:38-67`. The `CompileError` enum
-  carries `Glob` (`#[from] globset::Error`) and `Regex`
-  (`#[from] regex::Error`) variants.
+  `(Vec<RedirectRuleCompiled>, Vec<InvalidRedirect>)`. Invalid
+  path-pattern regexes (the rare case) are skipped at startup with a
+  stderr warning emitted from `server.rs::serve`, mirroring the
+  reference's silent try/catch at `index.js:38-67`. Most malformed
+  glob sources are recovered before they reach `InvalidRedirect`:
+  Codex review round 10 P2 added a Literal-segment fallback in
+  `classify_pattern_segment` so sources like `/u/\[` (whose
+  de-escaped form `[` is rejected by globset as an unmatched bracket)
+  literal-match the request path containing `[` rather than being
+  dropped. The `CompileError` enum carries `Glob`
+  (`#[from] globset::Error`) and `Regex` (`#[from] regex::Error`)
+  variants — the `Glob` variant remains in the type for forward
+  compatibility but is unreachable from the current segment-level
+  classifier.
 
 - **Probe coverage.** The following anchors flip into
   `runner.l0.clean`:

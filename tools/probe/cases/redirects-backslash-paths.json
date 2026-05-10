@@ -1,0 +1,48 @@
+{
+  "id": "redirects-backslash-paths",
+  "description": "Codex round 11 P1: backslash handling in source patterns must mirror reference (path-to-regexp ∪ minimatch). (a) Trailing `\\` in source is preserved as a literal `\\` in path-to-regexp's regex, so `/u/foo\\` matches paths with literal `\\` end (decoded from `%5C`) but NOT `/u/foo`. (b) Inner `\\X` for non-glob X (like `\\f`) matches both the de-escaped form (`/u/f` via path-to-regexp) AND the raw form (`/u/\\f` via minimatch's segment-level transparency). (c) Trailing `\\` on a glob source like `/v/*\\` requires literal `\\` end via the Pattern's primary regex; the glob_fallback is disabled because minimatch's compiled regex requires a synthetic `/` suffix that `path.posix.resolve` always strips.",
+  "fixture": {
+    "files": {
+      "_marker.txt": "marker\n"
+    },
+    "serveJson": {
+      "redirects": [
+        { "source": "/u/foo\\", "destination": "/literal-trailing-bs" },
+        { "source": "/u/\\f", "destination": "/inner-escape-hit" },
+        { "source": "/v/*\\", "destination": "/glob-trailing-bs" }
+      ]
+    }
+  },
+  "runner": {
+    "l0": {
+      "clean": [
+        "literal_trailing_bs_no_match_without_bs",
+        "literal_trailing_bs_matches_with_bs",
+        "inner_escape_matches_de_escaped_form",
+        "inner_escape_matches_raw_form",
+        "glob_trailing_bs_no_match_without_bs",
+        "glob_trailing_bs_matches_with_bs"
+      ],
+      "contentLengthMayDiffer": [
+        "literal_trailing_bs_no_match_without_bs",
+        "literal_trailing_bs_matches_with_bs",
+        "inner_escape_matches_de_escaped_form",
+        "inner_escape_matches_raw_form",
+        "glob_trailing_bs_no_match_without_bs",
+        "glob_trailing_bs_matches_with_bs"
+      ],
+      "bodyMayDiffer": [
+        "literal_trailing_bs_no_match_without_bs",
+        "glob_trailing_bs_no_match_without_bs"
+      ]
+    }
+  },
+  "requests": [
+    { "name": "literal_trailing_bs_no_match_without_bs", "method": "GET", "path": "/u/foo" },
+    { "name": "literal_trailing_bs_matches_with_bs", "method": "GET", "path": "/u/foo%5C" },
+    { "name": "inner_escape_matches_de_escaped_form", "method": "GET", "path": "/u/f" },
+    { "name": "inner_escape_matches_raw_form", "method": "GET", "path": "/u/%5Cf" },
+    { "name": "glob_trailing_bs_no_match_without_bs", "method": "GET", "path": "/v/x" },
+    { "name": "glob_trailing_bs_matches_with_bs", "method": "GET", "path": "/v/x%5C" }
+  ]
+}

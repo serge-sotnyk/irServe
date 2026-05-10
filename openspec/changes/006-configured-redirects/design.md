@@ -492,6 +492,29 @@ plan:
    (escaped globstar), ORC-129..131 (brace per-alt dot rule),
    ORC-132 (`\[` literal fallback).
 
+10. **Backslash vs requests with literal `\` (Codex round 11).**
+    Sources containing `\` are common in configurations that
+    reach IrServe with percent-encoded paths (`%5C` decodes to
+    `\`). Three concrete divergences against the reference: (a)
+    the round-8 `de_escape` silently dropped a trailing
+    unescaped `\`, so `/u/foo\` over-matched `/u/foo` and
+    under-matched `/u/foo\` (decoded from `%5C`); (b) `Literal`
+    only stored the de-escaped form, so `/u/\f` matched `/u/f`
+    only, missing minimatch's segment-level transparency that
+    empirically matches the raw `/u/\f` form too; (c) the
+    Pattern matcher's glob_fallback inherited the trailing-`\`
+    drop, over-matching `/v/x` for source `/v/*\`. Decision: the
+    Literal variant stores TWO match forms — `source_ptr`
+    (de-escape with trailing `\` preserved, mirroring path-to-
+    regexp's compiled regex) and `source_mm: Option<String>` (the
+    raw body, populated when there's `\` AND no trailing
+    unescaped `\`). For the Pattern matcher, gate `glob_fallback`
+    off when the body ends with an odd number of trailing
+    backslashes — minimatch's compiled regex requires a synthetic
+    trailing `/` that `path.posix.resolve` always strips, so the
+    fallback can never match a resolved path. Pinned by
+    ORC-133..138.
+
 ## 9. Hard stops
 
 - `third_party/` — read-only.

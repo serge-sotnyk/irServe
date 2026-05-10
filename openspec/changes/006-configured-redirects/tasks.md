@@ -764,3 +764,86 @@
   tools/probe/run.mjs --all --target=reference --snapshot=verify`
   56/56 (was 55); `npx -y @fission-ai/openspec@latest validate
   --all --strict` — 14/14.
+
+## 14. Codex review round 11 (P1 + P3 fixes)
+
+- [x] 14.1 **P1 — backslash handling vs requests with literal
+  `\` (decoded from `%5C`).** The round-8 `de_escape` silently
+  dropped a trailing unescaped `\`, and the per-segment
+  `de_escape` in `classify_pattern_segment` did the same for
+  the Pattern matcher's glob_fallback. Three concrete
+  divergences against requests with literal backslashes
+  (decoded from `%5C`):
+  - source `/u/foo\` matched `/u/foo` (over-match) but failed
+    to match `/u/foo\` (under-match);
+  - source `/u/\f` matched `/u/f` only, missing minimatch's
+    segment-level transparency that empirically matches
+    `/u/\f` too (`minimatch('/u/\\f', '/u/\\f') === true`);
+  - source `/v/*\` over-matched `/v/x` via the glob_fallback
+    (segment `*\` de-escaped to bare `*`).
+
+  Fix: the Literal variant now stores TWO match forms —
+  `source_ptr` (de-escape with trailing `\` PRESERVED,
+  mirroring path-to-regexp's `(\\.)`-then-literal-accumulator
+  behavior in v3.3.0) and `source_mm: Option<String>` (the raw
+  body, populated when the body has `\` AND no trailing
+  unescaped `\`, mirroring minimatch's segment-level
+  transparency that accepts request paths literally containing
+  `\X`). For the Pattern matcher's glob_fallback: a new helper
+  `ends_with_unescaped_backslash` gates the fallback off when
+  the source body ends with an odd number of trailing
+  backslashes; minimatch's compiled regex requires a synthetic
+  trailing `/` suffix that `path.posix.resolve` always strips,
+  so the fallback can never match a resolved path anyway. The
+  Pattern's primary regex was already correct (it preserves
+  the trailing `\` as a literal `\` in its compiled regex), so
+  requests with literal trailing `\` still match.
+- [x] 14.2 New helper `de_escape_keep_trailing` alongside the
+  existing `de_escape`. The latter is retained for per-segment
+  classifiers in Glob and the now-gated glob_fallback (where
+  the trailing-`\` case is excluded by the new gating).
+- [x] 14.3 Four new unit tests in `redirects.rs`:
+  - `literal_source_with_trailing_backslash_requires_literal_backslash`
+    — pins the over-match-`/u/foo` and under-match-`/u/foo\`
+    asymmetry that round 11 fixes.
+  - `literal_source_with_inner_escape_matches_both_forms` —
+    pins the dual-form acceptance for `/u/\f`.
+  - `star_source_with_trailing_backslash_disables_glob_fallback`
+    — pins the gating of glob_fallback for `/v/*\`.
+  - `ends_with_unescaped_backslash_helper` — sanity-checks
+    the helper that drives the gating decision.
+
+  Redirects suite goes 87 → 91.
+- [x] 14.4 New probe
+  `tools/probe/cases/redirects-backslash-paths.json` (6
+  anchors, ORC-133..138). Three rules (literal trailing `\`,
+  inner `\f`, glob `*\`) × six request shapes covering the
+  four divergences plus their positive-side controls. Reference
+  snapshot captured with `--target=reference --snapshot=update`;
+  irserve verified clean against the reference snapshot.
+- [x] 14.5 **P3 — stale comments about invalid-glob being
+  dropped.** Round 10's globset-error fallback to Literal
+  means sources like `/u/\[` are now recovered, not dropped —
+  but the warning text in `server.rs::serve` still said
+  "invalid glob", `redirects.rs`'s `InvalidRedirect` doc
+  comment still said "silently dropped" without noting the
+  recovery, and `proposal.md`'s "Compile-time error handling"
+  bullet said the same. Updated all three call-sites to
+  reflect that only `regex::Error` cases (the rare path-
+  pattern compilation failure) propagate to `InvalidRedirect`,
+  and the `Glob` variant remains in the `CompileError` enum
+  for forward compatibility but is unreachable from the
+  current segment-level classifier.
+- [x] 14.6 D-012 in `decisions.md` extended with the round-11
+  fix narrative; oracle-matrix.md ORC-133..138 added;
+  inventory.md SRV-RDIR-001 oracle list extended through
+  ORC-138; `006-configured-redirects` delta
+  `specs/redirects/spec.md` updated to "56 anchors" over the
+  `ORC-084..ORC-138` range.
+- [x] 14.7 Verify: `cargo test -p irserve-core redirects`
+  91/91 green (was 87); `cargo test --test oracle` 36 passed
+  (was 35, +1 case from new probe), 21 skipped, 0 failed;
+  `node tools/probe/run.mjs --all --target=reference
+  --snapshot=verify` 57/57 (was 56); `npx -y
+  @fission-ai/openspec@latest validate --all --strict` —
+  14/14.
