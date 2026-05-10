@@ -327,8 +327,7 @@ impl Matcher {
                 negate,
                 destination,
             } => {
-                let path_segs: Vec<&str> =
-                    path.split('/').filter(|s| !s.is_empty()).collect();
+                let path_segs: Vec<&str> = path.split('/').filter(|s| !s.is_empty()).collect();
                 if match_segments(segments, &path_segs) ^ negate {
                     Some(destination.clone())
                 } else {
@@ -370,8 +369,7 @@ impl Matcher {
 
 impl GlobFallback {
     pub(crate) fn matches_strict(&self, path: &str) -> bool {
-        let path_segments: Vec<&str> =
-            path.split('/').filter(|s| !s.is_empty()).collect();
+        let path_segments: Vec<&str> = path.split('/').filter(|s| !s.is_empty()).collect();
         match_segments(&self.segments, &path_segments)
     }
 }
@@ -507,10 +505,7 @@ fn build_dot_only_matcher(seg: &str) -> Result<Option<GlobMatcher>, globset::Err
     } else {
         format!("{{{}}}", dot_alts.join(","))
     };
-    let glob = match GlobBuilder::new(&pattern)
-        .literal_separator(true)
-        .build()
-    {
+    let glob = match GlobBuilder::new(&pattern).literal_separator(true).build() {
         Ok(g) => g,
         Err(_) => return Ok(None),
     };
@@ -927,9 +922,7 @@ pub(crate) fn literal_matches(source: &str, path: &str, case_sensitive: bool) ->
 /// `@(...)`, `?(...)`, `*(...)`, `!(...)` patterns are handled as
 /// the `?`/`*`-bearing strings their leading character implies).
 pub(crate) fn has_glob_meta(source: &str) -> bool {
-    source
-        .chars()
-        .any(|c| matches!(c, '*' | '?' | '[' | '{'))
+    source.chars().any(|c| matches!(c, '*' | '?' | '[' | '{'))
 }
 
 /// Heuristic: a source contains a `:name` segment (where `name` is a

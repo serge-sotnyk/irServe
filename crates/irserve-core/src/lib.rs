@@ -19,8 +19,8 @@ use std::net::SocketAddr;
 use std::path::PathBuf;
 
 pub use config::{
-    load_serve_json, BoolOrGlobs, ConfigError, ConfigSource, HeaderItem, HeaderRule,
-    LoadedConfig, RedirectRule, RewriteRule, ServeConfig,
+    load_serve_json, BoolOrGlobs, ConfigError, ConfigSource, HeaderItem, HeaderRule, LoadedConfig,
+    RedirectRule, RewriteRule, ServeConfig,
 };
 
 pub struct ServerConfig {

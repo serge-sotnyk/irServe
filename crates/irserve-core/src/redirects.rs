@@ -297,8 +297,8 @@ mod tests {
         // form. So `/u/\[` literal-matches `[` (which a request
         // path can carry as `%5B` decoded to `[`).
         let rules = compile(&[rule("/u/\\[", "/hit", None)]);
-        let (target, _) = compute_configured_redirects("/u/[", &rules)
-            .expect("`\\[` should literal-match `[`");
+        let (target, _) =
+            compute_configured_redirects("/u/[", &rules).expect("`\\[` should literal-match `[`");
         assert_eq!(target, "/hit");
     }
 
@@ -393,8 +393,8 @@ mod tests {
             .expect("`/P/:id` should match `/p/Foo` case-insensitively");
         assert_eq!(target, "/param/Foo");
         let rules2 = compile(&[rule("/S/*", "/star", None)]);
-        let (target, _) = compute_configured_redirects("/s/x", &rules2)
-            .expect("`/S/*` should match `/s/x`");
+        let (target, _) =
+            compute_configured_redirects("/s/x", &rules2).expect("`/S/*` should match `/s/x`");
         assert_eq!(target, "/star");
     }
 
@@ -535,8 +535,9 @@ mod tests {
         // Globset's compiled regex for `\.*` matches `.X` (the
         // backslash escapes the dot, then `*` matches anything).
         let rules = compile(&[rule("/g/\\.*", "/hit", None)]);
-        let (target, _) = compute_configured_redirects("/g/.x", &rules)
-            .expect("`\\.*` should admit a `.x` path segment via the effective-first-char dot rule");
+        let (target, _) = compute_configured_redirects("/g/.x", &rules).expect(
+            "`\\.*` should admit a `.x` path segment via the effective-first-char dot rule",
+        );
         assert_eq!(target, "/hit");
     }
 
@@ -584,8 +585,7 @@ mod tests {
         assert_eq!(target, "/new/foo");
         let (target, _) = compute_configured_redirects("/a/foo/extra", &rules).unwrap();
         assert_eq!(target, "/new/foo");
-        let (target, _) =
-            compute_configured_redirects("/a/foo/x/y/z", &rules).unwrap();
+        let (target, _) = compute_configured_redirects("/a/foo/x/y/z", &rules).unwrap();
         assert_eq!(target, "/new/foo");
     }
 
@@ -601,8 +601,7 @@ mod tests {
         let (target, _) = compute_configured_redirects("/a/foo/z", &rules)
             .expect("** in middle should admit zero segments before /z literal");
         assert_eq!(target, "/new/foo");
-        let (target, _) =
-            compute_configured_redirects("/a/foo/extra/z", &rules).unwrap();
+        let (target, _) = compute_configured_redirects("/a/foo/extra/z", &rules).unwrap();
         assert_eq!(target, "/new/foo");
     }
 
@@ -895,10 +894,7 @@ mod tests {
         // compile time. Both rules compile now; the
         // `bad-but-falls-back` rule literal-matches its raw form
         // (which real URL paths rarely carry).
-        let rules = vec![
-            rule("/good/*", "/g", None),
-            rule("[invalid", "/bad", None),
-        ];
+        let rules = vec![rule("/good/*", "/g", None), rule("[invalid", "/bad", None)];
         let (compiled, invalid) = compile_rules(&rules);
         assert_eq!(compiled.len(), 2);
         assert_eq!(invalid.len(), 0);

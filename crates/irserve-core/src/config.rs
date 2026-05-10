@@ -184,10 +184,7 @@ fn extract_nested(value: serde_json::Value, keys: &[&str]) -> Option<serde_json:
     Some(cursor)
 }
 
-fn parse_serve_section(
-    path: &Path,
-    value: serde_json::Value,
-) -> Result<ServeConfig, ConfigError> {
+fn parse_serve_section(path: &Path, value: serde_json::Value) -> Result<ServeConfig, ConfigError> {
     if !value.is_object() {
         return Err(ConfigError::NotObject {
             path: path.to_path_buf(),

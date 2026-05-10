@@ -125,9 +125,7 @@ impl CleanUrlsView {
                 // do NOT match the rest of the pattern, so a sole
                 // `!/secret/**` enables cleanUrls for everything
                 // outside `/secret/**`.
-                patterns
-                    .iter()
-                    .any(|p| p.matcher.is_match(path) ^ p.negate)
+                patterns.iter().any(|p| p.matcher.is_match(path) ^ p.negate)
             }
         }
     }
@@ -144,9 +142,7 @@ fn compile_scoped_pattern(raw: &str) -> Result<ScopedPattern, globset::Error> {
         Some(rest) => (true, rest.to_string()),
         None => (false, slashed),
     };
-    let glob = GlobBuilder::new(&body)
-        .literal_separator(true)
-        .build()?;
+    let glob = GlobBuilder::new(&body).literal_separator(true).build()?;
     Ok(ScopedPattern {
         matcher: glob.compile_matcher(),
         negate,
@@ -203,10 +199,7 @@ fn slasher(pattern: &str) -> String {
 ///   `//foo.html`      → Some("/foo")       // strip+collapse
 ///   `/foo.txt`        → None
 ///   `/about`          → None
-pub fn compute_clean_urls_redirect(
-    decoded_path: &str,
-    view: &CleanUrlsView,
-) -> Option<String> {
+pub fn compute_clean_urls_redirect(decoded_path: &str, view: &CleanUrlsView) -> Option<String> {
     if !view.applicable(decoded_path) {
         return None;
     }
@@ -574,14 +567,8 @@ mod tests {
     fn redirect_trailing_slash_blocks_match() {
         // The reference regex is end-anchored; trailing `/` prevents
         // matching `.html` or `/index`.
-        assert_eq!(
-            compute_clean_urls_redirect("/foo.html/", &view_on()),
-            None
-        );
-        assert_eq!(
-            compute_clean_urls_redirect("/dir/index/", &view_on()),
-            None
-        );
+        assert_eq!(compute_clean_urls_redirect("/foo.html/", &view_on()), None);
+        assert_eq!(compute_clean_urls_redirect("/dir/index/", &view_on()), None);
     }
 
     #[test]
@@ -590,10 +577,7 @@ mod tests {
             compute_clean_urls_redirect("/index.html", &view_off()),
             None
         );
-        assert_eq!(
-            compute_clean_urls_redirect("/foo.html", &view_off()),
-            None
-        );
+        assert_eq!(compute_clean_urls_redirect("/foo.html", &view_off()), None);
     }
 
     #[test]
@@ -619,10 +603,7 @@ mod tests {
         // /docs/sub/page.html` with `cleanUrls: ["/docs/*"]` returns
         // 200 (file served direct).
         let v = view_scoped(&["/docs/*"]);
-        assert_eq!(
-            compute_clean_urls_redirect("/docs/sub/page.html", &v),
-            None
-        );
+        assert_eq!(compute_clean_urls_redirect("/docs/sub/page.html", &v), None);
         // Single-segment match still produces the 301.
         assert_eq!(
             compute_clean_urls_redirect("/docs/guide.html", &v).as_deref(),

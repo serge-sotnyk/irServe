@@ -1,0 +1,19 @@
+{
+  "id": "listing-has-extension-directory",
+  "description": "Literal directory whose name carries an extension (`foo.txt/`): reference treats final stats.isDirectory() as a directory regardless of url_has_extension. Codex review round 1 P1 regression guard.",
+  "fixture": {
+    "files": {
+      "foo.txt/a.txt": "a\n"
+    }
+  },
+  "runner": {
+    "l0": {
+      "clean": ["has_extension_directory_listing"],
+      "divergent": [],
+      "bodyMayDiffer": ["has_extension_directory_listing"]
+    }
+  },
+  "requests": [
+    { "name": "has_extension_directory_listing", "method": "GET", "path": "/foo.txt/" }
+  ]
+}

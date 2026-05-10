@@ -1,0 +1,39 @@
+{
+  "$schemaVersion": 1,
+  "case": "listing-has-extension-directory",
+  "description": "Literal directory whose name carries an extension (`foo.txt/`): reference treats final stats.isDirectory() as a directory regardless of url_has_extension. Codex review round 1 P1 regression guard.",
+  "fixture": {
+    "files": {
+      "foo.txt/a.txt": "a\n"
+    }
+  },
+  "serveArgs": [],
+  "volatileHeaders": [
+    "last-modified"
+  ],
+  "volatileBodies": [],
+  "requests": [
+    {
+      "name": "has_extension_directory_listing",
+      "request": {
+        "method": "GET",
+        "mode": "fetch",
+        "path": "/foo.txt/"
+      },
+      "response": {
+        "body": {
+          "kind": "text",
+          "length": 4400,
+          "sha256": "5e132d4991a4db65d37f42d3857784ad587eb44e87375cd641239ce6d516b957",
+          "preview": "<!DOCTYPE html><html lang=\"en\"> <head> <meta charset=\"utf-8\"> <meta name=\"viewport\" content=\"width=device-width, initial-scale=1\"> <title>Files within <FIXTURE_BASENAME>\\foo.txt\\</title> <style>body {"
+        },
+        "headers": {
+          "content-type": "text/html; charset=utf-8",
+          "vary": "Accept-Encoding"
+        },
+        "status": 200,
+        "statusText": "OK"
+      }
+    }
+  ]
+}

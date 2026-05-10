@@ -1,0 +1,67 @@
+{
+  "$schemaVersion": 1,
+  "case": "listing-scoped-trailing-slash",
+  "description": "Scoped `directoryListing: [\"/docs\"]` matches both `/docs` and `/docs/`. Reference's `sourceMatches` runs `path.posix.resolve(requestPath)` which strips the trailing slash before minimatch. Codex review round 1 P1 regression guard.",
+  "fixture": {
+    "files": {
+      "docs/a.txt": "a\n",
+      "blog/post.md": "post\n"
+    },
+    "serveJson": {
+      "directoryListing": [
+        "/docs"
+      ]
+    }
+  },
+  "serveArgs": [],
+  "volatileHeaders": [
+    "last-modified"
+  ],
+  "volatileBodies": [],
+  "requests": [
+    {
+      "name": "docs_with_trailing_slash",
+      "request": {
+        "method": "GET",
+        "mode": "fetch",
+        "path": "/docs/"
+      },
+      "response": {
+        "body": {
+          "kind": "text",
+          "length": 4388,
+          "sha256": "f2c85a713b21c62a3f84f4e56700ff5ab38bd55f78cb090555429fc96e98e511",
+          "preview": "<!DOCTYPE html><html lang=\"en\"> <head> <meta charset=\"utf-8\"> <meta name=\"viewport\" content=\"width=device-width, initial-scale=1\"> <title>Files within <FIXTURE_BASENAME>\\docs\\</title> <style>body { ma"
+        },
+        "headers": {
+          "content-type": "text/html; charset=utf-8",
+          "vary": "Accept-Encoding"
+        },
+        "status": 200,
+        "statusText": "OK"
+      }
+    },
+    {
+      "name": "blog_out_of_scope",
+      "request": {
+        "method": "GET",
+        "mode": "fetch",
+        "path": "/blog/"
+      },
+      "response": {
+        "body": {
+          "kind": "text",
+          "length": 1641,
+          "sha256": "8c45c679f40c3f81c111fbf2398d568189c3ab34d8a9704ad225cd8efe1b819f",
+          "preview": "<!DOCTYPE html><head> <meta name=\"viewport\" content=\"width=device-width, initial-scale=1, user-scalable=no\"/> <style> body { margin: 0; font-family: -apple-system, BlinkMacSystemFont, \"Segoe UI\", \"Rob"
+        },
+        "headers": {
+          "content-type": "text/html; charset=utf-8",
+          "vary": "Accept-Encoding"
+        },
+        "status": 404,
+        "statusText": "Not Found"
+      }
+    }
+  ]
+}

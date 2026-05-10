@@ -92,7 +92,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             source: "**".to_string(),
             destination: "/index.html".to_string(),
         });
-        combined.extend(serve_config.rewrites.drain(..));
+        combined.append(&mut serve_config.rewrites);
         serve_config.rewrites = combined;
     }
 

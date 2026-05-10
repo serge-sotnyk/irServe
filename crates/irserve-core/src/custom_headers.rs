@@ -81,10 +81,7 @@ enum HeaderMatcher {
     /// the per-segment minimatch kernel shared with redirects/rewrites
     /// (`PatSeg`/`match_segments`) — applied to the slashed source
     /// segments and the resolved request path's segments.
-    Glob {
-        segments: Vec<PatSeg>,
-        negate: bool,
-    },
+    Glob { segments: Vec<PatSeg>, negate: bool },
 }
 
 impl HeaderMatcher {
@@ -121,10 +118,7 @@ impl HeaderMatcher {
             // `nocase: false`. Codex review round 2 P1.
             HeaderMatcher::Literal(src) => src.as_str() == resolved.as_str(),
             HeaderMatcher::Glob { segments, negate } => {
-                let path_segs: Vec<&str> = resolved
-                    .split('/')
-                    .filter(|s| !s.is_empty())
-                    .collect();
+                let path_segs: Vec<&str> = resolved.split('/').filter(|s| !s.is_empty()).collect();
                 let matched = match_segments(segments, &path_segs);
                 if *negate {
                     !matched
@@ -151,9 +145,7 @@ pub struct InvalidHeaderRule {
 /// Compile the user-supplied header rules. Invalid source patterns are
 /// surfaced for stderr warnings; remaining rules continue to apply.
 /// Mirrors the redirect / rewrite compile contract.
-pub fn compile_rules(
-    rules: &[HeaderRule],
-) -> (Vec<HeaderRuleCompiled>, Vec<InvalidHeaderRule>) {
+pub fn compile_rules(rules: &[HeaderRule]) -> (Vec<HeaderRuleCompiled>, Vec<InvalidHeaderRule>) {
     let mut compiled = Vec::with_capacity(rules.len());
     let mut invalid = Vec::new();
     for rule in rules {
@@ -248,7 +240,10 @@ mod tests {
 
     fn build(rules: &[HeaderRule]) -> Vec<HeaderRuleCompiled> {
         let (compiled, invalid) = compile_rules(rules);
-        assert!(invalid.is_empty(), "rule compilation produced invalid entries");
+        assert!(
+            invalid.is_empty(),
+            "rule compilation produced invalid entries"
+        );
         compiled
     }
 

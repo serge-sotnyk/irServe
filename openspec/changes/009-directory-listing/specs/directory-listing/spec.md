@@ -108,11 +108,15 @@ ORC-009, ORC-010.
 
 ### Requirement: `renderSingle` serves a lone file in place of a listing
 
-The server SHALL serve a lone non-HTML file directly (status 200,
-the file's MIME type) in place of a directory listing when
-`renderSingle: true` and a directory contains exactly one non-HTML
-file with no usable index. The behavior SHALL be disabled by
-default.
+The server SHALL serve a lone file directly (status 200, the file's
+MIME type) in place of a directory listing when `renderSingle: true`
+and a directory contains exactly one non-directory entry with no
+usable `index.html`. The behavior SHALL be disabled by default. The
+short-circuit fires regardless of the lone file's extension —
+including `.html` (Codex review round 1 P3 finding; the reference
+README's "useful for non-HTML files" wording is an editorial
+recommendation, not a contract gate). The implementation gate is
+`!is_dir`, mirroring `serve-handler/src/index.js:368`.
 
 `renderSingle` SHALL still fire even when `directoryListing` is
 `false` (or out-of-scope). When listing is off and `renderSingle`

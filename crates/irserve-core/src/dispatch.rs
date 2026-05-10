@@ -6,13 +6,13 @@ use axum::http::header::{HeaderValue, CONTENT_TYPE, LOCATION};
 use axum::http::{Method, Request, Response, StatusCode};
 use percent_encoding::{percent_decode_str, utf8_percent_encode, AsciiSet, CONTROLS};
 
-use crate::clean_urls::{
-    compute_clean_urls_redirect, try_clean_urls_resolve, CleanUrlsView,
-};
+use crate::clean_urls::{compute_clean_urls_redirect, try_clean_urls_resolve, CleanUrlsView};
 use crate::config::ServeConfig;
 use crate::custom_headers::{apply_custom_headers, HeaderRuleCompiled};
 use crate::error::error_response;
-use crate::listing::{render as render_listing, DirectoryListingView, RenderResult, UnlistedFilter};
+use crate::listing::{
+    render as render_listing, DirectoryListingView, RenderResult, UnlistedFilter,
+};
 use crate::mime::mime_for;
 use crate::normalize::collapse_slashes;
 use crate::redirects::{compute_configured_redirects, RedirectRuleCompiled};
@@ -20,6 +20,14 @@ use crate::resolve::{resolve, ResolveOutcome};
 use crate::rewrites::{compute_configured_rewrites, RewriteRuleCompiled};
 use crate::trailing_slash::compute_trailing_slash_redirect;
 
+// The 13-phase dispatcher pulls in one precompiled view per
+// capability (cleanUrls, directoryListing, unlisted, redirects,
+// rewrites, headers) plus the request, root, and live config —
+// pushing the arity over clippy's default-7 threshold. Bundling
+// into a context struct is a future-stage refactor candidate; a
+// `Stage 7+` factor-out would also collapse the parallel
+// `compile_*` setup boilerplate in `server.rs`.
+#[allow(clippy::too_many_arguments)]
 pub async fn dispatch(
     req: Request<Body>,
     root: &Path,
@@ -61,6 +69,7 @@ pub async fn dispatch(
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 async fn dispatch_inner(
     req: Request<Body>,
     root: &Path,
@@ -223,9 +232,7 @@ async fn dispatch_inner(
     // case to `/asset.css` and admits matches that reference's
     // case-sensitive minimatch rejects.
     let url_path_str: String = url_path.clone().into_owned();
-    let trimmed = url_path_str
-        .trim_start_matches('/')
-        .trim_end_matches('/');
+    let trimmed = url_path_str.trim_start_matches('/').trim_end_matches('/');
     let cleanurls_index_url = if trimmed.is_empty() {
         "/index.html".to_string()
     } else {
@@ -250,13 +257,15 @@ async fn dispatch_inner(
         // cleanUrls candidates).
         if let Some(target) = compute_configured_rewrites(&url_path, rewrite_rules) {
             match resolve(&target, root).await {
-                // Stage 6g Slice 1 plumbing: a rewrite that resolves
-                // to a directory (no `index.html`) falls back to the
-                // original path, mirroring the prior NotFound behavior
-                // until Slice 2 wires the listing branch.
-                ResolveOutcome::NotFound
-                | ResolveOutcome::EscapedRoot
-                | ResolveOutcome::Directory(_) => {
+                // Stage 6g review round 1 P1 fix: a rewrite that
+                // resolves to a directory propagates as a successful
+                // resolution to that directory. Reference at
+                // `serve-handler/src/index.js:644` sends any final
+                // `stats.isDirectory()` into `renderDirectory`,
+                // including stats produced by the rewrite-target
+                // path. Only NotFound / EscapedRoot trigger the
+                // original-path fallback.
+                ResolveOutcome::NotFound | ResolveOutcome::EscapedRoot => {
                     (resolve(&url_path, root).await, url_path_str.clone())
                 }
                 other => (other, target),
@@ -282,14 +291,15 @@ async fn dispatch_inner(
         // destination. If no rewrite matched, fall back to the
         // existing cleanUrls candidate.
         match resolve(&url_path, root).await {
-            // Stage 6g Slice 1 plumbing: has-extension paths that
-            // resolve to a directory (e.g. literal folder named
-            // `foo.txt`) take the same fallback chain as NotFound —
-            // try rewrites, then cleanUrls candidates. Listing
-            // semantics for the has-extension branch are unusual
-            // and not in scope; the eventual final outcome is still
-            // 404 in Slice 1 and beyond.
-            ResolveOutcome::NotFound | ResolveOutcome::Directory(_) => {
+            // Stage 6g review round 1 P1 fix: only `NotFound`
+            // triggers the rewrite-then-cleanUrls fallback chain.
+            // A directory resolution propagates as the successful
+            // outcome — reference at
+            // `serve-handler/src/index.js:644` sends any final
+            // `stats.isDirectory()` into `renderDirectory`, even
+            // when the request URL had a `.txt`-style suffix and
+            // the directory's literal name carries that extension.
+            ResolveOutcome::NotFound => {
                 if let Some(target) = compute_configured_rewrites(&url_path, rewrite_rules) {
                     let r = resolve(&target, root).await;
                     (r, target)
@@ -400,10 +410,7 @@ async fn dispatch_inner(
                     } else {
                         format!("{}/", decoded_path)
                     };
-                    let filename = path
-                        .file_name()
-                        .and_then(|s| s.to_str())
-                        .unwrap_or("");
+                    let filename = path.file_name().and_then(|s| s.to_str()).unwrap_or("");
                     let url = format!("{prefix}{filename}");
                     (file_response(&path, bytes), Some(url))
                 }
@@ -495,10 +502,7 @@ fn try_percent_decode(s: &str) -> Result<Cow<'_, str>, ()> {
     let mut i = 0;
     while i < bytes.len() {
         if bytes[i] == b'%' {
-            if i + 2 >= bytes.len()
-                || !is_ascii_hex(bytes[i + 1])
-                || !is_ascii_hex(bytes[i + 2])
-            {
+            if i + 2 >= bytes.len() || !is_ascii_hex(bytes[i + 1]) || !is_ascii_hex(bytes[i + 2]) {
                 return Err(());
             }
             i += 3;
@@ -510,7 +514,7 @@ fn try_percent_decode(s: &str) -> Result<Cow<'_, str>, ()> {
 }
 
 fn is_ascii_hex(b: u8) -> bool {
-    matches!(b, b'0'..=b'9' | b'a'..=b'f' | b'A'..=b'F')
+    b.is_ascii_hexdigit()
 }
 
 /// Returns true if the URL path's `..` segments pop above the served
@@ -574,8 +578,8 @@ fn redirect_301(target: &str) -> Response<Body> {
 /// (`openspec/specs/redirects/spec.md` SRV-RDIR-002 Note).
 fn redirect_with_status(target: &str, status: u16) -> Response<Body> {
     let encoded = encode_uri_target(target);
-    let location = HeaderValue::from_str(&encoded)
-        .unwrap_or_else(|_| HeaderValue::from_static("/"));
+    let location =
+        HeaderValue::from_str(&encoded).unwrap_or_else(|_| HeaderValue::from_static("/"));
     let status_code = StatusCode::from_u16(status).unwrap_or(StatusCode::MOVED_PERMANENTLY);
     Response::builder()
         .status(status_code)
@@ -642,10 +646,7 @@ mod tests {
     #[test]
     fn encode_preserves_query_and_reserved_chars() {
         // encodeURI keeps ? = & : @ + $ , # / ; intact.
-        assert_eq!(
-            encode_uri_target("/path?a=1&b=2"),
-            "/path?a=1&b=2"
-        );
+        assert_eq!(encode_uri_target("/path?a=1&b=2"), "/path?a=1&b=2");
         assert_eq!(
             encode_uri_target("/with:colons@and+pluses,$dollars#frag"),
             "/with:colons@and+pluses,$dollars#frag"
@@ -662,7 +663,10 @@ mod tests {
         // 'é' is U+00E9 → UTF-8 bytes C3 A9.
         assert_eq!(encode_uri_target("/café/"), "/caf%C3%A9/");
         // 'д' is U+0434 → UTF-8 bytes D0 B4.
-        assert_eq!(encode_uri_target("/привет"), "/%D0%BF%D1%80%D0%B8%D0%B2%D0%B5%D1%82");
+        assert_eq!(
+            encode_uri_target("/привет"),
+            "/%D0%BF%D1%80%D0%B8%D0%B2%D0%B5%D1%82"
+        );
     }
 
     #[test]

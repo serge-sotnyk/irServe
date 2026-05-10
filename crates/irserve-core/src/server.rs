@@ -65,8 +65,7 @@ pub async fn serve(config: ServerConfig) -> Result<(), Error> {
     // to work. Mirrors the reference's silent try/catch around
     // `pathToRegExp` + minimatch fallback in `sourceMatches`
     // (`serve-handler/src/index.js:38-67`).
-    let (rewrite_rules, invalid_rewrites) =
-        compile_rewrite_rules(&config.serve_config.rewrites);
+    let (rewrite_rules, invalid_rewrites) = compile_rewrite_rules(&config.serve_config.rewrites);
     for inv in &invalid_rewrites {
         eprintln!(
             "warning: rewrite source {:?} skipped (invalid pattern): {}",
@@ -79,8 +78,7 @@ pub async fn serve(config: ServerConfig) -> Result<(), Error> {
     // run as a post-dispatch pass so they layer onto every response,
     // including 4xx error pages — mirrors the reference's getHeaders
     // call at `serve-handler/src/index.js:519`.
-    let (header_rules, invalid_headers) =
-        compile_header_rules(&config.serve_config.headers);
+    let (header_rules, invalid_headers) = compile_header_rules(&config.serve_config.headers);
     for inv in &invalid_headers {
         eprintln!(
             "warning: header source {:?} skipped (invalid pattern): {}",

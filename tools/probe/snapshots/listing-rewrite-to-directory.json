@@ -1,0 +1,47 @@
+{
+  "$schemaVersion": 1,
+  "case": "listing-rewrite-to-directory",
+  "description": "Rewrite target resolves to a directory: reference sends final stats.isDirectory()=true into renderDirectory regardless of how absolutePath was rewritten. Codex review round 1 P1 regression guard.",
+  "fixture": {
+    "files": {
+      "docs/a.txt": "a\n"
+    },
+    "serveJson": {
+      "rewrites": [
+        {
+          "source": "/old",
+          "destination": "/docs"
+        }
+      ]
+    }
+  },
+  "serveArgs": [],
+  "volatileHeaders": [
+    "last-modified"
+  ],
+  "volatileBodies": [],
+  "requests": [
+    {
+      "name": "rewrite_target_directory_listing",
+      "request": {
+        "method": "GET",
+        "mode": "fetch",
+        "path": "/old"
+      },
+      "response": {
+        "body": {
+          "kind": "text",
+          "length": 4387,
+          "sha256": "d9ab7c661d7520dc771a11fc33ed15c7de2b1a144f93384e1b3cdd8b9c38e2ed",
+          "preview": "<!DOCTYPE html><html lang=\"en\"> <head> <meta charset=\"utf-8\"> <meta name=\"viewport\" content=\"width=device-width, initial-scale=1\"> <title>Files within <FIXTURE_BASENAME>\\docs\\</title> <style>body { ma"
+        },
+        "headers": {
+          "content-type": "text/html; charset=utf-8",
+          "vary": "Accept-Encoding"
+        },
+        "status": 200,
+        "statusText": "OK"
+      }
+    }
+  ]
+}

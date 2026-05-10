@@ -16,14 +16,13 @@ use crate::normalize::collapse_slashes;
 /// the 301 the reference emits.
 ///
 /// Decision table (precedence top to bottom):
-/// * `cfg = None`                                       -> `None` (silent)
-/// * `cfg = Some(_)` AND path has `//`                  -> `Some(collapsed)`
+/// * `cfg = None` -> `None` (silent)
+/// * `cfg = Some(_)` AND path has `//` -> `Some(collapsed)`
 /// * `cfg = Some(false)` AND path ends with `/` (and isn't `/` itself)
-///                                                      -> `Some(stripped)`
-/// * `cfg = Some(true)` AND path doesn't end with `/`,
-///   has no extension, and basename doesn't start with `.`
-///                                                      -> `Some(path + "/")`
-/// * Otherwise                                          -> `None`
+///   -> `Some(stripped)`
+/// * `cfg = Some(true)` AND path doesn't end with `/`, has no extension,
+///   and basename doesn't start with `.` -> `Some(path + "/")`
+/// * Otherwise -> `None`
 ///
 /// The strip branch ignores the dotfile/extension exemptions — those
 /// apply only on the add branch (matches the reference).
@@ -64,10 +63,7 @@ pub fn compute_trailing_slash_redirect(decoded_path: &str, cfg: Option<bool>) ->
         // tail starting from the LAST dot in basename, but only when
         // that dot is not the first character. So a non-leading dot
         // anywhere in the basename signals an extension.
-        let has_extension = basename
-            .char_indices()
-            .skip(1)
-            .any(|(_, ch)| ch == '.');
+        let has_extension = basename.char_indices().skip(1).any(|(_, ch)| ch == '.');
         if has_extension {
             return None;
         }
@@ -110,7 +106,10 @@ mod tests {
 
     #[test]
     fn add_skips_path_with_extension() {
-        assert_eq!(compute_trailing_slash_redirect("/foo.txt", Some(true)), None);
+        assert_eq!(
+            compute_trailing_slash_redirect("/foo.txt", Some(true)),
+            None
+        );
         assert_eq!(
             compute_trailing_slash_redirect("/foo.tar.gz", Some(true)),
             None

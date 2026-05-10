@@ -185,16 +185,46 @@ impl DirectoryListingView {
     /// `applicable(decodedPath, directoryListing)` from
     /// `serve-handler/src/index.js:256-274` and `index.js:336`. Returns
     /// `true` when the listing branch should fire for the given path.
+    ///
+    /// Path normalization uses `posix_resolve` (collapse runs of `/`,
+    /// then strip trailing `/` except at root) to mirror the
+    /// reference's `path.posix.resolve(requestPath)` inside
+    /// `sourceMatches` (`serve-handler/src/index.js:38-67`). Without
+    /// the trailing-slash trim, a normal directory request like
+    /// `GET /docs/` against `directoryListing: ["/docs"]` would not
+    /// match (Codex review round 1 P1 finding).
     pub fn applicable(&self, decoded_path: &str) -> bool {
         match &self.inner {
             Mode::Off => false,
             Mode::On => true,
             Mode::Scoped(patterns) => {
-                let normalized = collapse_slashes(decoded_path);
-                let path = normalized.as_ref();
-                patterns.iter().any(|p| p.matcher.is_match(path) ^ p.negate)
+                let normalized = posix_resolve(decoded_path);
+                patterns
+                    .iter()
+                    .any(|p| p.matcher.is_match(&normalized) ^ p.negate)
             }
         }
+    }
+}
+
+/// Approximation of Node's `path.posix.resolve(requestPath)` for
+/// scope-check purposes: collapse runs of `/` and strip a trailing
+/// `/` (preserving the root `/`). Mirrors `sourceMatches` at
+/// `serve-handler/src/index.js:38-67`.
+///
+/// Note: only `DirectoryListingView::applicable` uses this. `cleanUrls`
+/// scope (`crates/irserve-core/src/clean_urls.rs:114-133`) historically
+/// uses `collapse_slashes` only and has not been observed to mismatch
+/// because cleanUrls 301 fires on `.html` / `/index` suffixes, neither
+/// of which carries a trailing slash. If Stage 7+ surfaces a parallel
+/// trailing-slash mismatch in cleanUrls, harmonize via a shared helper.
+fn posix_resolve(path: &str) -> String {
+    let collapsed = collapse_slashes(path);
+    let s = collapsed.as_ref();
+    if s == "/" || !s.ends_with('/') {
+        s.to_string()
+    } else {
+        s.trim_end_matches('/').to_string()
     }
 }
 
@@ -281,22 +311,23 @@ fn apply_unlisted_filter(entries: Vec<Entry>, filter: &UnlistedFilter) -> Vec<En
         .collect()
 }
 
-/// `request.headers.accept.includes('application/json')`
-/// (`serve-handler/src/index.js:556-558`), case-insensitive.
+/// Mirrors `request.headers.accept.includes('application/json')`
+/// at `serve-handler/src/index.js:556-558` — a case-SENSITIVE
+/// substring search. RFC 7231 declares media types case-insensitive,
+/// so a more standards-compliant impl would lowercase first; the
+/// reference's incidental case-sensitivity is the contract under
+/// anti-hallucination rule #4 (source < oracle). Codex review
+/// round 1 P2 flagged the prior case-insensitive variant; mirroring
+/// reference avoids a `D-NNN` divergence.
 fn accepts_json(headers: &HeaderMap) -> bool {
     headers
         .get(ACCEPT)
         .and_then(|v| v.to_str().ok())
-        .map(|v| v.to_ascii_lowercase().contains("application/json"))
+        .map(|v| v.contains("application/json"))
         .unwrap_or(false)
 }
 
-fn html_response(
-    entries: &[Entry],
-    decoded_url: &str,
-    dir: &Path,
-    root: &Path,
-) -> Response<Body> {
+fn html_response(entries: &[Entry], decoded_url: &str, dir: &Path, root: &Path) -> Response<Body> {
     let body = build_html(entries, decoded_url, dir, root);
     Response::builder()
         .status(StatusCode::OK)
@@ -364,8 +395,8 @@ async fn read_sorted_entries(dir: &Path) -> Result<Vec<Entry>, std::io::Error> {
 /// Chosen relative-path form (kickoff interview, plan key
 /// decision #2):
 ///   * root directory: `"."`
-///   * nested:        `"sub"`, `"sub/deep"` — POSIX separators,
-///                    no leading `/`, no trailing `/`.
+///   * nested: `"sub"`, `"sub/deep"` — POSIX separators, no leading
+///     `/`, no trailing `/`.
 ///
 /// `paths` follows the same convention. `relative` per-entry is a
 /// URL form with a leading `/` and (for folders) a trailing `/`,
@@ -605,6 +636,28 @@ mod tests {
     }
 
     #[test]
+    fn applicable_scoped_trailing_slash_normalizes() {
+        // Codex review round 1 P1: reference's `sourceMatches` runs
+        // `path.posix.resolve(requestPath)` which strips a trailing
+        // `/`. Without that, `directoryListing: ["/docs"]` would
+        // fail to match `GET /docs/` — the common directory-request
+        // form.
+        let cfg = Some(BoolOrGlobs::Globs(vec!["/docs".to_string()]));
+        let (v, _) = DirectoryListingView::from_config(&cfg);
+        assert!(v.applicable("/docs"));
+        assert!(v.applicable("/docs/"));
+        assert!(v.applicable("/docs//"));
+    }
+
+    #[test]
+    fn applicable_scoped_root_preserved() {
+        // The trailing-slash trim must not turn `/` into `""`.
+        let cfg = Some(BoolOrGlobs::Globs(vec!["/".to_string()]));
+        let (v, _) = DirectoryListingView::from_config(&cfg);
+        assert!(v.applicable("/"));
+    }
+
+    #[test]
     fn applicable_scoped_negation() {
         let cfg = Some(BoolOrGlobs::Globs(vec!["!/secret/**".to_string()]));
         let (v, _) = DirectoryListingView::from_config(&cfg);
@@ -689,12 +742,23 @@ mod tests {
         fs::create_dir_all(root.join("sub")).unwrap();
         fs::write(root.join("sub/a.txt"), "x").unwrap();
         let sub = fs::canonicalize(root.join("sub")).unwrap();
-        let resp = render_direct(&sub, "/sub/", &root, &empty_headers(), &empty_filter(), false).await;
+        let resp = render_direct(
+            &sub,
+            "/sub/",
+            &root,
+            &empty_headers(),
+            &empty_filter(),
+            false,
+        )
+        .await;
         let body = axum::body::to_bytes(resp.into_body(), usize::MAX)
             .await
             .unwrap();
         let body = std::str::from_utf8(&body).unwrap();
-        assert!(body.contains("href=\"../\""), "missing parent link:\n{body}");
+        assert!(
+            body.contains("href=\"../\""),
+            "missing parent link:\n{body}"
+        );
         // Entries' hrefs are prefixed with the request URL.
         assert!(
             body.contains("href=\"/sub/a.txt\""),
@@ -713,7 +777,15 @@ mod tests {
         // when `trailingSlash` is set, so requests like `GET /sub`
         // can land at the listing renderer with a trailing-slash-less
         // URL. Hrefs must still resolve correctly.
-        let resp = render_direct(&sub, "/sub", &root, &empty_headers(), &empty_filter(), false).await;
+        let resp = render_direct(
+            &sub,
+            "/sub",
+            &root,
+            &empty_headers(),
+            &empty_filter(),
+            false,
+        )
+        .await;
         let body = axum::body::to_bytes(resp.into_body(), usize::MAX)
             .await
             .unwrap();
@@ -790,7 +862,10 @@ mod tests {
         );
         // Per-entry `relative` is URL-form with leading `/`.
         let files = v["files"].as_array().unwrap();
-        assert_eq!(files[0]["relative"], serde_json::json!("/docs/api/index.json"));
+        assert_eq!(
+            files[0]["relative"],
+            serde_json::json!("/docs/api/index.json")
+        );
     }
 
     #[tokio::test]
@@ -820,14 +895,27 @@ mod tests {
 
     #[test]
     fn accepts_json_substring_match_in_multivalue() {
-        // Reference uses `.includes('application/json')` — substring,
-        // case-insensitive in our impl.
+        // Reference uses `.includes('application/json')` — case-
+        // sensitive substring. Lowercase form embedded in a
+        // multi-value Accept header matches.
         let mut h = HeaderMap::new();
         h.insert(
             ACCEPT,
-            HeaderValue::from_static("text/html, Application/JSON;q=0.9"),
+            HeaderValue::from_static("text/html, application/json;q=0.9"),
         );
         assert!(accepts_json(&h));
+    }
+
+    #[test]
+    fn accepts_json_case_sensitive_mirrors_reference() {
+        // Codex review round 1 P2: reference's substring search is
+        // case-sensitive. `Application/JSON` does NOT match because
+        // the literal lowercase `application/json` is not a
+        // substring. RFC 7231 would say otherwise; we mirror
+        // reference per anti-hallucination rule #4.
+        let mut h = HeaderMap::new();
+        h.insert(ACCEPT, HeaderValue::from_static("Application/JSON"));
+        assert!(!accepts_json(&h));
     }
 
     #[test]

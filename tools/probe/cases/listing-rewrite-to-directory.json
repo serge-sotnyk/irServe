@@ -1,0 +1,24 @@
+{
+  "id": "listing-rewrite-to-directory",
+  "description": "Rewrite target resolves to a directory: reference sends final stats.isDirectory()=true into renderDirectory regardless of how absolutePath was rewritten. Codex review round 1 P1 regression guard.",
+  "fixture": {
+    "files": {
+      "docs/a.txt": "a\n"
+    },
+    "serveJson": {
+      "rewrites": [
+        { "source": "/old", "destination": "/docs" }
+      ]
+    }
+  },
+  "runner": {
+    "l0": {
+      "clean": ["rewrite_target_directory_listing"],
+      "divergent": [],
+      "bodyMayDiffer": ["rewrite_target_directory_listing"]
+    }
+  },
+  "requests": [
+    { "name": "rewrite_target_directory_listing", "method": "GET", "path": "/old" }
+  ]
+}
