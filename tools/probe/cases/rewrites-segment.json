@@ -15,7 +15,7 @@
   },
   "runner": {
     "l0": {
-      "clean": ["spa_fallback"]
+      "clean": ["segment_rewrite", "spa_fallback"]
     }
   },
   "requests": [
