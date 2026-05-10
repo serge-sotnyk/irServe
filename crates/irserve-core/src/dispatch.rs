@@ -12,7 +12,7 @@ use crate::clean_urls::{
 use crate::config::ServeConfig;
 use crate::custom_headers::{apply_custom_headers, HeaderRuleCompiled};
 use crate::error::error_response;
-use crate::listing::{render_html as render_listing_html, DirectoryListingView};
+use crate::listing::{render as render_listing, DirectoryListingView};
 use crate::mime::mime_for;
 use crate::normalize::collapse_slashes;
 use crate::redirects::{compute_configured_redirects, RedirectRuleCompiled};
@@ -331,7 +331,7 @@ async fn dispatch_inner(
         // slices 3-5.
         ResolveOutcome::Directory(absolute) => {
             if listing_view.applicable(&decoded_path) {
-                match render_listing_html(&absolute, &decoded_path, root).await {
+                match render_listing(&absolute, &decoded_path, root, req.headers()).await {
                     Ok(resp) => (resp, None),
                     Err(_) => {
                         let resp = error_response(

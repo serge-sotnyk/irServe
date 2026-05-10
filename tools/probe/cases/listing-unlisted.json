@@ -15,9 +15,9 @@
   },
   "runner": {
     "l0": {
-      "clean": ["listing_html"],
+      "clean": ["listing_html", "listing_json"],
       "divergent": [],
-      "bodyMayDiffer": ["listing_html"]
+      "bodyMayDiffer": ["listing_html", "listing_json"]
     }
   },
   "requests": [

@@ -26,9 +26,10 @@
 use std::path::Path;
 
 use axum::body::Body;
-use axum::http::header::{HeaderValue, CONTENT_TYPE};
-use axum::http::{Response, StatusCode};
+use axum::http::header::{HeaderValue, ACCEPT, CONTENT_TYPE};
+use axum::http::{HeaderMap, Response, StatusCode};
 use globset::{GlobBuilder, GlobMatcher};
+use serde::Serialize;
 
 use crate::config::BoolOrGlobs;
 use crate::normalize::collapse_slashes;
@@ -141,12 +142,42 @@ fn slasher(pattern: &str) -> String {
     }
 }
 
-/// Render an HTML directory listing for `dir` (canonicalized
-/// absolute path under `root`, already containment-checked by
-/// `resolve()`). `decoded_url` is the request's URL form (e.g.
-/// `/foo` or `/foo/`); it drives the `<title>` / `<h1>` text and
-/// the per-entry hrefs.
-pub async fn render_html(
+/// Render a directory listing for `dir`, dispatching between HTML
+/// and JSON based on the request's `Accept` header. The reference
+/// uses a substring check at `serve-handler/src/index.js:556-558`
+/// (`request.headers.accept.includes('application/json')`); we
+/// mirror it case-insensitively.
+///
+/// `dir` is the canonicalized absolute path under `root`, already
+/// containment-checked by `resolve()`. `decoded_url` is the
+/// request's URL form (e.g. `/foo` or `/foo/`); it drives the HTML
+/// `<title>` / `<h1>` text and the per-entry hrefs. `root` is the
+/// served root, used for D-007 sanitization of the JSON
+/// `directory` and `paths` fields.
+pub async fn render(
+    dir: &Path,
+    decoded_url: &str,
+    root: &Path,
+    request_headers: &HeaderMap,
+) -> Result<Response<Body>, std::io::Error> {
+    if accepts_json(request_headers) {
+        render_json(dir, root).await
+    } else {
+        render_html_inner(dir, decoded_url, root).await
+    }
+}
+
+/// `request.headers.accept.includes('application/json')`
+/// (`serve-handler/src/index.js:556-558`), case-insensitive.
+fn accepts_json(headers: &HeaderMap) -> bool {
+    headers
+        .get(ACCEPT)
+        .and_then(|v| v.to_str().ok())
+        .map(|v| v.to_ascii_lowercase().contains("application/json"))
+        .unwrap_or(false)
+}
+
+async fn render_html_inner(
     dir: &Path,
     decoded_url: &str,
     root: &Path,
@@ -163,10 +194,27 @@ pub async fn render_html(
         .expect("listing response should always build"))
 }
 
+async fn render_json(dir: &Path, root: &Path) -> Result<Response<Body>, std::io::Error> {
+    let entries = read_sorted_entries(dir).await?;
+    let body = build_json(&entries, dir, root);
+    Ok(Response::builder()
+        .status(StatusCode::OK)
+        .header(
+            CONTENT_TYPE,
+            HeaderValue::from_static("application/json; charset=utf-8"),
+        )
+        .body(Body::from(body))
+        .expect("listing response should always build"))
+}
+
 #[derive(Debug)]
 struct Entry {
     name: String,
     is_dir: bool,
+    /// `None` for directories or files whose `metadata()` call
+    /// failed (e.g. broken symlinks). The JSON output omits the
+    /// `size` field in that case via `skip_serializing_if`.
+    size: Option<u64>,
 }
 
 async fn read_sorted_entries(dir: &Path) -> Result<Vec<Entry>, std::io::Error> {
@@ -175,10 +223,13 @@ async fn read_sorted_entries(dir: &Path) -> Result<Vec<Entry>, std::io::Error> {
     while let Some(e) = rd.next_entry().await? {
         let name = e.file_name().to_string_lossy().into_owned();
         let ft = e.file_type().await?;
-        out.push(Entry {
-            name,
-            is_dir: ft.is_dir(),
-        });
+        let is_dir = ft.is_dir();
+        let size = if is_dir {
+            None
+        } else {
+            e.metadata().await.ok().map(|m| m.len())
+        };
+        out.push(Entry { name, is_dir, size });
     }
     // Dirs first, then alphabetic within each group. Mirrors the
     // reference sort at `serve-handler/src/index.js:402-413`.
@@ -188,6 +239,146 @@ async fn read_sorted_entries(dir: &Path) -> Result<Vec<Entry>, std::io::Error> {
         _ => a.name.cmp(&b.name),
     });
     Ok(out)
+}
+
+/// D-007 sanitization: emit the JSON listing with `directory`,
+/// `paths`, and `relative` rendered relative to the served root,
+/// never as host-absolute filesystem paths. Reference's shape leaks
+/// `path.basename(current)` plus the absolute `dir` field
+/// (`serve-handler/src/index.js:455-462`), tracked under
+/// `Q-008` and resolved by `D-007`.
+///
+/// Chosen relative-path form (kickoff interview, plan key
+/// decision #2):
+///   * root directory: `"."`
+///   * nested:        `"sub"`, `"sub/deep"` — POSIX separators,
+///                    no leading `/`, no trailing `/`.
+///
+/// `paths` follows the same convention. `relative` per-entry is a
+/// URL form with a leading `/` and (for folders) a trailing `/`,
+/// because the field doubles as an `href` for JSON consumers.
+///
+/// File-entry shape: `{type, name, base, ext?, relative, size?}`.
+/// Folder-entry shape: `{type, name, base, relative}`. `size` is
+/// emitted as raw bytes (number) — see the plan's pre-stage
+/// out-of-scope note about `bytes`-package formatted strings being
+/// non-contractual.
+#[derive(Serialize)]
+struct ListingJson<'a> {
+    files: Vec<EntryJson<'a>>,
+    directory: String,
+    paths: Vec<PathSegment>,
+}
+
+#[derive(Serialize)]
+struct EntryJson<'a> {
+    #[serde(rename = "type")]
+    kind: &'static str,
+    name: &'a str,
+    base: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    ext: Option<&'a str>,
+    relative: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    size: Option<u64>,
+}
+
+#[derive(Serialize)]
+struct PathSegment {
+    name: String,
+    url: String,
+}
+
+fn build_json(entries: &[Entry], dir: &Path, root: &Path) -> Vec<u8> {
+    let directory = sanitized_relative_dir(dir, root);
+    let paths = breadcrumb_segments(&directory);
+    let files: Vec<EntryJson> = entries
+        .iter()
+        .map(|e| {
+            let (kind, base, ext, size) = if e.is_dir {
+                ("folder", format!("{}/", e.name), None, None)
+            } else {
+                let p = std::path::Path::new(&e.name);
+                let ext = p.extension().and_then(|s| s.to_str());
+                ("file", e.name.clone(), ext, e.size)
+            };
+            EntryJson {
+                kind,
+                name: stem_for(&e.name, e.is_dir),
+                base,
+                ext,
+                relative: entry_relative_url(&directory, &e.name, e.is_dir),
+                size,
+            }
+        })
+        .collect();
+    let listing = ListingJson {
+        files,
+        directory,
+        paths,
+    };
+    serde_json::to_vec(&listing).expect("listing json serialization should never fail")
+}
+
+/// `dir.strip_prefix(root)` rendered with POSIX separators. Returns
+/// `"."` when `dir == root`.
+fn sanitized_relative_dir(dir: &Path, root: &Path) -> String {
+    match dir.strip_prefix(root) {
+        Ok(rel) if rel.as_os_str().is_empty() => ".".to_string(),
+        Ok(rel) => rel.to_string_lossy().replace('\\', "/"),
+        // Containment check upstream (`resolve()` returns
+        // `EscapedRoot` for paths outside `root`) means this branch
+        // is unreachable in practice. Default to `.` so we never
+        // emit a host-absolute path on the JSON wire.
+        Err(_) => ".".to_string(),
+    }
+}
+
+/// Breadcrumb segments accumulated from the relative directory.
+/// Empty for root (`"."`), `[{"sub","sub"}, {"deep","sub/deep"}]`
+/// for `"sub/deep"`. The `url` form mirrors the chosen `directory`
+/// shape (no leading or trailing slash).
+fn breadcrumb_segments(directory: &str) -> Vec<PathSegment> {
+    if directory == "." || directory.is_empty() {
+        return Vec::new();
+    }
+    let mut acc: Vec<&str> = Vec::new();
+    let mut out = Vec::new();
+    for seg in directory.split('/') {
+        if seg.is_empty() {
+            continue;
+        }
+        acc.push(seg);
+        out.push(PathSegment {
+            name: seg.to_string(),
+            url: acc.join("/"),
+        });
+    }
+    out
+}
+
+/// URL-form `relative` for a per-entry record. Leading `/`,
+/// trailing `/` for folders. Root entries: `/<name>`. Nested:
+/// `/<rel_dir>/<name>`.
+fn entry_relative_url(rel_dir: &str, name: &str, is_dir: bool) -> String {
+    let suffix = if is_dir { "/" } else { "" };
+    if rel_dir == "." || rel_dir.is_empty() {
+        format!("/{name}{suffix}")
+    } else {
+        format!("/{rel_dir}/{name}{suffix}")
+    }
+}
+
+/// File stem for the JSON `name` field. Mirrors `path.parse(.).name`
+/// from `serve-handler/src/index.js:344`, with the dotfile carve-out
+/// (`.bashrc` → name=`.bashrc`, no ext) handled by `Path::file_stem`.
+/// For folders, `name` is the directory's own name.
+fn stem_for(name: &str, is_dir: bool) -> &str {
+    if is_dir {
+        return name;
+    }
+    let p = std::path::Path::new(name);
+    p.file_stem().and_then(|s| s.to_str()).unwrap_or(name)
 }
 
 fn build_html(entries: &[Entry], decoded_url: &str, dir: &Path, root: &Path) -> String {
@@ -316,6 +507,16 @@ mod tests {
         assert!(!v.applicable("/anything"));
     }
 
+    fn empty_headers() -> HeaderMap {
+        HeaderMap::new()
+    }
+
+    fn json_headers() -> HeaderMap {
+        let mut h = HeaderMap::new();
+        h.insert(ACCEPT, HeaderValue::from_static("application/json"));
+        h
+    }
+
     #[tokio::test]
     async fn render_html_lists_entries_dirs_first() {
         let dir = tempdir().unwrap();
@@ -323,7 +524,7 @@ mod tests {
         fs::write(root.join("a.txt"), "a").unwrap();
         fs::write(root.join("b.txt"), "b").unwrap();
         fs::create_dir_all(root.join("zfolder")).unwrap();
-        let resp = render_html(&root, "/", &root).await.unwrap();
+        let resp = render(&root, "/", &root, &empty_headers()).await.unwrap();
         assert_eq!(resp.status(), StatusCode::OK);
         assert_eq!(
             resp.headers()
@@ -350,7 +551,7 @@ mod tests {
         fs::create_dir_all(root.join("sub")).unwrap();
         fs::write(root.join("sub/a.txt"), "x").unwrap();
         let sub = fs::canonicalize(root.join("sub")).unwrap();
-        let resp = render_html(&sub, "/sub/", &root).await.unwrap();
+        let resp = render(&sub, "/sub/", &root, &empty_headers()).await.unwrap();
         let body = axum::body::to_bytes(resp.into_body(), usize::MAX)
             .await
             .unwrap();
@@ -374,7 +575,7 @@ mod tests {
         // when `trailingSlash` is set, so requests like `GET /sub`
         // can land at the listing renderer with a trailing-slash-less
         // URL. Hrefs must still resolve correctly.
-        let resp = render_html(&sub, "/sub", &root).await.unwrap();
+        let resp = render(&sub, "/sub", &root, &empty_headers()).await.unwrap();
         let body = axum::body::to_bytes(resp.into_body(), usize::MAX)
             .await
             .unwrap();
@@ -383,6 +584,145 @@ mod tests {
             body.contains("href=\"/sub/a.txt\""),
             "missing prefixed entry href:\n{body}"
         );
+    }
+
+    #[tokio::test]
+    async fn render_json_emits_application_json_envelope() {
+        let dir = tempdir().unwrap();
+        let root = fs::canonicalize(dir.path()).unwrap();
+        fs::write(root.join("a.txt"), "ab").unwrap();
+        fs::create_dir_all(root.join("sub")).unwrap();
+        let resp = render(&root, "/", &root, &json_headers()).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+        assert_eq!(
+            resp.headers()
+                .get(CONTENT_TYPE)
+                .and_then(|v| v.to_str().ok()),
+            Some("application/json; charset=utf-8"),
+        );
+        let bytes = axum::body::to_bytes(resp.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let v: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+        // Root: directory=`.`, paths=[].
+        assert_eq!(v["directory"], serde_json::json!("."));
+        assert!(v["paths"].as_array().unwrap().is_empty());
+        // Folder first (dirs-first sort), then file.
+        let files = v["files"].as_array().unwrap();
+        assert_eq!(files[0]["type"], serde_json::json!("folder"));
+        assert_eq!(files[0]["name"], serde_json::json!("sub"));
+        assert_eq!(files[0]["base"], serde_json::json!("sub/"));
+        assert_eq!(files[0]["relative"], serde_json::json!("/sub/"));
+        assert_eq!(files[1]["type"], serde_json::json!("file"));
+        assert_eq!(files[1]["name"], serde_json::json!("a"));
+        assert_eq!(files[1]["base"], serde_json::json!("a.txt"));
+        assert_eq!(files[1]["ext"], serde_json::json!("txt"));
+        assert_eq!(files[1]["relative"], serde_json::json!("/a.txt"));
+        assert_eq!(files[1]["size"], serde_json::json!(2));
+    }
+
+    #[tokio::test]
+    async fn render_json_subdir_directory_and_paths_use_chosen_shape() {
+        let dir = tempdir().unwrap();
+        let root = fs::canonicalize(dir.path()).unwrap();
+        fs::create_dir_all(root.join("docs/api")).unwrap();
+        fs::write(root.join("docs/api/index.json"), "{}").unwrap();
+        let nested = fs::canonicalize(root.join("docs/api")).unwrap();
+        let resp = render(&nested, "/docs/api/", &root, &json_headers())
+            .await
+            .unwrap();
+        let bytes = axum::body::to_bytes(resp.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let v: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+        // D-007 chosen shape: no leading/trailing slashes.
+        assert_eq!(v["directory"], serde_json::json!("docs/api"));
+        assert_eq!(
+            v["paths"],
+            serde_json::json!([
+                {"name": "docs", "url": "docs"},
+                {"name": "api", "url": "docs/api"},
+            ])
+        );
+        // Per-entry `relative` is URL-form with leading `/`.
+        let files = v["files"].as_array().unwrap();
+        assert_eq!(files[0]["relative"], serde_json::json!("/docs/api/index.json"));
+    }
+
+    #[tokio::test]
+    async fn render_json_dotfile_has_no_ext() {
+        let dir = tempdir().unwrap();
+        let root = fs::canonicalize(dir.path()).unwrap();
+        fs::write(root.join(".bashrc"), "x").unwrap();
+        let resp = render(&root, "/", &root, &json_headers()).await.unwrap();
+        let bytes = axum::body::to_bytes(resp.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let v: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+        let f = &v["files"][0];
+        assert_eq!(f["name"], serde_json::json!(".bashrc"));
+        assert_eq!(f["base"], serde_json::json!(".bashrc"));
+        // `Path::extension` returns None for leading-dot stems with no
+        // additional dots — matches `path.extname('.bashrc')` === ''.
+        assert!(f.get("ext").is_none() || f["ext"].is_null());
+    }
+
+    #[test]
+    fn accepts_json_basic() {
+        let mut h = HeaderMap::new();
+        h.insert(ACCEPT, HeaderValue::from_static("application/json"));
+        assert!(accepts_json(&h));
+    }
+
+    #[test]
+    fn accepts_json_substring_match_in_multivalue() {
+        // Reference uses `.includes('application/json')` — substring,
+        // case-insensitive in our impl.
+        let mut h = HeaderMap::new();
+        h.insert(
+            ACCEPT,
+            HeaderValue::from_static("text/html, Application/JSON;q=0.9"),
+        );
+        assert!(accepts_json(&h));
+    }
+
+    #[test]
+    fn accepts_json_false_when_html_only() {
+        let mut h = HeaderMap::new();
+        h.insert(ACCEPT, HeaderValue::from_static("text/html"));
+        assert!(!accepts_json(&h));
+    }
+
+    #[test]
+    fn accepts_json_missing_header_is_false() {
+        assert!(!accepts_json(&HeaderMap::new()));
+    }
+
+    #[test]
+    fn breadcrumb_segments_root_is_empty() {
+        assert!(breadcrumb_segments(".").is_empty());
+        assert!(breadcrumb_segments("").is_empty());
+    }
+
+    #[test]
+    fn breadcrumb_segments_nested() {
+        let segs = breadcrumb_segments("a/b/c");
+        let names: Vec<&str> = segs.iter().map(|s| s.name.as_str()).collect();
+        let urls: Vec<&str> = segs.iter().map(|s| s.url.as_str()).collect();
+        assert_eq!(names, vec!["a", "b", "c"]);
+        assert_eq!(urls, vec!["a", "a/b", "a/b/c"]);
+    }
+
+    #[test]
+    fn entry_relative_url_root_no_double_slash() {
+        assert_eq!(entry_relative_url(".", "a.txt", false), "/a.txt");
+        assert_eq!(entry_relative_url(".", "sub", true), "/sub/");
+    }
+
+    #[test]
+    fn entry_relative_url_nested() {
+        assert_eq!(entry_relative_url("docs", "a.txt", false), "/docs/a.txt");
+        assert_eq!(entry_relative_url("docs/api", "v1", true), "/docs/api/v1/");
     }
 
     #[test]
