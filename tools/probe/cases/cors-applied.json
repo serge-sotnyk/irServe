@@ -7,6 +7,12 @@
     }
   },
   "serveArgs": ["--cors"],
+  "runner": {
+    "l0": {
+      "clean": ["css_with_cors"],
+      "divergent": []
+    }
+  },
   "requests": [
     { "name": "css_with_cors", "method": "GET", "path": "/asset.css" }
   ]

@@ -1,0 +1,25 @@
+{
+  "id": "cors-on-redirect",
+  "description": "SRV-CLI-010: CORS headers ride on configured 3xx redirects too. The reference's `--cors` branch sets headers via `setHeader` BEFORE serve-handler runs (`third_party/serve/source/utilities/server.ts:65-70`), so they survive the redirect path. irserve's CORS pass runs post-dispatch and skips no status class — unlike `apply_custom_headers`, which deliberately skips 3xx (`crates/irserve-core/src/custom_headers.rs:182`).",
+  "fixture": {
+    "files": {
+      "index.html": "redirect-target\n"
+    },
+    "serveJson": {
+      "redirects": [
+        { "source": "/old", "destination": "/new", "type": 302 }
+      ]
+    }
+  },
+  "serveArgs": ["--cors"],
+  "runner": {
+    "l0": {
+      "clean": ["redirect_with_cors"],
+      "divergent": [],
+      "contentLengthMayDiffer": ["redirect_with_cors"]
+    }
+  },
+  "requests": [
+    { "name": "redirect_with_cors", "method": "GET", "path": "/old" }
+  ]
+}

@@ -7,6 +7,13 @@
     }
   },
   "serveArgs": ["--cors"],
+  "runner": {
+    "l0": {
+      "clean": ["html_with_cors"],
+      "divergent": [],
+      "contentLengthMayDiffer": ["html_with_cors"]
+    }
+  },
   "requests": [
     { "name": "html_with_cors", "method": "GET", "path": "/page.html" }
   ]

@@ -43,6 +43,13 @@ struct Cli {
     #[arg(short = 'n', long = "no-clipboard")]
     no_clipboard: bool,
 
+    /// SRV-CLI-010: enable permissive CORS headers on every response.
+    /// Mirrors `third_party/serve/source/utilities/server.ts:65-70`,
+    /// which sets four headers unconditionally before serve-handler
+    /// runs (so they layer onto 3xx and 4xx responses too).
+    #[arg(short = 'C', long = "cors")]
+    cors: bool,
+
     #[arg(short = 'c', long = "config", value_name = "PATH")]
     config: Option<PathBuf>,
 
@@ -118,6 +125,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         root,
         listens,
         serve_config,
+        cors: cli.cors,
     };
     run(config).await?;
     Ok(())

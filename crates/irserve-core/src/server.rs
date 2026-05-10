@@ -9,6 +9,7 @@ use tokio::net::TcpListener;
 
 use crate::clean_urls::CleanUrlsView;
 use crate::config::ServeConfig;
+use crate::cors::apply_cors;
 use crate::custom_headers::{compile_rules as compile_header_rules, HeaderRuleCompiled};
 use crate::dispatch::dispatch;
 use crate::listing::{DirectoryListingView, UnlistedFilter};
@@ -25,6 +26,7 @@ struct AppState {
     redirect_rules: Vec<RedirectRuleCompiled>,
     rewrite_rules: Vec<RewriteRuleCompiled>,
     header_rules: Vec<HeaderRuleCompiled>,
+    cors: bool,
 }
 
 type SharedState = Arc<AppState>;
@@ -117,6 +119,7 @@ pub async fn serve(config: ServerConfig) -> Result<(), Error> {
         redirect_rules,
         rewrite_rules,
         header_rules,
+        cors: config.cors,
     });
     let app: Router = Router::new().fallback(handler).with_state(state);
 
@@ -159,7 +162,7 @@ pub async fn serve(config: ServerConfig) -> Result<(), Error> {
 }
 
 async fn handler(State(state): State<SharedState>, req: Request<Body>) -> Response<Body> {
-    dispatch(
+    let response = dispatch(
         req,
         state.root.as_path(),
         &state.serve_config,
@@ -170,5 +173,15 @@ async fn handler(State(state): State<SharedState>, req: Request<Body>) -> Respon
         &state.rewrite_rules,
         &state.header_rules,
     )
-    .await
+    .await;
+    // SRV-CLI-010: layer CORS headers post-dispatch (after `apply_custom_headers`
+    // inside `dispatch`) so they ride on every response — including 3xx
+    // redirects, which `apply_custom_headers` deliberately skips. Mirrors
+    // the reference's unconditional emission at
+    // `third_party/serve/source/utilities/server.ts:65-70`.
+    if state.cors {
+        apply_cors(response)
+    } else {
+        response
+    }
 }

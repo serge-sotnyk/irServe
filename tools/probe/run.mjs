@@ -47,8 +47,8 @@ const L0_EXTRA_VOLATILE_HEADERS = ['etag', 'vary', 'accept-ranges'];
 // - `-s`/`--single` un-deferred in stage 6e (change 007-configured-rewrites,
 //   D-013).
 // - `-p`, `tcp://` listen URI un-deferred in stage 6h (change 010-cli-fill-in).
+// - `-C`/`--cors` un-deferred in stage 6h (change 010-cli-fill-in).
 const L0_DEFERRED_FLAGS = new Set([
-  '-C', '--cors',
   '-d', '--debug',
   '-L', '--no-request-logging',
   '--no-port-switching',

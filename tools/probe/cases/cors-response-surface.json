@@ -8,6 +8,14 @@
     }
   },
   "serveArgs": ["--cors"],
+  "runner": {
+    "l0": {
+      "clean": ["file_200", "cleanurls_301", "missing_404"],
+      "divergent": [],
+      "bodyMayDiffer": ["missing_404"],
+      "contentLengthMayDiffer": ["cleanurls_301"]
+    }
+  },
   "requests": [
     { "name": "file_200", "path": "/asset.css" },
     { "name": "cleanurls_301", "path": "/index.html" },

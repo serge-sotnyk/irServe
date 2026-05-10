@@ -2,6 +2,7 @@
 
 mod clean_urls;
 pub mod config;
+mod cors;
 mod custom_headers;
 mod dispatch;
 mod error;
@@ -27,6 +28,11 @@ pub struct ServerConfig {
     pub root: PathBuf,
     pub listens: Vec<SocketAddr>,
     pub serve_config: ServeConfig,
+    /// SRV-CLI-010: when true, every response is layered with the four
+    /// CORS headers the reference emits unconditionally
+    /// (`third_party/serve/source/utilities/server.ts:65-70`). Applied
+    /// post-dispatch in `server::handler`.
+    pub cors: bool,
 }
 
 #[derive(Debug, thiserror::Error)]
