@@ -267,8 +267,8 @@ Reference source:
 - README: yes — help text: `Rewrite all not-found requests to 'index.html'`.
 - serve source: `third_party/serve/source/main.ts:78-90` — prepends a `**` rewrite to `/index.html`.
 - Existing test: absent (the underlying rewrite mechanism is covered by `set 'rewrites' config property to wildcard path` in `test/integration.test.js`).
-- Probe: `tools/probe/cases/rewrites-segment.json` (validates the SPA pattern under serve.json; CLI form is equivalent).
-- Oracle test: ORC-029 (snapshots in tools/probe/snapshots/).
+- Probe: `tools/probe/cases/rewrites-segment.json` (validates the SPA pattern under serve.json); `tools/probe/cases/single-flag.json` (validates the actual `--single` CLI flag plus pre-stat asymmetry); `tools/probe/cases/single-with-redirect.json` (redirect-vs-`--single` precedence); `tools/probe/cases/single-with-rewrites.json` (prepend-position contract).
+- Oracle test: ORC-029, ORC-149, ORC-150, ORC-151, ORC-152, ORC-153 (snapshots in tools/probe/snapshots/).
 
 Requirement (draft):
 With `-s`/`--single`, every request whose path does not resolve to a file is served the contents of `/index.html` (status 200, the file's MIME type). It is implemented as a high-priority rewrite and therefore is overridden by an earlier-matching redirect.
@@ -1121,8 +1121,8 @@ Reference source:
 - README: yes — serve-handler README, `rewrites (Array)` section.
 - serve-handler source: `src/index.js:91-117` (`applyRewrites`) and `src/index.js:618-622` (apply when no direct stat is available).
 - Existing test: `set 'rewrites' config property to wildcard path`, `set 'rewrites' config property to non-matching path`, `set 'rewrites' config property to one-star wildcard path`, `set 'rewrites' config property to path segment` in `test/integration.test.js`.
-- Probe: `tools/probe/cases/rewrites-segment.json` (segment + SPA wildcard).
-- Oracle test: ORC-028, ORC-029 (snapshots in tools/probe/snapshots/).
+- Probe: `tools/probe/cases/rewrites-segment.json` (segment + SPA wildcard); `tools/probe/cases/rewrites-chain.json` (recursive chain — D-013).
+- Oracle test: ORC-028, ORC-029, ORC-148 (snapshots in tools/probe/snapshots/).
 
 Requirement (draft):
 A `rewrites` entry `{source, destination}` matches the request path against `source` (minimatch or `path-to-regexp`). On match, the server responds with status 200 (no redirect) and serves the file at `destination` (with `path-to-regexp` segments interpolated). Whether rewrites are short-circuited by an existing original-path file depends on the path shape:
