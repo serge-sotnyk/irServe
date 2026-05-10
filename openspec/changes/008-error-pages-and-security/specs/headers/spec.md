@@ -6,10 +6,13 @@
 
 The server SHALL accept a top-level `headers` array in `serve.json`,
 where each entry has the shape `{source, headers: [{key, value}]}`.
-For each request whose path matches a rule's `source` glob (compiled
-with the same Literal/Glob/Pattern matcher kernel as `redirects` and
-`rewrites`), the server SHALL apply that rule's `headers` to the
-response, layering them over the default response headers.
+For each request whose path matches a rule's `source` (compiled in
+**minimatch-only** mode — no path-to-regexp routing), the server
+SHALL apply that rule's `headers` to the response, layering them
+over the default response headers. Mirrors `sourceMatches(source,
+slasher(relativePath))` at `serve-handler/src/index.js:207`, which
+omits the `allowSegments` argument and so reaches only the minimatch
+branch at `index.js:59`.
 
 Multiple matching rules SHALL accumulate in declaration order — the
 loop SHALL NOT short-circuit on the first match. Mirrors
@@ -22,11 +25,29 @@ semantics for keys that collide across rules — both naturally provided
 by Rust HTTP libraries' `HeaderMap` keyed on case-insensitive
 `HeaderName`.
 
-Custom headers SHALL apply to successful responses (200) and to error
-responses (4xx). 3xx redirect responses SHALL be skipped — the
-reference's redirect path at `index.js:586-588` builds the response
-via `response.writeHead(redirect.statusCode, { Location: ... })` with
-no `getHeaders` call, so custom headers never layer onto redirects.
+Custom headers SHALL apply per-branch of `sendError`'s contract
+(`serve-handler/src/index.js:467-524`):
+
+- **200 success** — apply, matched against the FINAL resolved file
+  path (post-cleanUrls / post-rewrite), not the pre-resolution URL.
+- **JSON-preferring error response** — SKIP entirely; reference
+  returns at `index.js:477-487` before reaching `getHeaders`.
+- **HTML error response with custom `<status>.html` at served root**
+  — apply, matched against `/<status>.html`. Mirrors
+  `getHeaders(.., errorPage, stats)` at `index.js:508`.
+- **HTML fallback error response (no custom page)** — apply,
+  matched against the request path, EXCEPT when the error originates
+  from a path-traversal / malformed-decode 400 (the reference's
+  `getHeaders` call site at `index.js:519` runs against an
+  outside-root `absolutePath` whose `path.relative`-then-`slasher`
+  form fails to match common rules in practice). After the apply
+  pass, the fallback branch SHALL force `Content-Type: text/html;
+  charset=utf-8` (mirrors `index.js:520`), so a user rule cannot
+  override the fallback's content type.
+- **3xx redirect response** — SKIP entirely; reference's redirect
+  path at `index.js:586-588` builds the response via
+  `response.writeHead(redirect.statusCode, { Location: ... })`
+  without going through `getHeaders`.
 
 Header source matching SHALL be case-sensitive (mirrors minimatch's
 default `nocase: false`). Source `/Case` SHALL NOT match request
