@@ -44,19 +44,36 @@ implementation plan goes into a separate file
 ## Process
 
 1. **Plan-mode.** Launch Explore agents in parallel (max 3) to scout
-   `serve-handler` source and existing probe cases. High-level
-   interview via `AskUserQuestion` (1–4 questions, with one
-   `(Recommended)` option listed first). The user often answers
-   "your choice" — decide small technical points yourself.
+   `serve-handler` source and existing probe cases. For
+   **cross-cutting stages** (2+ SRVs that mirror functions in the
+   same reference family — e.g. Stage 6f touched `sendError` +
+   `getHeaders` + `sourceMatches` + `findRelated`), one of the
+   agents MUST return the verbatim code of every relevant branch
+   with line numbers, not just "where it lives." Empirical
+   surprises about reference behavior (e.g. "this branch skips that
+   helper for JSON-accepting clients") belong in the plan-mode
+   transcript so they don't get rediscovered in implementation or
+   Codex review rounds — each rediscovery costs another full read
+   of the source file. High-level interview via `AskUserQuestion`
+   (1–4 questions, with one `(Recommended)` option listed first).
+   The user often answers "your choice" — decide small technical
+   points yourself.
 2. **Implementation.** Iterative green-state commits. After each
    green slice, ask before running `git commit`. Delegate to
    subagents:
    - mechanical scaffolding (a new module with a pre-fixed signature);
    - `tools/probe/run.mjs` adapter changes and probe case JSON edits;
    - recording new snapshots via
-     `--snapshot=update --target=reference`.
-   The main agent retains: `design.md`, architectural forks, D-NNN
-   decisions, and interpretation of methodological signals.
+     `--snapshot=update --target=reference`;
+   - **slice-6 (meta) spec prose** — after the implementation
+     slices commit, delegate writing of `proposal.md` / `design.md`
+     / `tasks.md` / MOD spec deltas to a subagent with a structured
+     briefing: slice plan + commit log + relevant `D-NNN` entries +
+     a peer change package to mirror in style. The main agent
+     reviews and Edits if needed. The subagent does not need the
+     full implementation conversation in context.
+   The main agent retains: architectural forks, D-NNN decisions,
+   and interpretation of methodological signals.
 3. **Review.** The user hands the diff to Codex. Each round of fixes
    lands as a separate commit titled
    `docs(stage-6X): address Codex review round N (P{priorities} fixes)`.
