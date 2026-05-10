@@ -989,3 +989,44 @@
   --snapshot=verify` 59/59 (was 58); `npx -y
   @fission-ai/openspec@latest validate --all --strict` —
   14/14.
+
+## 17. Codex review round 14 (P2 — contract/rule corrections)
+
+- [x] 17.1 **P2 — Unicode special-folds divergence not in spec
+  contract.** Round 13 documented the divergence in D-012 but
+  did not add a corresponding Compatibility note to the spec
+  delta SRV-RDIR-001 or to inventory.md. The spec contract
+  silently promised more than D-012 actually accepted. Fix:
+  added a "Compatibility notes" subsection to
+  `openspec/changes/006-configured-redirects/specs/redirects/spec.md`
+  enumerating all four documented divergences (Unicode special
+  folds, `\*\*`, `{a\,b,c}`, segment-internal trailing `\`).
+  Mirrored the same notes in `inventory.md`'s SRV-RDIR-001
+  Compatibility section.
+- [x] 17.2 **P2 — Rule 9 wording conflict.** Round-13's wording
+  in `README.md` Anti-hallucination rule 9 used "compatibility
+  level (L1 functional parity vs L2 bit-for-bit)" — but
+  `## Compatibility levels` defines L0..L4 as feature groups,
+  not as parity strictness levels. The new wording inadvertently
+  redefined L2. Fix: rephrased rule 9 to use "parity scope for
+  that aspect" (which behaviors are in-scope vs documented as
+  known divergences) and added an explicit note that this is
+  distinct from the L0..L4 levels. Also clarified that "aspect"
+  means a single fine-grained behavior dimension (e.g. backslash
+  handling, case folding) — narrower than "subsystem" (the whole
+  matcher).
+- [x] 17.3 **D-012 wording correction.** Round 13's narrative
+  invoked rule 9 ("3+ consecutive review rounds") as the
+  formal trigger for the partial-fix decision, but Codex
+  correctly observed that rounds 12 and 13 were the second
+  consecutive case-handling round, not the third. The trade-off
+  was still justified (cost-vs-value, narrow divergence), but
+  not formally under rule 9. Updated D-012 to remove the
+  premature rule-9 invocation and stand the trade-off on its
+  own merits.
+- [x] 17.4 Verify: `cargo test -p irserve-core redirects`
+  96/96 (no test changes); `cargo test --test oracle` 38
+  passed (no probe changes); `node tools/probe/run.mjs --all
+  --target=reference --snapshot=verify` 59/59; `npx -y
+  @fission-ai/openspec@latest validate --all --strict` —
+  14/14.

@@ -101,6 +101,35 @@ constructs (`+(a|b)`, `@(a|b)`, `?(a|b)`, `*(a|b)`, `!(a|b)`) are
 NOT supported — same limitation as cleanUrls. Tracked as Q-012 in
 `docs/reference/serve/open-questions.md`.
 
+Compatibility notes (known divergences from reference; documented
+in D-012 in `docs/reference/serve/decisions.md`):
+
+- **Unicode special folds.** Case-insensitive matching on the
+  path-to-regexp branch uses Rust's Unicode-aware `to_lowercase()`
+  (Literal) and `regex::RegexBuilder::case_insensitive(true)`
+  (Pattern). This matches Latin-1 letters with diacritics (Ä↔ä,
+  É↔é, Ö↔ö, Ü↔ü) — the practical case for German/French/Spanish
+  URLs. JS regex `i` flag (without `u`) does NOT apply Unicode
+  special folds (Kelvin sign U+212A → ASCII `k`, ﬃ ligature →
+  `ffi`, etc.), but Rust does. IrServe over-matches in those
+  cases. Bug-for-bug parity would require shipping a custom
+  JS-specific case-folding table for limited real-world value.
+- **`\*\*`** (escaped consecutive stars) parses as TWO single-
+  segment globs in minimatch (not globstar). IrServe treats it
+  as a single Wildcard segment via the round-10 de-escape-then-
+  classify path. Mirroring requires position-aware escape
+  parsing.
+- **`{a\,b,c}`** (brace alternation with escaped comma) triggers
+  minimatch's quirky `\/`-separator regex. IrServe's brace
+  parser splits at the un-escaped comma. Mirroring requires a
+  fuller minimatch port.
+- **Segment-internal trailing `\` in glob sources** (e.g.
+  `/g/?\\/bar`) matches via reference minimatch on Windows only,
+  due to a filesystem-aware `path.sep`-replacement at
+  `minimatch.js:742-745`. IrServe stays platform-consistent and
+  does not match. Reproducing requires `cfg!(target_os = "windows")`
+  conditional code.
+
 #### Scenario: Path-segment redirect
 
 - GIVEN `serve.json` with redirect `{ "source": "/old-docs/:id", "destination": "/new-docs/:id" }`

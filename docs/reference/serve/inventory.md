@@ -1049,6 +1049,10 @@ Scenarios:
 Compatibility notes:
 - Negated patterns (`!`-prefixed glob) are supported. Bash-style extglob constructs (`+(...)`, `@(...)`, `?(...)`, `*(...)`, `!(...)`) are NOT supported by IrServe; tracked as Q-012 (inherited from cleanUrls).
 - Redirects fire AFTER the cleanUrl/trailingSlash redirect path (per `shouldRedirect` order). See SRV-ROUT-006 for the full pipeline.
+- Case-insensitive matching on the path-to-regexp branch (Literal + Pattern) uses Rust's Unicode-aware folding (`to_lowercase` / `RegexBuilder::case_insensitive(true)`). This covers Latin-1 letters with diacritics (Ä↔ä, É↔é, Ö↔ö, Ü↔ü) — the practical case. Unicode special folds (Kelvin sign U+212A → ASCII `k`, ﬃ ligature → `ffi`, etc.) over-match in IrServe but NOT in JS regex `i` without the `u` flag — documented in D-012.
+- Segment-internal trailing `\` in glob sources (e.g. `/g/?\\/bar`) matches via reference minimatch on Windows only, due to a filesystem-aware `path.sep`-replacement at `minimatch.js:742-745`. IrServe stays platform-consistent and does not match — documented in D-012.
+- `\*\*` (escaped consecutive stars) parses as two single-segment globs in minimatch but as a single Wildcard in IrServe — documented in D-012.
+- `{a\,b,c}` (brace alternation with escaped comma) triggers minimatch's quirky `\/`-separator regex; IrServe's brace parser splits at the un-escaped comma — documented in D-012.
 
 Open questions:
 - None.
