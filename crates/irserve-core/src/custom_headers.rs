@@ -32,11 +32,92 @@ use axum::body::Body;
 use axum::http::{HeaderName, HeaderValue, Response};
 
 use crate::config::{HeaderItem, HeaderRule};
-use crate::path_pattern::{CompileError, Matcher};
+use crate::path_pattern::{
+    classify_pattern_segment, has_glob_meta, match_segments, path_posix_resolve, slasher,
+    CompileError, PatSeg,
+};
+
+/// Headers-specific source matcher. Mirrors `serve-handler/src/index.js:38-67`'s
+/// `sourceMatches(source, requestPath)` call WITHOUT `allowSegments`
+/// — the call site at `index.js:207` is `sourceMatches(source,
+/// slasher(relativePath))`, no third argument, so the path-to-regexp
+/// branch at `index.js:45-57` is skipped and only `minimatch` runs.
+///
+/// Codex review round 2 P1: the prior implementation reused
+/// `path_pattern::Matcher::compile_no_segments`, which still routed
+/// no-glob sources into `Matcher::Literal::try_match`. That method's
+/// first comparison is case-INSENSITIVE (path-to-regexp's default
+/// `i` flag), so source `/Case` incorrectly matched request `/case`.
+/// `HeaderMatcher` re-implements the minimatch-only branch with
+/// case-sensitive literal equality (minimatch's default `nocase: false`).
+#[derive(Debug)]
+enum HeaderMatcher {
+    /// Source has no glob meta-characters and no leading `!`. Matches
+    /// only exact, case-sensitive equality with `path_posix_resolve`'d
+    /// request path.
+    Literal(String),
+    /// Source has `*`/`?`/`[`/`{` glob meta or `!`-prefix. Matches via
+    /// the per-segment minimatch kernel shared with redirects/rewrites
+    /// (`PatSeg`/`match_segments`) — applied to the slashed source
+    /// segments and the resolved request path's segments.
+    Glob {
+        segments: Vec<PatSeg>,
+        negate: bool,
+    },
+}
+
+impl HeaderMatcher {
+    fn compile(source: &str) -> Result<Self, CompileError> {
+        let slashed = slasher(source);
+        let (negate, body) = match slashed.strip_prefix('!') {
+            Some(rest) => (true, rest.to_string()),
+            None => (false, slashed),
+        };
+        if has_glob_meta(&body) || negate {
+            let segments: Result<Vec<PatSeg>, globset::Error> = body
+                .split('/')
+                .filter(|s| !s.is_empty())
+                .map(classify_pattern_segment)
+                .collect();
+            Ok(HeaderMatcher::Glob {
+                segments: segments?,
+                negate,
+            })
+        } else {
+            // Literal source. `:name` lands here too — minimatch sees
+            // `:` as a regular char, so `/api/:id` matches only the
+            // literal request path `/api/:id`.
+            Ok(HeaderMatcher::Literal(body))
+        }
+    }
+
+    fn matches(&self, path: &str) -> bool {
+        // `path.posix.resolve(requestPath)` at `index.js:41` collapses
+        // `..` segments and trailing slashes before pattern comparison.
+        let resolved = path_posix_resolve(path);
+        match self {
+            // Case-sensitive equality mirrors minimatch's default
+            // `nocase: false`. Codex review round 2 P1.
+            HeaderMatcher::Literal(src) => src.as_str() == resolved.as_str(),
+            HeaderMatcher::Glob { segments, negate } => {
+                let path_segs: Vec<&str> = resolved
+                    .split('/')
+                    .filter(|s| !s.is_empty())
+                    .collect();
+                let matched = match_segments(segments, &path_segs);
+                if *negate {
+                    !matched
+                } else {
+                    matched
+                }
+            }
+        }
+    }
+}
 
 #[derive(Debug)]
 pub struct HeaderRuleCompiled {
-    matcher: Matcher,
+    matcher: HeaderMatcher,
     headers: Vec<HeaderItem>,
 }
 
@@ -55,11 +136,7 @@ pub fn compile_rules(
     let mut compiled = Vec::with_capacity(rules.len());
     let mut invalid = Vec::new();
     for rule in rules {
-        // Headers use minimatch-only matching (`:name` is literal `:`)
-        // per `serve-handler/src/index.js:207`'s `sourceMatches` call
-        // without `allowSegments`. The placeholder destination is
-        // stored verbatim and never rendered.
-        match Matcher::compile_no_segments(&rule.source, "/") {
+        match HeaderMatcher::compile(&rule.source) {
             Ok(matcher) => compiled.push(HeaderRuleCompiled {
                 matcher,
                 headers: rule.headers.clone(),
@@ -109,7 +186,7 @@ pub fn apply_custom_headers(
     // insert/remove per item, applied left-to-right, matches that
     // semantics — Codex review round 1 P1.
     for rule in rules {
-        if rule.matcher.try_match(request_path).is_some() {
+        if rule.matcher.matches(request_path) {
             for item in &rule.headers {
                 let Ok(name) = HeaderName::from_bytes(item.key.as_bytes()) else {
                     continue;
@@ -254,6 +331,24 @@ mod tests {
             "v",
             "later non-null write must win over earlier null entry"
         );
+    }
+
+    #[test]
+    fn literal_source_is_case_sensitive() {
+        // Codex review round 2 P1: minimatch's default `nocase: false`
+        // means literal sources match request paths case-sensitively.
+        // The prior `Matcher::compile_no_segments` route went through
+        // path-to-regexp's case-insensitive `i` flag, so `/Case`
+        // wrongly matched `/case`. HeaderMatcher::Literal uses pure
+        // string equality after path_posix_resolve normalization.
+        let rules = build(&[header_rule("/Case", &[("X-Sensitive", Some("yes"))])]);
+        let mismatch = apply_custom_headers(ok_response(), "/case", &rules);
+        assert!(
+            mismatch.headers().get("x-sensitive").is_none(),
+            "case-only differences must NOT match (minimatch default `nocase: false`)"
+        );
+        let match_ = apply_custom_headers(ok_response(), "/Case", &rules);
+        assert_eq!(match_.headers().get("x-sensitive").unwrap(), "yes");
     }
 
     #[test]

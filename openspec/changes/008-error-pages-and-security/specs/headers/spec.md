@@ -28,25 +28,56 @@ reference's redirect path at `index.js:586-588` builds the response
 via `response.writeHead(redirect.statusCode, { Location: ... })` with
 no `getHeaders` call, so custom headers never layer onto redirects.
 
+Header source matching SHALL be case-sensitive (mirrors minimatch's
+default `nocase: false`). Source `/Case` SHALL NOT match request
+path `/case`, and source `/api/:id` SHALL match only the literal
+request path `/api/:id` — `:name` segments are NOT path-to-regexp
+captures (reference's `getHeaders` calls `sourceMatches` without the
+truthy `allowSegments` argument at `index.js:207`, so the
+path-to-regexp branch at `index.js:45-57` is skipped and only
+minimatch runs).
+
+Header source matching SHALL apply against the FINAL resolved file
+path on the success path — i.e. AFTER cleanUrls extensionless
+resolution and rewrite resolution. A request `GET /page` whose
+cleanUrls path resolves to `/page.html` SHALL be matched against
+`/page.html` (so source `**/*.html` applies). Mirrors
+`getHeaders(.., absolutePath, stats)` at `index.js:746` where
+`absolutePath` reflects the resolved file after `findRelated`'s
+update at `index.js:622-625`.
+
 Evidence: SRV-HDR-001 (status: verified, level: L2); oracle: ORC-053
 (`cases/headers-applied.json#css_get`), ORC-031
 (`cases/headers-custom.json#html_get` — cleanUrls 301 case, custom
 headers correctly absent), ORC-159
 (`cases/headers-on-error.json#not_found_carries_x_test`), ORC-160
-(`cases/headers-accumulate.json#css_carries_both`); D-015.
+(`cases/headers-accumulate.json#css_carries_both`), ORC-161
+(`cases/headers-after-cleanurls.json#extensionless_resolves_to_html`);
+D-015.
 
 Implementation: `crates/irserve-core/src/custom_headers.rs::compile_rules`
-walks the user's `serve_config.headers`, calling
-`Matcher::compile(&rule.source, "/")` to reuse the same matcher kernel
-as redirects/rewrites (the `"/"` destination placeholder is stored
-verbatim and never read — `try_match`'s return value is consumed only
-as `is_some()` for the boolean match decision). Compiled rules thread
-through `server.rs`'s `AppState` into `dispatch`. The new top-level
-`dispatch` wraps the existing pipeline (now `dispatch_inner`) and
-applies `apply_custom_headers(response, path_for_headers, &header_rules)`
-after the inner call returns. The wrapper computes `path_for_headers`
-once via `try_percent_decode + collapse_slashes` (mirrors
-`getHeaders(.., relativePath)` at `index.js:519`).
+walks the user's `serve_config.headers` and compiles each `source`
+into a slim `HeaderMatcher` enum (Literal / Glob), bypassing
+`path_pattern::Matcher` entirely so neither path-to-regexp routing
+nor case-insensitive Literal comparison leaks into header matching
+(Codex review round 2 P1). Compiled rules thread through
+`server.rs`'s `AppState` into `dispatch`. The top-level `dispatch`
+wraps the existing pipeline (`dispatch_inner`) and applies
+`apply_custom_headers(response, path_for_headers, header_rules)`
+ONLY when `dispatch_inner` returns `(_, Some(path))` —
+`dispatch_inner` returns `None` for paths that already applied
+custom headers per-branch (error responses) or that should skip them
+entirely (3xx redirects, traversal 400). On the success file path,
+`dispatch_inner` returns `Some(url_path_for_resolved_file(p, root))`,
+which strips the canonicalized root prefix from the resolved
+`PathBuf` and presents the URL form (`/page.html` for a `/page`
+request resolved via cleanUrls). On 4xx error paths,
+`error_response` itself applies headers per `sendError`'s branches
+at `index.js:467-524`: JSON skips entirely, custom `<status>.html`
+matches against `/<status>.html`, fallback HTML matches against the
+request path; the lexical-escape and malformed-decode 400 sites pass
+`&[]` so the 400 carries no custom headers (mirrors the empirical
+reference behavior captured in D-015).
 
 #### Scenario: Single rule applies to a matching path
 
@@ -77,20 +108,23 @@ once via `try_percent_decode + collapse_slashes` (mirrors
 - AND only `Location: /page` appears among non-default headers
 - AND `X-Custom` is NOT present on the response
 
-### Requirement: `value: null` deletes a previously-applied header
+### Requirement: `value: null` deletes a previously-applied header (last-write-wins)
 
 A `headers` entry whose `value` is JSON `null` SHALL delete any
-header with the same `key` (case-insensitive) that was applied
-earlier in the iteration. Mirrors the `for (key in headers) { if
-(headers[key] === null) delete headers[key] }` loop at
-`serve-handler/src/index.js:247-251`.
+header with the same `key` (case-insensitive) when the matched rule
+is the LAST writer for that key in declaration order. Equivalently:
+the FINAL accumulated state for each key wins — if the last matching
+rule that targets a given key sets `value: null`, the key is
+deleted; if it sets a string value, that value is present (even if
+an earlier matching rule had `value: null` for the same key).
 
-The deletion SHALL run as a second pass after the accumulate-and-merge
-pass completes, so a `value: null` in an early-firing rule SHALL
-delete a `value: "..."` from a later-firing rule when both rules match
-and target the same key. This mirrors `Object.assign(defaultHeaders,
-related)` followed by the prune loop at `index.js:245-251` (the prune
-runs over the merged map, not interleaved with append).
+This mirrors reference's two-stage merge at
+`serve-handler/src/index.js:200-251`: `appendHeaders(related,
+headers)` accumulates into a single object via `Object.assign`-like
+semantics (last write per key wins, including null), then
+`Object.assign(defaultHeaders, related)` produces the final map, and
+finally `for (key in headers) if (headers[key] === null)
+delete headers[key]` prunes only keys whose FINAL value is null.
 
 Evidence: SRV-HDR-002 (status: accepted, level: L2); oracle: covered
 by `crates/irserve-core/src/custom_headers::tests` rather than an
@@ -104,24 +138,34 @@ entry. So while `serve-handler`'s library code implements null-pruning
 and the requirement text mirrors that behavior, the contract is
 unreachable through the reference CLI we probe against. IrServe
 accepts `value: null` (config.rs widens `HeaderItem::value` to
-`Option<String>`) and verifies the prune logic via 8 unit tests in
-`custom_headers::tests` covering: insert, accumulate, case-insensitive
-override, 3xx-skip, null-prune deletes prior header, null-prune
-doesn't delete when rule doesn't match, null-prune is case-insensitive
-on key, empty-rules pass-through.
+`Option<String>`) and verifies the prune logic via the unit tests in
+`custom_headers::tests` covering: insert, accumulate, case-sensitive
+literal source, `:name` literal source, case-insensitive override,
+3xx-skip, null-prune deletes prior header, null-prune doesn't delete
+when rule doesn't match, null-prune is case-insensitive on key,
+later-set value wins over earlier null-prune, and empty-rules
+pass-through.
 
-Implementation: `apply_custom_headers` runs two passes over the
-matched-rule list. The first pass inserts/replaces per rule; the
-second pass removes any header whose `value` is `None` for matched
-rules. axum's `HeaderMap::remove` is case-insensitive on
-`HeaderName`, matching the reference's case-insensitive HTTP header
-semantics.
+Implementation: `apply_custom_headers` walks rules in declaration
+order in a single pass. For each matched item, it either inserts
+(`Some(value)`) or removes (`None`) the header — last write wins
+per key. axum's `HeaderMap::insert` and `remove` are
+case-insensitive on `HeaderName`, matching reference's
+case-insensitive HTTP header semantics. The single-pass form is
+algorithmically equivalent to the two-stage merge described in the
+requirement (Codex review round 1 P1).
 
 #### Scenario: Earlier rule sets, later rule prunes (only-later matches)
 
 - GIVEN `serve.json` has rules `[{source: "**", headers: [{key: "X-Set", value: "v"}]}, {source: "**/*.css", headers: [{key: "X-Set", value: null}]}]`
 - WHEN `GET /style.css` (matches both rules)
 - THEN no `X-Set` header is present on the response
+
+#### Scenario: Earlier null does NOT delete a later set value
+
+- GIVEN `serve.json` has rules `[{source: "**", headers: [{key: "X-Set", value: null}]}, {source: "**", headers: [{key: "X-Set", value: "v"}]}]`
+- WHEN any matching request fires
+- THEN `X-Set: v` is present on the response (the later non-null write wins, mirroring reference's `Object.assign`-then-prune)
 
 #### Scenario: Prune rule does not match — header is preserved
 

@@ -181,60 +181,6 @@ impl Matcher {
     /// share one canonical implementation. Per-capability concerns
     /// (the redirect's optional status override, future rewrite
     /// chaining) live in their own modules.
-    /// Compile a source pattern in **minimatch-only** mode. Used by
-    /// callers whose reference equivalent invokes `sourceMatches`
-    /// without the truthy `allowSegments` argument — concretely, the
-    /// `getHeaders` call site at `serve-handler/src/index.js:207`.
-    ///
-    /// Skips the `path-to-regexp` routing entirely, so `:name`
-    /// segments are treated as literal `:` characters by globset (same
-    /// as minimatch). For example, source `/api/:id` matches only the
-    /// literal path `/api/:id`, NOT `/api/42`. Mirrors the reference's
-    /// `sourceMatches` short-circuit at `index.js:38-67` when
-    /// `allowSegments` is falsy.
-    pub(crate) fn compile_no_segments(
-        source: &str,
-        destination: &str,
-    ) -> Result<Matcher, CompileError> {
-        let slashed = slasher(source);
-        let (negate, body) = match slashed.strip_prefix('!') {
-            Some(rest) => (true, rest.to_string()),
-            None => (false, slashed),
-        };
-        let normalized_dest = normalize_destination(destination);
-        // No path-to-regexp routing — minimatch only. `:name` is
-        // treated as literal-`:` by globset, same as minimatch's
-        // segment parser.
-        let matcher = if has_glob_meta(&body) || negate {
-            let segments: Result<Vec<PatSeg>, globset::Error> = body
-                .split('/')
-                .filter(|s| !s.is_empty())
-                .map(classify_pattern_segment)
-                .collect();
-            Matcher::Glob {
-                segments: segments?,
-                negate,
-                destination: normalized_dest,
-            }
-        } else {
-            // Literal branch — verbatim from `compile`'s tail. `:name`
-            // bodies have no glob meta, no leading `!`, no `*`, so
-            // they land here and de_escape preserves the `:` chars.
-            let source_ptr = de_escape_keep_trailing(&body);
-            let source_mm = if body != source_ptr && !ends_with_unescaped_backslash(&body) {
-                Some(body.clone())
-            } else {
-                None
-            };
-            Matcher::Literal {
-                source_ptr,
-                source_mm,
-                destination: normalized_dest,
-            }
-        };
-        Ok(matcher)
-    }
-
     pub(crate) fn compile(source: &str, destination: &str) -> Result<Matcher, CompileError> {
         let slashed = slasher(source);
         let (negate, body) = match slashed.strip_prefix('!') {

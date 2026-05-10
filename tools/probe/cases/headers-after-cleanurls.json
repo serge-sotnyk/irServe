@@ -1,0 +1,29 @@
+{
+  "id": "headers-after-cleanurls",
+  "description": "Custom headers must match against the FINAL resolved file path, not the pre-resolution URL path. cleanUrls maps `GET /page` to `/page.html`; reference's `getHeaders` is called with the resolved `absolutePath` per `serve-handler/src/index.js:746`, so a `**/*.html` source rule applies. Codex review round 2 P1.",
+  "fixture": {
+    "files": {
+      "page.html": "<p>page</p>\n"
+    },
+    "serveJson": {
+      "headers": [
+        {
+          "source": "**/*.html",
+          "headers": [{ "key": "X-Html", "value": "yes" }]
+        }
+      ]
+    }
+  },
+  "snapshot": {
+    "extraTrackedHeaders": ["x-html"]
+  },
+  "runner": {
+    "l0": {
+      "clean": ["extensionless_resolves_to_html"],
+      "divergent": []
+    }
+  },
+  "requests": [
+    { "name": "extensionless_resolves_to_html", "method": "GET", "path": "/page" }
+  ]
+}

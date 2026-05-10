@@ -1,0 +1,56 @@
+{
+  "$schemaVersion": 1,
+  "case": "headers-after-cleanurls",
+  "description": "Custom headers must match against the FINAL resolved file path, not the pre-resolution URL path. cleanUrls maps `GET /page` to `/page.html`; reference's `getHeaders` is called with the resolved `absolutePath` per `serve-handler/src/index.js:746`, so a `**/*.html` source rule applies. Codex review round 2 P1.",
+  "fixture": {
+    "files": {
+      "page.html": "<p>page</p>\n"
+    },
+    "serveJson": {
+      "headers": [
+        {
+          "source": "**/*.html",
+          "headers": [
+            {
+              "key": "X-Html",
+              "value": "yes"
+            }
+          ]
+        }
+      ]
+    }
+  },
+  "serveArgs": [],
+  "volatileHeaders": [
+    "last-modified"
+  ],
+  "volatileBodies": [],
+  "requests": [
+    {
+      "name": "extensionless_resolves_to_html",
+      "request": {
+        "method": "GET",
+        "mode": "fetch",
+        "path": "/page"
+      },
+      "response": {
+        "body": {
+          "kind": "text",
+          "length": 12,
+          "sha256": "0b9fee13e1593a935a9f445a20b571c4714324cdf9379d60d118f4eac4138e20",
+          "preview": "<p>page</p>\n"
+        },
+        "headers": {
+          "accept-ranges": "bytes",
+          "content-length": "12",
+          "content-type": "text/html; charset=utf-8",
+          "etag": "\"58a0bfb73ec23809afeb318e37c904dd7e1d46d6\"",
+          "vary": "Accept-Encoding",
+          "x-html": "yes"
+        },
+        "status": 200,
+        "statusText": "OK"
+      }
+    }
+  ]
+}

@@ -92,8 +92,15 @@ async fn dispatch_inner(
     let decoded_path = match try_percent_decode(&raw_path) {
         Ok(p) => p,
         Err(_) => {
+            // Reference's URIError catch passes `'/'` as absolutePath
+            // to sendError (`index.js:563`), so getHeaders runs against
+            // a degenerate relative path that no realistic user rule
+            // intentionally targets. Mirror by passing `&[]` here so
+            // the malformed-decode 400 carries no custom headers, and
+            // D-015's "all 400 responses skip custom headers" invariant
+            // holds. Codex review round 2 P1.
             let resp =
-                error_response(StatusCode::BAD_REQUEST, req.headers(), root, header_rules, &raw_path)
+                error_response(StatusCode::BAD_REQUEST, req.headers(), root, &[], &raw_path)
                     .await;
             return (resp, None);
         }
@@ -105,9 +112,15 @@ async fn dispatch_inner(
     // would pop above the served root yields 400, before any filesystem
     // I/O. The check is purely lexical to match `path.posix.join`'s
     // normalization (e.g. leading `//` collapses to `/` and is benign).
+    //
+    // Empirically, the reference does NOT apply custom headers to
+    // traversal-400 responses: getHeaders' `path.relative(current,
+    // outsideAbsolutePath)` produces a `../`-prefixed string whose
+    // slasher-normalized form does not match user rules in practice
+    // (D-015). Pass `&[]` so irserve mirrors that empirical absence.
     if lexical_path_escapes_root(&decoded_path) {
         let resp =
-            error_response(StatusCode::BAD_REQUEST, req.headers(), root, header_rules, &decoded_path)
+            error_response(StatusCode::BAD_REQUEST, req.headers(), root, &[], &decoded_path)
                 .await;
         return (resp, None);
     }
@@ -229,14 +242,24 @@ async fn dispatch_inner(
         }
     };
 
-    // Success path uses the (post-collapse, post-rewrite) request path
-    // for `apply_custom_headers` matching — mirrors reference's
-    // `getHeaders` call at the success site (`index.js:746`) and the
-    // `slasher(relativePath)` lookup inside `getHeaders`.
-    let success_path: String = url_path.clone().into_owned();
     match outcome {
         ResolveOutcome::File(p) | ResolveOutcome::Index(p) => match tokio::fs::read(&p).await {
-            Ok(bytes) => (file_response(&p, bytes), Some(success_path)),
+            Ok(bytes) => {
+                // Reference applies `getHeaders` to `slasher(path.relative(
+                // current, finalAbsolutePath))` — the FINAL resolved file
+                // path AFTER cleanUrls / rewrite resolution
+                // (`index.js:622-625` for cleanUrls, `:746` for the
+                // success-site getHeaders call). Compute the equivalent
+                // here from `p` (canonicalized PathBuf) by stripping the
+                // canonicalized root prefix and converting to a
+                // POSIX-style URL form. Codex review round 2 P1: the
+                // prior implementation used the pre-resolution
+                // `url_path`, so headers like `**/*.html` failed to
+                // match `/page` resolving to `/page.html`.
+                let header_path = url_path_for_resolved_file(&p, root)
+                    .unwrap_or_else(|| url_path.clone().into_owned());
+                (file_response(&p, bytes), Some(header_path))
+            }
             Err(_) => {
                 let resp = error_response(
                     StatusCode::NOT_FOUND,
@@ -263,19 +286,31 @@ async fn dispatch_inner(
         // Defense-in-depth: lexical check above already short-circuits
         // `..`-escaping requests at phase 1; this branch covers the rare
         // case of a symlink (or future routing target) whose canonical
-        // form lands outside the served root.
+        // form lands outside the served root. Pass `&[]` so the 400
+        // response carries no custom headers — same invariant as the
+        // lexical-escape branch above (D-015).
         ResolveOutcome::EscapedRoot => {
-            let resp = error_response(
-                StatusCode::BAD_REQUEST,
-                req.headers(),
-                root,
-                header_rules,
-                &decoded_path,
-            )
-            .await;
+            let resp =
+                error_response(StatusCode::BAD_REQUEST, req.headers(), root, &[], &decoded_path)
+                    .await;
             (resp, None)
         }
     }
+}
+
+/// Convert a canonicalized resolved file path into its URL-equivalent
+/// for header source matching: `/page.html`, `/asset.css`, etc.
+/// Mirrors `slasher(path.relative(current, absolutePath))` at
+/// `serve-handler/src/index.js:198+207`. Returns `None` if `resolved`
+/// is not a child of `root` (which should not happen post-canonicalize
+/// + containment check, but we keep the call site defensive).
+fn url_path_for_resolved_file(resolved: &Path, root: &Path) -> Option<String> {
+    let rel = resolved.strip_prefix(root).ok()?;
+    let with_forward_slashes = rel.to_string_lossy().replace('\\', "/");
+    Some(format!(
+        "/{}",
+        with_forward_slashes.trim_start_matches('/')
+    ))
 }
 
 /// Mirror of Node's `path.extname(p)` for our URL-path use case.
