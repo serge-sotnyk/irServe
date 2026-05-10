@@ -54,30 +54,41 @@ shipped.
 ## Slice 3 — `--cors` flag + 4-header CORS pass
 
 - [x] New module `crates/irserve-core/src/cors.rs` with
-  `apply_cors(Response<Body>) -> Response<Body>` inserting all four
-  reference headers unconditionally
-  (`access-control-allow-origin: *`,
+  `apply_cors(Response<Body>) -> Response<Body>` inserting each of
+  the four reference headers (`access-control-allow-origin: *`,
   `access-control-allow-headers: *`,
   `access-control-allow-credentials: true`,
-  `access-control-allow-private-network: true`). Mirrors
-  `third_party/serve/source/utilities/server.ts:65-70`.
+  `access-control-allow-private-network: true`) only when the
+  response does not already carry that key — set-only-if-missing.
+  Mirrors `third_party/serve/source/utilities/server.ts:65-70`
+  followed by `serve-handler`'s overwrite at
+  `serve-handler/src/index.js:245-251`, `:767`. (Initial slice-3
+  commit used "overwrite-everything" semantics; corrected to
+  set-only-if-missing in Codex review round 1 P1.)
 - [x] `crates/irserve-core/src/lib.rs` — `pub mod cors;`.
 - [x] `ServerConfig::cors: bool` + `AppState::cors`; in
   `server::handler`, wire `apply_cors` AFTER `apply_custom_headers`
-  so the four headers ride on 3xx redirects too
+  so the four CORS defaults ride on 3xx redirects too
   (`apply_custom_headers` skips redirections per D-015 finding #2).
 - [x] `Cli::cors: bool` (`-C` / `--cors`).
 - [x] Drop `-C`, `--cors` from `L0_DEFERRED_FLAGS`. Lift
   `cors-flag`, `cors-applied`, `cors-response-surface` off the gate
   by adding `runner.l0` partitions (reference snapshots unchanged).
 - [x] New probe `tools/probe/cases/cors-on-redirect.json` —
-  fixture with `serve.json` redirect `/old → /new`;
-  `serveArgs: ["--cors"]`; `GET /old` → 301 + four CORS headers.
-- [x] 4 unit tests on `apply_cors` covering the four-header set
-  and overwrite semantics.
-- [x] Verify: all four CORS probes green on both targets.
+  fixture with `serve.json` redirect `/old → /new` (`type: 302`);
+  `serveArgs: ["--cors"]`; `GET /old` → 302 + four CORS headers.
+- [x] New probe `tools/probe/cases/cors-user-override.json`
+  (added in Codex review round 1) — `**/*.css` rule sets
+  `access-control-allow-origin: https://example.test`; the user
+  value survives, the other three CORS defaults still fill in.
+- [x] 4 unit tests on `apply_cors` covering the four-header set,
+  the 3xx layering, and `preserves_user_set_header` (round-1 flip
+  of the prior `overwrites_existing_header` test).
+- [x] Verify: all five CORS probes green on both targets.
 - Commit: `feat(stage-6h): slice 3 — --cors flag + 4-header CORS pass`
-  (ec865ff).
+  (ec865ff); semantic correction in
+  `docs(stage-6h): address Codex review round 1 (P1 + P2 + P3 fixes)`
+  (6d53924).
 
 ## Slice 4 — Port-switching default + `--no-port-switching` contract (D-016)
 

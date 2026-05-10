@@ -28,9 +28,13 @@ This change closes:
   `Access-Control-Allow-Headers: *`,
   `Access-Control-Allow-Credentials: true`,
   `Access-Control-Allow-Private-Network: true`). Mirrors
-  `third_party/serve/source/utilities/server.ts:65-70`. Applied
-  post-dispatch (unconditional, including on 3xx redirects, unlike
-  `apply_custom_headers` which skips redirections).
+  `third_party/serve/source/utilities/server.ts:65-70` followed by
+  `serve-handler`'s overwrite at
+  `serve-handler/src/index.js:245-251`, `:767`. Applied
+  post-dispatch on every status class — including 3xx redirects,
+  which `apply_custom_headers` deliberately skips — using
+  set-only-if-missing semantics so a user `serve.json#headers` rule
+  for any CORS key wins, while the other three defaults still fill in.
 - **SRV-CLI-014** (`-d`/`--debug`) — `adapted` (no flip); irserve
   appends an elapsed-ms suffix `(Xms)` to the per-request log line
   under the flag.
@@ -81,15 +85,21 @@ to 6h.
 
 - **`apply_cors` post-dispatch pass.** New
   `crates/irserve-core/src/cors.rs::apply_cors(Response<Body>) ->
-  Response<Body>` inserts all four reference headers
-  unconditionally. Wired in `server::handler` AFTER
-  `apply_custom_headers` so the four CORS headers ride on 3xx
-  redirects too — `apply_custom_headers` short-circuits on
-  `is_redirection()` (D-015 finding #2), while the reference applies
-  CORS via `setHeader` before dispatch in `server.ts:65-70` so
-  redirects carry them. The post-pass placement is the simplest
-  shape that mirrors this. Verified by the new `cors-on-redirect`
-  probe.
+  Response<Body>` inserts each of the four reference headers
+  **only when the response does not already carry that key**
+  (set-only-if-missing). Wired in `server::handler` AFTER
+  `apply_custom_headers` so the CORS defaults ride on 3xx redirects
+  too — `apply_custom_headers` short-circuits on `is_redirection()`
+  (D-015 finding #2), while the reference applies CORS via
+  `setHeader` BEFORE dispatch in `server.ts:65-70`, then
+  `serve-handler` overwrites those keys when a user rule matches
+  (`Object.assign(defaultHeaders, related)` at
+  `serve-handler/src/index.js:245-251` + `setHeader` loop at `:767`).
+  Net effect: a user `serve.json#headers` rule for any of the four
+  CORS keys wins; the other three CORS defaults still fill in.
+  Codex review round 1 P1 corrected the slice-3 model.
+  Verified by `cors-on-redirect` (3xx pass-through) and
+  `cors-user-override` (round-1 regression probe).
 
 - **`bind_with_fallback` and `Error::PortInUse`.** New helper in
   `crates/irserve-core/src/server.rs`: catches `ErrorKind::AddrInUse`

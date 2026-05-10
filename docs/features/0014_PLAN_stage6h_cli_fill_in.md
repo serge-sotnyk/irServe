@@ -63,15 +63,22 @@ a port → 3000; `tcp://:port` without a host → `localhost`", citing
 `cli.ts:128-130`. Q-001 is marked `closed` in `open-questions.md` with a
 pointer to SRV-CLI-003.
 
-### `--cors` — all four reference headers
+### `--cors` — all four reference headers, user rules override per key
 
 `server.ts:65-70` sets `access-control-allow-origin: *`,
 `access-control-allow-headers: *`, `access-control-allow-credentials: true`,
-`access-control-allow-private-network: true` — unconditionally, before
-dispatch. The `cors-applied.json` / `cors-response-surface.json` snapshots
-already pin this. Anti-hallucination rule #4 (oracle > docs): mirror all
-four. The spec's help-text wording `«sets ACAO to *»` is a simplified
-phrasing, not the exhaustive contract. SRV-CLI-010 is already `verified`.
+`access-control-allow-private-network: true` — as defaults, before
+serve-handler runs. The handler then merges user `headers` rules via
+`Object.assign(defaultHeaders, related)` at
+`serve-handler/src/index.js:245-251` and writes the merged map through
+`response.setHeader` at `:767`, so any user rule whose key matches one
+of the four CORS keys WINS. The other three CORS defaults still fill in.
+The `cors-applied.json` / `cors-response-surface.json` snapshots already
+pin the all-four-defaults shape; the round-1 `cors-user-override.json`
+probe pins the user-rule-precedence shape. Anti-hallucination rule #4
+(oracle > docs): mirror what the snapshots capture. The spec's help-text
+wording «sets ACAO to *» is a simplified phrasing, not the exhaustive
+contract. SRV-CLI-010 is already `verified`.
 
 The roadmap's "L1 ACAO only" for stage 6h refers to differentiated CORS
 handling (preflight, max-age, exposed headers), which stays in Stage 7+.
@@ -99,13 +106,19 @@ sites. `pipe:` and `unix:` are rejected with a focused error message
 
 ### CORS — separate post-dispatch pass
 
-New `crates/irserve-core/src/cors.rs::apply_cors(response)`. Called from
-`handler` **after** `apply_custom_headers` (i.e. after `dispatch`),
-unconditionally, with no 3xx skip (unlike `apply_custom_headers`). The
-reference applies CORS headers via `setHeader` *before* `serve-handler`,
-so they survive redirects too. We do not route through
-`apply_custom_headers` — it skips redirections and is rule-list driven,
-whereas CORS is global and unconditional.
+New `crates/irserve-core/src/cors.rs::apply_cors(response)`. Called
+from `handler` **after** `apply_custom_headers` (i.e. after `dispatch`)
+on every status class, including 3xx — `apply_custom_headers`
+deliberately skips redirects but the CORS pass must not. Each of the
+four headers is inserted using **set-only-if-missing** semantics: when
+the response already carries that key from `apply_custom_headers`, the
+prior value wins. Mirrors the reference's order: `setHeader('ACAO','*')`
+runs at `server.ts:65-70` BEFORE `serve-handler`, then the handler
+overwrites via `Object.assign(defaultHeaders, related)` plus the final
+`response.setHeader` loop at `serve-handler/src/index.js:245-251`,
+`:767`. We do not route through `apply_custom_headers` — it skips
+redirections and is rule-list driven, whereas CORS supplies CLI-flag
+defaults that any user rule may override per key.
 
 ## Pre-stage out-of-scope list (rule #10)
 
@@ -191,8 +204,9 @@ Files:
 - `crates/irserve/src/main.rs` — `Cli::cors: bool` (`-C` short).
 - `tools/probe/run.mjs` — drop `-C`, `--cors` from `L0_DEFERRED_FLAGS`.
 - `tools/probe/cases/cors-on-redirect.json` — NEW. Fixture with a
-  `serve.json` redirect `/old → /new`; `serveArgs: ["--cors"]`;
-  `GET /old` → 301 + 4 CORS headers. Verifies pass-through across 3xx.
+  `serve.json` redirect `/old → /new` (`type: 302`);
+  `serveArgs: ["--cors"]`; `GET /old` → 302 + 4 CORS headers.
+  Verifies pass-through across 3xx.
 - Snapshot for the new probe — re-record reference.
 
 Verify: `cors-flag.json`, `cors-applied.json`, `cors-response-surface.json`
@@ -380,9 +394,9 @@ curl -i http://127.0.0.1:3011/                  # 200
 cargo run -- --cors --listen 3010 _tmp
 curl -i http://127.0.0.1:3010/                  # 4 CORS headers
 # CORS on a 3xx:
-'{"redirects":[{"source":"/old","destination":"/new"}]}' | Set-Content _tmp\serve.json
+'{"redirects":[{"source":"/old","destination":"/new","type":302}]}' | Set-Content _tmp\serve.json
 cargo run -- --cors --listen 3010 _tmp
-curl -i http://127.0.0.1:3010/old               # 301 + 4 CORS headers
+curl -i http://127.0.0.1:3010/old               # 302 + 4 CORS headers
 
 # Slice 4: --no-port-switching
 # Terminal A:
@@ -433,10 +447,18 @@ now green on `target=irserve`. 0 changes to reference snapshots
 4. **`-p` clap collision.** `-l` and `-p` are two separate `Vec`s with
    `value_parser`; the merge happens **post-parse** in `main`, not via
    a clap alias (clap cannot put "two distinct flags into one Vec").
-5. **CORS + custom-headers ordering.** If a user `headers` rule sets
-   `access-control-allow-origin: foo`, our post-CORS pass overwrites
-   it with `*`. The reference does the same. Documented via the
-   ordering language in SRV-CLI-010.
+5. **CORS + custom-headers ordering.** If a user `headers` rule
+   sets `access-control-allow-origin: foo`, the user value WINS;
+   the post-CORS pass uses set-only-if-missing semantics so it
+   only fills keys the response is missing. Mirrors the reference
+   ordering: `setHeader('ACAO','*')` runs at `server.ts:65-70`
+   BEFORE `serve-handler`, then the handler's
+   `Object.assign(defaultHeaders, related)` +
+   `response.setHeader` loop (`serve-handler/src/index.js:245-251`,
+   `:767`) overwrites the CORS default with the user rule.
+   Codex review round 1 P1 corrected an earlier
+   "overwrite-everything" model in this file. Verified by
+   `cors-user-override` probe.
 6. **Multi-listen + `--no-port-switching`.** With `-l 3010 -l 3011`,
    if 3010 is busy and `--no-port-switching` is set — exit on the
    first; the second never reaches bind. Correct per the contract,

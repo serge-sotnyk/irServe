@@ -160,9 +160,10 @@ survives intact while the other three defaults fill in).
 
 #### Scenario: All four CORS headers on a 3xx redirect
 
-- GIVEN `serve --cors` with `serve.json` redirect `/old → /new`
+- GIVEN `serve --cors` with `serve.json` redirect
+  `{source: "/old", destination: "/new", type: 302}`
 - WHEN `GET /old`
-- THEN status is 301
+- THEN status is 302
 - AND the response carries all four CORS defaults
   (`access-control-allow-origin`, `access-control-allow-headers`,
   `access-control-allow-credentials`,

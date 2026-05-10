@@ -124,18 +124,30 @@ let resp = if state.cors { apply_cors(resp) } else { resp };
 // log line, then return resp
 ```
 
-`apply_cors` inserts the four headers in declaration order; any
-prior rule-emitted value for the same key is overwritten (a user
-`headers` rule setting `access-control-allow-origin: foo` loses
-to the post-pass `*`, matching the reference's `setHeader` order).
-4 unit tests pin the four-header set and the overwrite semantics.
+`apply_cors` uses set-only-if-missing semantics: each of the four
+headers is inserted only when the response does not already carry
+that key from `apply_custom_headers`. This matches the reference's
+ordering — `setHeader('ACAO','*')` runs at `server.ts:65-70` BEFORE
+`serve-handler`; the handler then overwrites via
+`Object.assign(defaultHeaders, related)` plus the final
+`response.setHeader` loop at `serve-handler/src/index.js:245-251`,
+`:767`. Net effect: a user `serve.json` rule for any of the four
+CORS keys WINS, but unspecified keys still fill in with the CLI
+default. Codex review round 1 P1 corrected an earlier
+"overwrite-everything" model that mis-modeled the reference.
+
+4 unit tests pin the four-header set, the 3xx layering, and the
+preserve-user-set-header semantics.
 
 Verified by:
 
 - `cors-flag` / `cors-applied` / `cors-response-surface` (existing
   Stage-1 snapshots, lifted off the runner gate in slice 3),
 - `cors-on-redirect` (NEW slice 3) — exercises the 3xx
-  pass-through with a `serve.json` redirect `/old → /new`.
+  pass-through with a `serve.json` redirect `/old → /new` (302),
+- `cors-user-override` (NEW Codex review round 1) — `**/*.css`
+  rule sets `access-control-allow-origin: https://example.test`;
+  the value survives and the other three defaults still fill in.
 
 ## 4. Port-switching contract / D-016 trade-off
 
