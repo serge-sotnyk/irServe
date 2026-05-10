@@ -12,7 +12,7 @@ use crate::clean_urls::{
 use crate::config::ServeConfig;
 use crate::custom_headers::{apply_custom_headers, HeaderRuleCompiled};
 use crate::error::error_response;
-use crate::listing::{render as render_listing, DirectoryListingView};
+use crate::listing::{render as render_listing, DirectoryListingView, UnlistedFilter};
 use crate::mime::mime_for;
 use crate::normalize::collapse_slashes;
 use crate::redirects::{compute_configured_redirects, RedirectRuleCompiled};
@@ -26,6 +26,7 @@ pub async fn dispatch(
     serve_config: &ServeConfig,
     clean_urls_view: &CleanUrlsView,
     listing_view: &DirectoryListingView,
+    unlisted_filter: &UnlistedFilter,
     redirect_rules: &[RedirectRuleCompiled],
     rewrite_rules: &[RewriteRuleCompiled],
     header_rules: &[HeaderRuleCompiled],
@@ -48,6 +49,7 @@ pub async fn dispatch(
         serve_config,
         clean_urls_view,
         listing_view,
+        unlisted_filter,
         redirect_rules,
         rewrite_rules,
         header_rules,
@@ -65,6 +67,7 @@ async fn dispatch_inner(
     serve_config: &ServeConfig,
     clean_urls_view: &CleanUrlsView,
     listing_view: &DirectoryListingView,
+    unlisted_filter: &UnlistedFilter,
     redirect_rules: &[RedirectRuleCompiled],
     rewrite_rules: &[RewriteRuleCompiled],
     header_rules: &[HeaderRuleCompiled],
@@ -331,7 +334,15 @@ async fn dispatch_inner(
         // slices 3-5.
         ResolveOutcome::Directory(absolute) => {
             if listing_view.applicable(&decoded_path) {
-                match render_listing(&absolute, &decoded_path, root, req.headers()).await {
+                match render_listing(
+                    &absolute,
+                    &decoded_path,
+                    root,
+                    req.headers(),
+                    unlisted_filter,
+                )
+                .await
+                {
                     Ok(resp) => (resp, None),
                     Err(_) => {
                         let resp = error_response(

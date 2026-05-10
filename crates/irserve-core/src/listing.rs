@@ -64,6 +64,70 @@ pub struct InvalidGlob {
     pub error: globset::Error,
 }
 
+/// Compiled view of `serve.json#unlisted` plus the hardcoded
+/// reference defaults `.DS_Store` and `.git` (per
+/// `serve-handler/src/index.js:330-334`). The defaults are baked
+/// in unconditionally — they prepend the user-supplied list every
+/// time `renderDirectory` runs, so they cannot be opted out of in
+/// the reference.
+///
+/// Match semantics: each pattern is `slasher`-normalized (leading
+/// `/` ensured) and matched against a similarly-normalized
+/// filename. A name is excluded iff at least one matcher matches.
+/// Negation patterns (`!`-prefixed) are deferred — `unlisted` is
+/// almost always written as positive include-this-name patterns,
+/// and the reference's minimatch-with-negation semantics in this
+/// position are unintuitive (a sole `!keep` would exclude every
+/// non-`keep` file). If a probe surfaces this corner, document it
+/// as a `D-NNN`.
+#[derive(Debug)]
+pub struct UnlistedFilter {
+    matchers: Vec<GlobMatcher>,
+}
+
+impl UnlistedFilter {
+    pub fn from_config(user_patterns: &[String]) -> (Self, Vec<InvalidGlob>) {
+        let mut matchers = Vec::with_capacity(2 + user_patterns.len());
+        let mut invalid = Vec::new();
+        for default in [".DS_Store", ".git"] {
+            matchers.push(
+                compile_unlisted_pattern(default)
+                    .expect("hardcoded default unlisted pattern must compile"),
+            );
+        }
+        for pat in user_patterns {
+            match compile_unlisted_pattern(pat) {
+                Ok(m) => matchers.push(m),
+                Err(error) => invalid.push(InvalidGlob {
+                    pattern: pat.clone(),
+                    error,
+                }),
+            }
+        }
+        (Self { matchers }, invalid)
+    }
+
+    /// `canBeListed(excluded, file)` from
+    /// `serve-handler/src/index.js:309-323`, inverted: returns
+    /// `true` iff the entry is excluded from the listing.
+    pub fn is_excluded(&self, name: &str) -> bool {
+        let slashed = if name.starts_with('/') {
+            name.to_string()
+        } else {
+            format!("/{name}")
+        };
+        self.matchers.iter().any(|m| m.is_match(&slashed))
+    }
+}
+
+fn compile_unlisted_pattern(raw: &str) -> Result<GlobMatcher, globset::Error> {
+    let slashed = slasher(raw);
+    GlobBuilder::new(&slashed)
+        .literal_separator(true)
+        .build()
+        .map(|g| g.compile_matcher())
+}
+
 impl DirectoryListingView {
     /// Build the view from the parsed config field. Never fails:
     /// invalid glob patterns are collected for the bin to surface
@@ -159,12 +223,27 @@ pub async fn render(
     decoded_url: &str,
     root: &Path,
     request_headers: &HeaderMap,
+    unlisted_filter: &UnlistedFilter,
 ) -> Result<Response<Body>, std::io::Error> {
+    // Read entries first; `unlisted` filtering happens AFTER. Slice 5
+    // needs the unfiltered count for the `renderSingle` short-circuit
+    // (mirrors reference: `canRenderSingle` is decided BEFORE
+    // `canBeListed` runs, so a `.DS_Store` + 1-real-file directory
+    // does NOT trigger renderSingle — count is 2).
+    let raw_entries = read_sorted_entries(dir).await?;
+    let entries = apply_unlisted_filter(raw_entries, unlisted_filter);
     if accepts_json(request_headers) {
-        render_json(dir, root).await
+        Ok(json_response(&entries, dir, root))
     } else {
-        render_html_inner(dir, decoded_url, root).await
+        Ok(html_response(&entries, decoded_url, dir, root))
     }
+}
+
+fn apply_unlisted_filter(entries: Vec<Entry>, filter: &UnlistedFilter) -> Vec<Entry> {
+    entries
+        .into_iter()
+        .filter(|e| !filter.is_excluded(&e.name))
+        .collect()
 }
 
 /// `request.headers.accept.includes('application/json')`
@@ -177,34 +256,33 @@ fn accepts_json(headers: &HeaderMap) -> bool {
         .unwrap_or(false)
 }
 
-async fn render_html_inner(
-    dir: &Path,
+fn html_response(
+    entries: &[Entry],
     decoded_url: &str,
+    dir: &Path,
     root: &Path,
-) -> Result<Response<Body>, std::io::Error> {
-    let entries = read_sorted_entries(dir).await?;
-    let body = build_html(&entries, decoded_url, dir, root);
-    Ok(Response::builder()
+) -> Response<Body> {
+    let body = build_html(entries, decoded_url, dir, root);
+    Response::builder()
         .status(StatusCode::OK)
         .header(
             CONTENT_TYPE,
             HeaderValue::from_static("text/html; charset=utf-8"),
         )
         .body(Body::from(body))
-        .expect("listing response should always build"))
+        .expect("listing response should always build")
 }
 
-async fn render_json(dir: &Path, root: &Path) -> Result<Response<Body>, std::io::Error> {
-    let entries = read_sorted_entries(dir).await?;
-    let body = build_json(&entries, dir, root);
-    Ok(Response::builder()
+fn json_response(entries: &[Entry], dir: &Path, root: &Path) -> Response<Body> {
+    let body = build_json(entries, dir, root);
+    Response::builder()
         .status(StatusCode::OK)
         .header(
             CONTENT_TYPE,
             HeaderValue::from_static("application/json; charset=utf-8"),
         )
         .body(Body::from(body))
-        .expect("listing response should always build"))
+        .expect("listing response should always build")
 }
 
 #[derive(Debug)]
@@ -517,6 +595,10 @@ mod tests {
         h
     }
 
+    fn empty_filter() -> UnlistedFilter {
+        UnlistedFilter::from_config(&[]).0
+    }
+
     #[tokio::test]
     async fn render_html_lists_entries_dirs_first() {
         let dir = tempdir().unwrap();
@@ -524,7 +606,7 @@ mod tests {
         fs::write(root.join("a.txt"), "a").unwrap();
         fs::write(root.join("b.txt"), "b").unwrap();
         fs::create_dir_all(root.join("zfolder")).unwrap();
-        let resp = render(&root, "/", &root, &empty_headers()).await.unwrap();
+        let resp = render(&root, "/", &root, &empty_headers(), &empty_filter()).await.unwrap();
         assert_eq!(resp.status(), StatusCode::OK);
         assert_eq!(
             resp.headers()
@@ -551,7 +633,7 @@ mod tests {
         fs::create_dir_all(root.join("sub")).unwrap();
         fs::write(root.join("sub/a.txt"), "x").unwrap();
         let sub = fs::canonicalize(root.join("sub")).unwrap();
-        let resp = render(&sub, "/sub/", &root, &empty_headers()).await.unwrap();
+        let resp = render(&sub, "/sub/", &root, &empty_headers(), &empty_filter()).await.unwrap();
         let body = axum::body::to_bytes(resp.into_body(), usize::MAX)
             .await
             .unwrap();
@@ -575,7 +657,7 @@ mod tests {
         // when `trailingSlash` is set, so requests like `GET /sub`
         // can land at the listing renderer with a trailing-slash-less
         // URL. Hrefs must still resolve correctly.
-        let resp = render(&sub, "/sub", &root, &empty_headers()).await.unwrap();
+        let resp = render(&sub, "/sub", &root, &empty_headers(), &empty_filter()).await.unwrap();
         let body = axum::body::to_bytes(resp.into_body(), usize::MAX)
             .await
             .unwrap();
@@ -592,7 +674,7 @@ mod tests {
         let root = fs::canonicalize(dir.path()).unwrap();
         fs::write(root.join("a.txt"), "ab").unwrap();
         fs::create_dir_all(root.join("sub")).unwrap();
-        let resp = render(&root, "/", &root, &json_headers()).await.unwrap();
+        let resp = render(&root, "/", &root, &json_headers(), &empty_filter()).await.unwrap();
         assert_eq!(resp.status(), StatusCode::OK);
         assert_eq!(
             resp.headers()
@@ -628,7 +710,7 @@ mod tests {
         fs::create_dir_all(root.join("docs/api")).unwrap();
         fs::write(root.join("docs/api/index.json"), "{}").unwrap();
         let nested = fs::canonicalize(root.join("docs/api")).unwrap();
-        let resp = render(&nested, "/docs/api/", &root, &json_headers())
+        let resp = render(&nested, "/docs/api/", &root, &json_headers(), &empty_filter())
             .await
             .unwrap();
         let bytes = axum::body::to_bytes(resp.into_body(), usize::MAX)
@@ -654,7 +736,7 @@ mod tests {
         let dir = tempdir().unwrap();
         let root = fs::canonicalize(dir.path()).unwrap();
         fs::write(root.join(".bashrc"), "x").unwrap();
-        let resp = render(&root, "/", &root, &json_headers()).await.unwrap();
+        let resp = render(&root, "/", &root, &json_headers(), &empty_filter()).await.unwrap();
         let bytes = axum::body::to_bytes(resp.into_body(), usize::MAX)
             .await
             .unwrap();
@@ -723,6 +805,87 @@ mod tests {
     fn entry_relative_url_nested() {
         assert_eq!(entry_relative_url("docs", "a.txt", false), "/docs/a.txt");
         assert_eq!(entry_relative_url("docs/api", "v1", true), "/docs/api/v1/");
+    }
+
+    // ----- unlisted filter -----------------------------------------
+
+    #[test]
+    fn unlisted_defaults_exclude_dotfiles() {
+        let (f, invalid) = UnlistedFilter::from_config(&[]);
+        assert!(invalid.is_empty());
+        // Hardcoded reference defaults from `index.js:330-334`.
+        assert!(f.is_excluded(".DS_Store"));
+        assert!(f.is_excluded(".git"));
+        assert!(!f.is_excluded("README.md"));
+        assert!(!f.is_excluded("a.txt"));
+    }
+
+    #[test]
+    fn unlisted_user_pattern_literal_name() {
+        let (f, _) = UnlistedFilter::from_config(&["secret.txt".to_string()]);
+        assert!(f.is_excluded("secret.txt"));
+        assert!(!f.is_excluded("public.txt"));
+        // Defaults still applied alongside user patterns.
+        assert!(f.is_excluded(".DS_Store"));
+    }
+
+    #[test]
+    fn unlisted_user_pattern_glob() {
+        let (f, _) = UnlistedFilter::from_config(&["*.bak".to_string()]);
+        assert!(f.is_excluded("notes.bak"));
+        assert!(!f.is_excluded("notes.txt"));
+    }
+
+    #[tokio::test]
+    async fn render_html_filters_unlisted_entries() {
+        let dir = tempdir().unwrap();
+        let root = fs::canonicalize(dir.path()).unwrap();
+        fs::write(root.join("a.txt"), "a").unwrap();
+        fs::write(root.join("secret.txt"), "shh").unwrap();
+        fs::write(root.join(".DS_Store"), "ds").unwrap();
+        let (filter, _) = UnlistedFilter::from_config(&["secret.txt".to_string()]);
+        let resp = render(&root, "/", &root, &empty_headers(), &filter)
+            .await
+            .unwrap();
+        let bytes = axum::body::to_bytes(resp.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let body = std::str::from_utf8(&bytes).unwrap();
+        assert!(body.contains("a.txt"), "a.txt should appear:\n{body}");
+        assert!(
+            !body.contains("secret.txt"),
+            "secret.txt should be filtered:\n{body}",
+        );
+        assert!(
+            !body.contains(".DS_Store"),
+            ".DS_Store should be filtered by default:\n{body}",
+        );
+    }
+
+    #[tokio::test]
+    async fn render_json_filters_unlisted_entries() {
+        let dir = tempdir().unwrap();
+        let root = fs::canonicalize(dir.path()).unwrap();
+        fs::write(root.join("a.txt"), "a").unwrap();
+        fs::write(root.join("secret.txt"), "shh").unwrap();
+        fs::write(root.join(".DS_Store"), "ds").unwrap();
+        fs::create_dir_all(root.join(".git")).unwrap();
+        fs::write(root.join(".git/HEAD"), "ref").unwrap();
+        let (filter, _) = UnlistedFilter::from_config(&["secret.txt".to_string()]);
+        let resp = render(&root, "/", &root, &json_headers(), &filter)
+            .await
+            .unwrap();
+        let bytes = axum::body::to_bytes(resp.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let v: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+        let names: Vec<&str> = v["files"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|e| e["base"].as_str().unwrap())
+            .collect();
+        assert_eq!(names, vec!["a.txt"]);
     }
 
     #[test]
