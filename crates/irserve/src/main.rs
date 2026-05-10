@@ -1,8 +1,12 @@
+mod listen_spec;
+
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::path::PathBuf;
 
 use clap::{ArgAction, Parser};
 use irserve_core::{load_serve_json, run, RewriteRule, ServerConfig};
+
+use listen_spec::ListenSpec;
 
 #[derive(Parser)]
 #[command(
@@ -18,10 +22,11 @@ struct Cli {
     #[arg(
         short = 'l',
         long = "listen",
-        value_name = "PORT",
+        value_name = "LISTEN",
+        value_parser = ListenSpec::parse,
         action = ArgAction::Append
     )]
-    listen: Vec<u16>,
+    listen: Vec<ListenSpec>,
 
     #[arg(short = 'n', long = "no-clipboard")]
     no_clipboard: bool,
@@ -43,16 +48,15 @@ struct Cli {
     directory: PathBuf,
 }
 
-fn resolve_listens(cli_listens: Vec<u16>) -> Vec<u16> {
+fn resolve_listens(cli_listens: Vec<ListenSpec>) -> std::io::Result<Vec<SocketAddr>> {
     if !cli_listens.is_empty() {
-        return cli_listens;
+        return cli_listens.into_iter().map(|s| s.resolve()).collect();
     }
-    if let Ok(env_port) = std::env::var("PORT") {
-        if let Ok(p) = env_port.parse::<u16>() {
-            return vec![p];
-        }
-    }
-    vec![3000]
+    let port = std::env::var("PORT")
+        .ok()
+        .and_then(|s| s.parse::<u16>().ok())
+        .unwrap_or(3000);
+    Ok(vec![SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), port)])
 }
 
 #[tokio::main]
@@ -60,10 +64,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let cli = Cli::parse();
     let _ = cli.no_clipboard; // accepted as no-op per D-005
 
-    let listens: Vec<SocketAddr> = resolve_listens(cli.listen)
-        .into_iter()
-        .map(|p| SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), p))
-        .collect();
+    let listens = resolve_listens(cli.listen)?;
 
     let loaded = load_serve_json(&cli.directory, cli.config.as_deref())?;
     if let Some(loaded) = &loaded {
