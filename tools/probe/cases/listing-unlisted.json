@@ -13,6 +13,13 @@
       "unlisted": ["secret.txt"]
     }
   },
+  "runner": {
+    "l0": {
+      "clean": ["listing_html"],
+      "divergent": [],
+      "bodyMayDiffer": ["listing_html"]
+    }
+  },
   "requests": [
     { "name": "listing_html", "method": "GET", "path": "/" },
     { "name": "listing_json", "method": "GET", "path": "/", "headers": { "accept": "application/json" } }

@@ -9,6 +9,13 @@
       "directoryListing": false
     }
   },
+  "runner": {
+    "l0": {
+      "clean": ["root_no_listing"],
+      "divergent": [],
+      "bodyMayDiffer": ["root_no_listing"]
+    }
+  },
   "requests": [
     { "name": "root_no_listing", "method": "GET", "path": "/" }
   ]

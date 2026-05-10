@@ -10,10 +10,7 @@ pub enum ResolveOutcome {
     /// through to 404 (Stage 6g). The carried path is the
     /// canonicalized absolute filesystem path of the directory,
     /// already containment-checked against `root`.
-    //
-    // Slice 1 plumbing only: the path is unread until Slice 2 wires
-    // the listing renderer.
-    Directory(#[allow(dead_code)] PathBuf),
+    Directory(PathBuf),
     NotFound,
     EscapedRoot,
 }

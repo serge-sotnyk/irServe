@@ -5,6 +5,7 @@ pub mod config;
 mod custom_headers;
 mod dispatch;
 mod error;
+mod listing;
 mod mime;
 mod normalize;
 mod path_pattern;

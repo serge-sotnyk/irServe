@@ -11,6 +11,7 @@ use crate::clean_urls::CleanUrlsView;
 use crate::config::ServeConfig;
 use crate::custom_headers::{compile_rules as compile_header_rules, HeaderRuleCompiled};
 use crate::dispatch::dispatch;
+use crate::listing::DirectoryListingView;
 use crate::redirects::{compile_rules as compile_redirect_rules, RedirectRuleCompiled};
 use crate::rewrites::{compile_rules as compile_rewrite_rules, RewriteRuleCompiled};
 use crate::{Error, ServerConfig};
@@ -19,6 +20,7 @@ struct AppState {
     root: PathBuf,
     serve_config: ServeConfig,
     clean_urls_view: CleanUrlsView,
+    listing_view: DirectoryListingView,
     redirect_rules: Vec<RedirectRuleCompiled>,
     rewrite_rules: Vec<RewriteRuleCompiled>,
     header_rules: Vec<HeaderRuleCompiled>,
@@ -84,10 +86,23 @@ pub async fn serve(config: ServerConfig) -> Result<(), Error> {
             inv.source, inv.error
         );
     }
+    // Stage 6g: directoryListing scope. Same compile-once-per-server
+    // pattern as cleanUrls. Invalid glob patterns are reported via
+    // stderr and treated as never-matching, mirroring `minimatch`'s
+    // silent fallback at `serve-handler/src/index.js:38-67`.
+    let (listing_view, invalid_listings) =
+        DirectoryListingView::from_config(&config.serve_config.directory_listing);
+    for inv in &invalid_listings {
+        eprintln!(
+            "warning: directoryListing pattern {:?} skipped (invalid glob): {}",
+            inv.pattern, inv.error
+        );
+    }
     let state: SharedState = Arc::new(AppState {
         root: config.root,
         serve_config: config.serve_config,
         clean_urls_view,
+        listing_view,
         redirect_rules,
         rewrite_rules,
         header_rules,
@@ -138,6 +153,7 @@ async fn handler(State(state): State<SharedState>, req: Request<Body>) -> Respon
         state.root.as_path(),
         &state.serve_config,
         &state.clean_urls_view,
+        &state.listing_view,
         &state.redirect_rules,
         &state.rewrite_rules,
         &state.header_rules,

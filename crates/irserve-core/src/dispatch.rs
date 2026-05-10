@@ -12,6 +12,7 @@ use crate::clean_urls::{
 use crate::config::ServeConfig;
 use crate::custom_headers::{apply_custom_headers, HeaderRuleCompiled};
 use crate::error::error_response;
+use crate::listing::{render_html as render_listing_html, DirectoryListingView};
 use crate::mime::mime_for;
 use crate::normalize::collapse_slashes;
 use crate::redirects::{compute_configured_redirects, RedirectRuleCompiled};
@@ -24,6 +25,7 @@ pub async fn dispatch(
     root: &Path,
     serve_config: &ServeConfig,
     clean_urls_view: &CleanUrlsView,
+    listing_view: &DirectoryListingView,
     redirect_rules: &[RedirectRuleCompiled],
     rewrite_rules: &[RewriteRuleCompiled],
     header_rules: &[HeaderRuleCompiled],
@@ -45,6 +47,7 @@ pub async fn dispatch(
         root,
         serve_config,
         clean_urls_view,
+        listing_view,
         redirect_rules,
         rewrite_rules,
         header_rules,
@@ -61,6 +64,7 @@ async fn dispatch_inner(
     root: &Path,
     serve_config: &ServeConfig,
     clean_urls_view: &CleanUrlsView,
+    listing_view: &DirectoryListingView,
     redirect_rules: &[RedirectRuleCompiled],
     rewrite_rules: &[RewriteRuleCompiled],
     header_rules: &[HeaderRuleCompiled],
@@ -315,21 +319,45 @@ async fn dispatch_inner(
                 (resp, None)
             }
         },
-        // Stage 6g Slice 1: directory plumbing in place. Slice 2+
-        // intercept this branch with the listing renderer; for now
-        // it falls through to 404 to preserve the pre-6g behavior
-        // (resolve used to flatten dir-no-index into NotFound).
-        ResolveOutcome::Directory(_) => {
-            let resp = error_response(
-                StatusCode::NOT_FOUND,
-                req.headers(),
-                root,
-                header_rules,
-                &decoded_path,
-                false,
-            )
-            .await;
-            (resp, None)
+        // Stage 6g phase 11: directory listing branch. When
+        // `directoryListing` scope admits the request path, render an
+        // HTML listing (Slice 2). Otherwise fall through to 404 —
+        // mirrors `serve-handler/src/index.js:644-680` where a
+        // `directory` truthy result emits 200 + `setHeader` and
+        // returns BEFORE the success-site `getHeaders` call. Listing
+        // responses therefore bypass `apply_custom_headers` (returned
+        // `headers_path` is `None`), matching reference behavior. JSON
+        // content negotiation, `unlisted`, and `renderSingle` land in
+        // slices 3-5.
+        ResolveOutcome::Directory(absolute) => {
+            if listing_view.applicable(&decoded_path) {
+                match render_listing_html(&absolute, &decoded_path, root).await {
+                    Ok(resp) => (resp, None),
+                    Err(_) => {
+                        let resp = error_response(
+                            StatusCode::NOT_FOUND,
+                            req.headers(),
+                            root,
+                            header_rules,
+                            &decoded_path,
+                            false,
+                        )
+                        .await;
+                        (resp, None)
+                    }
+                }
+            } else {
+                let resp = error_response(
+                    StatusCode::NOT_FOUND,
+                    req.headers(),
+                    root,
+                    header_rules,
+                    &decoded_path,
+                    false,
+                )
+                .await;
+                (resp, None)
+            }
         }
         ResolveOutcome::NotFound => {
             let resp = error_response(
