@@ -1,0 +1,54 @@
+{
+  "$schemaVersion": 1,
+  "case": "rewrites-chain",
+  "description": "Recursive chaining: a rewrite whose destination matches another rewrite's source. Stage 6e (D-013). Mirrors serve-handler/src/index.js:91-117 'applyRewrites' which removes the matched rule and recurses on the rewritten path. Two rules of the form A→B and B→C; only the final destination file (/c.html) exists. The expected response body is the contents of /c.html, proving that two chained rewrites resolve to a single serve.",
+  "fixture": {
+    "files": {
+      "c.html": "<p>chain-target</p>\n"
+    },
+    "serveJson": {
+      "rewrites": [
+        {
+          "source": "/a",
+          "destination": "/b"
+        },
+        {
+          "source": "/b",
+          "destination": "/c.html"
+        }
+      ]
+    }
+  },
+  "serveArgs": [],
+  "volatileHeaders": [
+    "last-modified"
+  ],
+  "volatileBodies": [],
+  "requests": [
+    {
+      "name": "chain_a_to_b_to_c",
+      "request": {
+        "method": "GET",
+        "mode": "fetch",
+        "path": "/a"
+      },
+      "response": {
+        "body": {
+          "kind": "text",
+          "length": 20,
+          "sha256": "4ec3bb5c960606d325e5af4106c262bb00de8692d494ab580852dcc7cf24291e",
+          "preview": "<p>chain-target</p>\n"
+        },
+        "headers": {
+          "accept-ranges": "bytes",
+          "content-length": "20",
+          "content-type": "text/html; charset=utf-8",
+          "etag": "\"e2a04d2833335fb15e135b6da2efaa8da93052bd\"",
+          "vary": "Accept-Encoding"
+        },
+        "status": 200,
+        "statusText": "OK"
+      }
+    }
+  ]
+}
