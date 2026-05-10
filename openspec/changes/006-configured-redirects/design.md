@@ -545,6 +545,22 @@ plan:
     trailing `\`); deferred to a future round if a user reports
     it as blocking.
 
+13. **Latin-1 case-folding vs Unicode special folds (Codex round
+    13 P1 — partial fix + documented divergence).** Round 12
+    used `eq_ignore_ascii_case` for Literal and Rust's Unicode-
+    default `case_insensitive(true)` for Pattern. Two divergences
+    from JS regex `i` (no `u` flag): (a) Literal under-matched
+    Latin-1 — `/Ä` missed `/ä`; (b) Pattern over-matched special
+    folds — Kelvin sign U+212A `K` matched ASCII `k` (JS without
+    `u` flag would NOT). Decision (per project rule 9 — "3+
+    consecutive review rounds → declare compat level"): switch
+    Literal to Unicode-aware `to_lowercase()` (covers Latin-1,
+    unifies semantics with Pattern); document special-fold
+    over-match as known divergence. Bug-for-bug parity would
+    require a custom JS-compatible case-folding table for limited
+    real-world value (URLs almost never contain special-fold
+    codepoints). Pinned by ORC-144..147 (Latin-1).
+
 ## 9. Hard stops
 
 - `third_party/` — read-only.

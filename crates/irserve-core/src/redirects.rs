@@ -943,12 +943,29 @@ impl DestTemplate {
 /// `case_sensitive: true` is for `Literal.source_mm`, which mirrors
 /// minimatch's default case-sensitive comparison. Codex review
 /// round 12 P1.
+///
+/// Case-insensitive comparison uses Rust's Unicode-aware
+/// `to_lowercase` (same semantics as
+/// `regex::RegexBuilder::case_insensitive(true)`'s default), so
+/// `/Ä` matches `/ä`, mirroring JS regex `i` flag's Latin-1
+/// folding. The residual divergence is on Unicode special folds
+/// (Kelvin sign U+212A → ASCII `k`, ﬃ ligature → `ffi`, etc.):
+/// JS regex `i` *without* the `u` flag does NOT apply these folds,
+/// but Rust's Unicode default DOES. Documented as a known
+/// divergence in D-012 (Codex review round 13 P1) — bug-for-bug
+/// parity here would require shipping a custom JS-specific
+/// case-folding table for limited real-world value (URLs almost
+/// never contain special-fold codepoints).
 fn literal_matches(source: &str, path: &str, case_sensitive: bool) -> bool {
     let eq = |a: &str, b: &str| -> bool {
         if case_sensitive {
             a == b
         } else {
-            a.eq_ignore_ascii_case(b)
+            // Unicode-aware lowercase. Matches Rust regex's
+            // `case_insensitive(true)` semantics so the Literal
+            // and Pattern matchers behave identically on the
+            // path-to-regexp branch.
+            a.to_lowercase() == b.to_lowercase()
         }
     };
     if eq(source, path) {
@@ -1107,10 +1124,18 @@ fn compile_source_regex(slashed: &str) -> Result<regex::Regex, regex::Error> {
     pattern.push_str("/?$");
     // Path-to-regexp v3.3.0 ships its compiled regex with the `i`
     // flag by default, so source `/Case` matches `/case`. Mirror via
-    // `RegexBuilder::case_insensitive(true)`. ASCII-only is enough
-    // for parity — JS's regex `i` flag without `u` does ASCII case-
-    // folding, and our path inputs are URL paths that most callers
-    // confine to ASCII. Codex review round 12 P1.
+    // `RegexBuilder::case_insensitive(true)`. Codex review round 12
+    // P1.
+    //
+    // Round 13 P1 surfaced that Rust's Unicode-default folding
+    // diverges from JS regex `i` (without the `u` flag) on special
+    // folds: Kelvin sign U+212A → ASCII `k` matches in Rust but NOT
+    // in JS. JS's `i` flag covers ASCII + simple Latin-1 folds
+    // only. Documented as a known divergence in D-012 — bug-for-bug
+    // parity would require a custom JS-specific case-folding table
+    // for limited real-world value (URLs almost never contain
+    // special-fold codepoints). The practical Latin-1 case (`/Ä`
+    // matches `/ä`) is supported by both Rust and JS folding.
     regex::RegexBuilder::new(&pattern)
         .case_insensitive(true)
         .build()
@@ -1472,6 +1497,39 @@ mod tests {
         let (target, _) = compute_configured_redirects("/s/x", &rules2)
             .expect("`/S/*` should match `/s/x`");
         assert_eq!(target, "/star");
+    }
+
+    #[test]
+    fn literal_source_matches_latin1_case_insensitively() {
+        // Codex review round 13 P1: `eq_ignore_ascii_case` (round
+        // 12) handled ASCII case-folding only, so source `/Ä`
+        // missed request `/ä` while reference (path-to-regexp v3.3.0
+        // with default `i` flag) matched. Empirical: `/Ä/i.test('ä')`
+        // is true in JS. Round 13 switched to Unicode-aware
+        // `to_lowercase`, which folds Latin-1 letters with
+        // diacritics — the practical case for German/French/Spanish
+        // URLs.
+        let rules = compile(&[rule("/Ä", "/umlaut", None)]);
+        let (target, _) = compute_configured_redirects("/ä", &rules)
+            .expect("Latin-1 `/Ä` should match `/ä` (path-to-regexp `i` flag, simple folds)");
+        assert_eq!(target, "/umlaut");
+        let rules2 = compile(&[rule("/É/path", "/eacute", None)]);
+        assert!(compute_configured_redirects("/é/path", &rules2).is_some());
+    }
+
+    #[test]
+    fn pattern_source_matches_latin1_case_insensitively() {
+        // Same fix applies to Pattern matchers. The Rust regex was
+        // already Unicode-aware (`case_insensitive(true)` defaults
+        // to Unicode folding), so this test is a control: confirm
+        // round 13's documented behavior holds for `:name` and `*`
+        // sources too.
+        let rules = compile(&[rule("/Ö/:id", "/oslash/:id", None)]);
+        let (target, _) = compute_configured_redirects("/ö/Foo", &rules)
+            .expect("Latin-1 `/Ö/:id` should match `/ö/Foo`");
+        assert_eq!(target, "/oslash/Foo");
+        let rules2 = compile(&[rule("/Ü/*", "/uumlaut", None)]);
+        assert!(compute_configured_redirects("/ü/x", &rules2).is_some());
     }
 
     #[test]

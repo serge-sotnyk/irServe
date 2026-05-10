@@ -925,3 +925,67 @@
   --snapshot=verify` 58/58 (was 57); `npx -y
   @fission-ai/openspec@latest validate --all --strict` —
   14/14.
+
+## 16. Codex review round 13 (P1 fix; partial — special folds documented as known divergence)
+
+- [x] 16.1 **P1 — Latin-1 vs Unicode special-fold asymmetry.**
+  Round 12 used `eq_ignore_ascii_case` for `Literal.source_ptr`
+  (ASCII-only) and `RegexBuilder::case_insensitive(true)` for
+  `Pattern.regex` (Rust's Unicode-default folding). Two
+  empirically-verified divergences from path-to-regexp v3.3.0's
+  default `i` flag (a JS regex `i` without `u`):
+  - **Latin-1 under-match (Literal):** `/Ä/i.test('ä') === true`
+    in JS, but `eq_ignore_ascii_case('/Ä', '/ä')` is false in
+    Rust. Source `/Ä` missed request `/ä`.
+  - **Special-fold over-match (Pattern):** Kelvin sign
+    `K` (U+212A) folds to ASCII `k` in Rust's Unicode default
+    but NOT in JS without `u` flag (`new RegExp('K', 'i').test('k')
+    === false`). Source `/K/:id` (Kelvin K) wrongly matched
+    `/k/Foo` in IrServe.
+
+  Fix scope (per project rule 9 — "3+ consecutive review rounds
+  on the same subsystem → declare compat level"): fix the
+  Latin-1 case (the practical real-world case for German/French/
+  Spanish URLs); document special-fold over-match as a known
+  divergence. Bug-for-bug parity would require shipping a
+  custom JS-specific case-folding table for limited real-world
+  value.
+- [x] 16.2 Implementation: switch Literal's case-insensitive
+  comparison from `eq_ignore_ascii_case` to Unicode-aware
+  `to_lowercase()`. This unifies Literal and Pattern semantics
+  on the path-to-regexp branch — both now use Rust's Unicode
+  default folding. The `compile_source_regex` path is unchanged
+  (already Unicode-aware via `RegexBuilder`); doc-comment
+  updated to reflect the residual divergence.
+- [x] 16.3 Two new unit tests in `redirects.rs`:
+  - `literal_source_matches_latin1_case_insensitively` —
+    `/Ä` matches `/ä`, `/É/path` matches `/é/path`. Pins the
+    Round-13 fix.
+  - `pattern_source_matches_latin1_case_insensitively` —
+    `/Ö/:id` matches `/ö/Foo` and the captured value `Foo` is
+    preserved verbatim (case-folding does not normalize
+    captures). Control: confirms Pattern handles Latin-1 the
+    same way Literal does.
+
+  Redirects suite goes 94 → 96.
+- [x] 16.4 New probe
+  `tools/probe/cases/redirects-latin1-case.json` (4 anchors,
+  ORC-144..147). Three rules (Literal `/Ä`, Literal mid-path
+  `/É/path`, Pattern `/Ö/:id`) × four request shapes covering
+  Latin-1 case folding. Reference snapshot captured with
+  `--target=reference --snapshot=update`; irserve verified
+  clean.
+- [x] 16.5 D-012 in `decisions.md` extended with the round-13
+  P1 narrative and the explicit residual divergence on
+  Unicode special folds (Kelvin sign, ﬃ ligature, etc.);
+  oracle-matrix.md ORC-144..147 added; inventory.md
+  SRV-RDIR-001 oracle list extended through ORC-147;
+  `006-configured-redirects` delta `specs/redirects/spec.md`
+  updated to "65 anchors" over the `ORC-084..ORC-147` range.
+- [x] 16.6 Verify: `cargo test -p irserve-core redirects`
+  96/96 green (was 94); `cargo test --test oracle` 38 passed
+  (was 37, +1 case from new probe), 21 skipped, 0 failed;
+  `node tools/probe/run.mjs --all --target=reference
+  --snapshot=verify` 59/59 (was 58); `npx -y
+  @fission-ai/openspec@latest validate --all --strict` —
+  14/14.

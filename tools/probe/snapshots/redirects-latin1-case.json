@@ -1,0 +1,113 @@
+{
+  "$schemaVersion": 1,
+  "case": "redirects-latin1-case",
+  "description": "Codex round 13 P1: path-to-regexp v3.3.0's default `i` flag folds Latin-1 letters with diacritics (Ä↔ä, É↔é, Ö↔ö, Ü↔ü) — verified empirically via `/Ä/i.test('ä') === true` in JS. Round 12's `eq_ignore_ascii_case` Literal handled ASCII only, missing the Latin-1 folds. Round 13 switched to Unicode-aware `to_lowercase`. Pattern matchers were already Unicode-aware via Rust's `regex::RegexBuilder::case_insensitive(true)`. The residual divergence on Unicode special folds (Kelvin sign U+212A, ﬃ ligature, etc.) is documented as a known divergence in D-012; URLs almost never contain special-fold codepoints.",
+  "fixture": {
+    "files": {
+      "_marker.txt": "marker\n"
+    },
+    "serveJson": {
+      "redirects": [
+        {
+          "source": "/Ä",
+          "destination": "/umlaut"
+        },
+        {
+          "source": "/É/path",
+          "destination": "/eacute"
+        },
+        {
+          "source": "/Ö/:id",
+          "destination": "/oslash/:id"
+        }
+      ]
+    }
+  },
+  "serveArgs": [],
+  "volatileHeaders": [
+    "last-modified"
+  ],
+  "volatileBodies": [],
+  "requests": [
+    {
+      "name": "literal_latin1_lowercase_request",
+      "request": {
+        "method": "GET",
+        "mode": "fetch",
+        "path": "/ä"
+      },
+      "response": {
+        "body": {
+          "kind": "empty",
+          "length": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        "headers": {
+          "location": "/umlaut"
+        },
+        "status": 301,
+        "statusText": "Moved Permanently"
+      }
+    },
+    {
+      "name": "literal_latin1_same_case",
+      "request": {
+        "method": "GET",
+        "mode": "fetch",
+        "path": "/Ä"
+      },
+      "response": {
+        "body": {
+          "kind": "empty",
+          "length": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        "headers": {
+          "location": "/umlaut"
+        },
+        "status": 301,
+        "statusText": "Moved Permanently"
+      }
+    },
+    {
+      "name": "literal_latin1_with_segment",
+      "request": {
+        "method": "GET",
+        "mode": "fetch",
+        "path": "/é/path"
+      },
+      "response": {
+        "body": {
+          "kind": "empty",
+          "length": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        "headers": {
+          "location": "/eacute"
+        },
+        "status": 301,
+        "statusText": "Moved Permanently"
+      }
+    },
+    {
+      "name": "pattern_latin1_param_capture",
+      "request": {
+        "method": "GET",
+        "mode": "fetch",
+        "path": "/ö/Foo"
+      },
+      "response": {
+        "body": {
+          "kind": "empty",
+          "length": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        "headers": {
+          "location": "/oslash/Foo"
+        },
+        "status": 301,
+        "statusText": "Moved Permanently"
+      }
+    }
+  ]
+}
