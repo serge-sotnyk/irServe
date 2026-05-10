@@ -400,18 +400,44 @@ async fn dispatch_inner(
                     }
                 }
                 Ok(RenderResult::Single { path, bytes }) => {
-                    // Headers-path is the URL form `<request>/<filename>`.
-                    // Reference's `getHeaders(.., absolutePath, stats)` at
-                    // `index.js:746` matches against the file's path
-                    // relative to served root; for a single file under a
-                    // listed directory that is the URL form built here.
-                    let prefix = if decoded_path.ends_with('/') {
-                        decoded_path.clone().into_owned()
-                    } else {
-                        format!("{}/", decoded_path)
+                    // Headers-path mirrors reference's `getHeaders(..,
+                    // absolutePath, stats)` at `index.js:746`, which
+                    // sees the file's actual filesystem path relative
+                    // to served root — NOT the original request URL.
+                    // After a rewrite (`/old → /docs`) where
+                    // renderSingle fires for `docs/photo.png`,
+                    // reference's `absolutePath` was overridden to the
+                    // rewritten file at `index.js:649-665`; so a header
+                    // rule with `source: "/docs/photo.png"` matches and
+                    // a rule for `/old/photo.png` does not (Codex
+                    // review round 2 P2 finding). `path` here is the
+                    // canonical absolute path returned from `resolve()`
+                    // (which is also containment-checked against
+                    // `root`); strip_prefix yields the under-root
+                    // relative form.
+                    let url = match path.strip_prefix(root) {
+                        Ok(rel) => {
+                            let mut s = String::from("/");
+                            s.push_str(&rel.to_string_lossy().replace('\\', "/"));
+                            s
+                        }
+                        // Defensive fallback: containment check upstream
+                        // makes this branch unreachable. If the prefix
+                        // strip ever fails, fall back to the request
+                        // URL form so headers still get a chance to
+                        // apply, rather than silently leaking an
+                        // absolute filesystem path.
+                        Err(_) => {
+                            let prefix = if decoded_path.ends_with('/') {
+                                decoded_path.clone().into_owned()
+                            } else {
+                                format!("{}/", decoded_path)
+                            };
+                            let filename =
+                                path.file_name().and_then(|s| s.to_str()).unwrap_or("");
+                            format!("{prefix}{filename}")
+                        }
                     };
-                    let filename = path.file_name().and_then(|s| s.to_str()).unwrap_or("");
-                    let url = format!("{prefix}{filename}");
                     (file_response(&path, bytes), Some(url))
                 }
                 Err(_) => {

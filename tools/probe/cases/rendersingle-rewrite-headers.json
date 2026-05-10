@@ -1,0 +1,31 @@
+{
+  "id": "rendersingle-rewrite-headers",
+  "description": "renderSingle fires for the rewritten directory; custom headers match against the served file's path (under the REWRITTEN target), not the original request URL. Reference overrides `absolutePath` at `serve-handler/src/index.js:649-665` and runs `getHeaders` on the resolved file path at `index.js:746`. Codex review round 2 P2 regression guard.",
+  "fixture": {
+    "files": {
+      "docs/photo.png": { "base64": "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR4nGNgAAIAAAUAAeImBZsAAAAASUVORK5CYII=" }
+    },
+    "serveJson": {
+      "renderSingle": true,
+      "rewrites": [
+        { "source": "/old", "destination": "/docs" }
+      ],
+      "headers": [
+        { "source": "/docs/photo.png", "headers": [{ "key": "X-Tag", "value": "docs" }] },
+        { "source": "/old/photo.png", "headers": [{ "key": "X-Tag", "value": "old" }] }
+      ]
+    }
+  },
+  "snapshot": {
+    "extraTrackedHeaders": ["x-tag"]
+  },
+  "runner": {
+    "l0": {
+      "clean": ["rewrite_to_single_with_headers"],
+      "divergent": []
+    }
+  },
+  "requests": [
+    { "name": "rewrite_to_single_with_headers", "method": "GET", "path": "/old" }
+  ]
+}

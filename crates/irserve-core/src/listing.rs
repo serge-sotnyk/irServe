@@ -32,7 +32,7 @@ use globset::{GlobBuilder, GlobMatcher};
 use serde::Serialize;
 
 use crate::config::BoolOrGlobs;
-use crate::normalize::collapse_slashes;
+use crate::path_pattern::path_posix_resolve;
 
 /// Outcome of attempting to render a directory listing.
 ///
@@ -186,45 +186,28 @@ impl DirectoryListingView {
     /// `serve-handler/src/index.js:256-274` and `index.js:336`. Returns
     /// `true` when the listing branch should fire for the given path.
     ///
-    /// Path normalization uses `posix_resolve` (collapse runs of `/`,
-    /// then strip trailing `/` except at root) to mirror the
-    /// reference's `path.posix.resolve(requestPath)` inside
-    /// `sourceMatches` (`serve-handler/src/index.js:38-67`). Without
-    /// the trailing-slash trim, a normal directory request like
-    /// `GET /docs/` against `directoryListing: ["/docs"]` would not
-    /// match (Codex review round 1 P1 finding).
+    /// Normalization uses the crate-shared `path_posix_resolve` helper
+    /// (`crates/irserve-core/src/path_pattern.rs:680-733`) — the same
+    /// implementation that backs the redirect/rewrite/header
+    /// matchers. It mirrors Node's `path.posix.resolve(requestPath)`
+    /// at `serve-handler/src/index.js:41`: collapse `//` runs, resolve
+    /// `.` and `..` segments (an absolute path's `..` above root is
+    /// silently dropped), and trim a single trailing `/` (root `/`
+    /// preserved). Without this, requests like `GET /docs/` /
+    /// `GET /docs/./` / `GET /docs/sub/../` would each fail to match
+    /// `directoryListing: ["/docs"]` (Codex review rounds 1 P1 +
+    /// 2 P2 findings).
     pub fn applicable(&self, decoded_path: &str) -> bool {
         match &self.inner {
             Mode::Off => false,
             Mode::On => true,
             Mode::Scoped(patterns) => {
-                let normalized = posix_resolve(decoded_path);
+                let normalized = path_posix_resolve(decoded_path);
                 patterns
                     .iter()
                     .any(|p| p.matcher.is_match(&normalized) ^ p.negate)
             }
         }
-    }
-}
-
-/// Approximation of Node's `path.posix.resolve(requestPath)` for
-/// scope-check purposes: collapse runs of `/` and strip a trailing
-/// `/` (preserving the root `/`). Mirrors `sourceMatches` at
-/// `serve-handler/src/index.js:38-67`.
-///
-/// Note: only `DirectoryListingView::applicable` uses this. `cleanUrls`
-/// scope (`crates/irserve-core/src/clean_urls.rs:114-133`) historically
-/// uses `collapse_slashes` only and has not been observed to mismatch
-/// because cleanUrls 301 fires on `.html` / `/index` suffixes, neither
-/// of which carries a trailing slash. If Stage 7+ surfaces a parallel
-/// trailing-slash mismatch in cleanUrls, harmonize via a shared helper.
-fn posix_resolve(path: &str) -> String {
-    let collapsed = collapse_slashes(path);
-    let s = collapsed.as_ref();
-    if s == "/" || !s.ends_with('/') {
-        s.to_string()
-    } else {
-        s.trim_end_matches('/').to_string()
     }
 }
 

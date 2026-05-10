@@ -1,0 +1,24 @@
+{
+  "id": "listing-scoped-dot-segments",
+  "description": "Scoped `directoryListing: [\"/docs\"]` matches `GET /docs/./` and `GET /docs/sub/../` because reference's `sourceMatches` runs `path.posix.resolve(requestPath)` which collapses `.` and `..` segments. Codex review round 2 P2 regression guard.",
+  "fixture": {
+    "files": {
+      "docs/a.txt": "a\n",
+      "docs/sub/b.txt": "b\n"
+    },
+    "serveJson": {
+      "directoryListing": ["/docs"]
+    }
+  },
+  "runner": {
+    "l0": {
+      "clean": ["docs_dot_segment", "docs_sub_parent_segment"],
+      "divergent": [],
+      "bodyMayDiffer": ["docs_dot_segment", "docs_sub_parent_segment"]
+    }
+  },
+  "requests": [
+    { "name": "docs_dot_segment", "method": "GET", "path": "/docs/./" },
+    { "name": "docs_sub_parent_segment", "method": "GET", "path": "/docs/sub/../" }
+  ]
+}

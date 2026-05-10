@@ -1,0 +1,67 @@
+{
+  "$schemaVersion": 1,
+  "case": "listing-scoped-dot-segments",
+  "description": "Scoped `directoryListing: [\"/docs\"]` matches `GET /docs/./` and `GET /docs/sub/../` because reference's `sourceMatches` runs `path.posix.resolve(requestPath)` which collapses `.` and `..` segments. Codex review round 2 P2 regression guard.",
+  "fixture": {
+    "files": {
+      "docs/a.txt": "a\n",
+      "docs/sub/b.txt": "b\n"
+    },
+    "serveJson": {
+      "directoryListing": [
+        "/docs"
+      ]
+    }
+  },
+  "serveArgs": [],
+  "volatileHeaders": [
+    "last-modified"
+  ],
+  "volatileBodies": [],
+  "requests": [
+    {
+      "name": "docs_dot_segment",
+      "request": {
+        "method": "GET",
+        "mode": "fetch",
+        "path": "/docs/./"
+      },
+      "response": {
+        "body": {
+          "kind": "text",
+          "length": 4471,
+          "sha256": "d013927348973f5c6b4e77acc92ebd86c382dda87859727ac477279e5ca48ef3",
+          "preview": "<!DOCTYPE html><html lang=\"en\"> <head> <meta charset=\"utf-8\"> <meta name=\"viewport\" content=\"width=device-width, initial-scale=1\"> <title>Files within <FIXTURE_BASENAME>\\docs\\</title> <style>body { ma"
+        },
+        "headers": {
+          "content-type": "text/html; charset=utf-8",
+          "vary": "Accept-Encoding"
+        },
+        "status": 200,
+        "statusText": "OK"
+      }
+    },
+    {
+      "name": "docs_sub_parent_segment",
+      "request": {
+        "method": "GET",
+        "mode": "fetch",
+        "path": "/docs/sub/../"
+      },
+      "response": {
+        "body": {
+          "kind": "text",
+          "length": 4471,
+          "sha256": "d013927348973f5c6b4e77acc92ebd86c382dda87859727ac477279e5ca48ef3",
+          "preview": "<!DOCTYPE html><html lang=\"en\"> <head> <meta charset=\"utf-8\"> <meta name=\"viewport\" content=\"width=device-width, initial-scale=1\"> <title>Files within <FIXTURE_BASENAME>\\docs\\</title> <style>body { ma"
+        },
+        "headers": {
+          "content-type": "text/html; charset=utf-8",
+          "vary": "Accept-Encoding"
+        },
+        "status": 200,
+        "statusText": "OK"
+      }
+    }
+  ]
+}
