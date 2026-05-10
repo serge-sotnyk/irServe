@@ -1,0 +1,139 @@
+{
+  "$schemaVersion": 1,
+  "case": "redirects-case-insensitivity",
+  "description": "Codex round 12 P1: path-to-regexp v3.3.0 ships its compiled regex with the `i` flag by default, so source patterns are case-insensitive on the path-to-regexp branch. Pinned by inspecting `pathToRegExp('/Case').flags === 'i'`. Reference matches `/Case → /literal-case` against request `/case`, `/P/:id → /param/:id` against `/p/Foo`, and `/S/* → /star` against `/s/x`. Control case `/G/? → /g` against `/g/a` is 404 because path-to-regexp parses `?` as a literal (no match) and minimatch (case-sensitive by default) doesn't accept the case-mismatched `g`.",
+  "fixture": {
+    "files": {
+      "_marker.txt": "marker\n"
+    },
+    "serveJson": {
+      "redirects": [
+        {
+          "source": "/Case",
+          "destination": "/literal-case"
+        },
+        {
+          "source": "/P/:id",
+          "destination": "/param/:id"
+        },
+        {
+          "source": "/S/*",
+          "destination": "/star"
+        },
+        {
+          "source": "/G/?",
+          "destination": "/g"
+        }
+      ]
+    }
+  },
+  "serveArgs": [],
+  "volatileHeaders": [
+    "last-modified"
+  ],
+  "volatileBodies": [],
+  "requests": [
+    {
+      "name": "literal_case_matches_lowercase",
+      "request": {
+        "method": "GET",
+        "mode": "fetch",
+        "path": "/case"
+      },
+      "response": {
+        "body": {
+          "kind": "empty",
+          "length": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        "headers": {
+          "location": "/literal-case"
+        },
+        "status": 301,
+        "statusText": "Moved Permanently"
+      }
+    },
+    {
+      "name": "literal_case_matches_same_case",
+      "request": {
+        "method": "GET",
+        "mode": "fetch",
+        "path": "/Case"
+      },
+      "response": {
+        "body": {
+          "kind": "empty",
+          "length": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        "headers": {
+          "location": "/literal-case"
+        },
+        "status": 301,
+        "statusText": "Moved Permanently"
+      }
+    },
+    {
+      "name": "pattern_param_case_insensitive",
+      "request": {
+        "method": "GET",
+        "mode": "fetch",
+        "path": "/p/Foo"
+      },
+      "response": {
+        "body": {
+          "kind": "empty",
+          "length": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        "headers": {
+          "location": "/param/Foo"
+        },
+        "status": 301,
+        "statusText": "Moved Permanently"
+      }
+    },
+    {
+      "name": "pattern_star_case_insensitive",
+      "request": {
+        "method": "GET",
+        "mode": "fetch",
+        "path": "/s/x"
+      },
+      "response": {
+        "body": {
+          "kind": "empty",
+          "length": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        "headers": {
+          "location": "/star"
+        },
+        "status": 301,
+        "statusText": "Moved Permanently"
+      }
+    },
+    {
+      "name": "glob_only_remains_case_sensitive",
+      "request": {
+        "method": "GET",
+        "mode": "fetch",
+        "path": "/g/a"
+      },
+      "response": {
+        "body": {
+          "kind": "text",
+          "length": 1641,
+          "sha256": "8c45c679f40c3f81c111fbf2398d568189c3ab34d8a9704ad225cd8efe1b819f",
+          "preview": "<!DOCTYPE html><head> <meta name=\"viewport\" content=\"width=device-width, initial-scale=1, user-scalable=no\"/> <style> body { margin: 0; font-family: -apple-system, BlinkMacSystemFont, \"Segoe UI\", \"Rob"
+        },
+        "headers": {
+          "content-type": "text/html; charset=utf-8",
+          "vary": "Accept-Encoding"
+        },
+        "status": 404,
+        "statusText": "Not Found"
+      }
+    }
+  ]
+}

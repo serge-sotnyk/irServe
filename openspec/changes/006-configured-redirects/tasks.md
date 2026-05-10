@@ -847,3 +847,81 @@
   --snapshot=verify` 57/57 (was 56); `npx -y
   @fission-ai/openspec@latest validate --all --strict` —
   14/14.
+
+## 15. Codex review round 12 (P1 fix; P2 pushed back as known divergence)
+
+- [x] 15.1 **P1 — case-insensitive matching on the
+  path-to-regexp branch.** Empirical:
+  `pathToRegExp('/Case').flags === 'i'` — path-to-regexp v3.3.0
+  ships its compiled regex with the `i` flag by default, so
+  reference matches `/Case → /literal-case` against request
+  `/case`, `/P/:id → /param/:id` against `/p/Foo`, and
+  `/S/* → /star` against `/s/x`. The previous IrServe was
+  case-sensitive throughout. Fix: `literal_matches` takes a
+  new `case_sensitive: bool` parameter; the Literal arm of
+  `try_match` calls it with `false` for `source_ptr` (path-to-
+  regexp branch) and `true` for `source_mm` (minimatch branch).
+  `compile_source_regex` builds the Pattern matcher's regex
+  via `regex::RegexBuilder::case_insensitive(true)`. The Glob
+  matcher and the Pattern matcher's `glob_fallback` remain
+  case-sensitive — minimatch's default is `nocase: false`, so
+  both routes mirror minimatch.
+- [x] 15.2 Three new unit tests in `redirects.rs`:
+  - `literal_source_matches_case_insensitively_via_ptr_branch`
+    — `/Case` matches `/case`, `/Case`, plus a multi-segment
+    `/MyPath/Sub` against various casings.
+  - `pattern_source_matches_case_insensitively` — `/P/:id`
+    matches `/p/Foo` and the captured `Foo` is interpolated
+    verbatim (case-insensitive matching does not normalize
+    the captured value); `/S/*` matches `/s/x`.
+  - `glob_source_remains_case_sensitive` — control case:
+    `/G/?` against `/g/a` is 404 (path-to-regexp parses `?`
+    as literal so doesn't match; minimatch is case-sensitive).
+    Same-case `/G/a` matches via minimatch single-char glob.
+
+  Redirects suite goes 91 → 94.
+- [x] 15.3 New probe
+  `tools/probe/cases/redirects-case-insensitivity.json` (5
+  anchors, ORC-139..143). Four positive cases (Literal
+  lowercase, Literal same-case, Pattern `:name`, Pattern `*`)
+  plus one negative control (Glob-only `/G/?` against `/g/a`).
+  Reference snapshot captured with
+  `--target=reference --snapshot=update`; irserve verified
+  clean against the reference snapshot.
+- [x] 15.4 **P2 — segment-internal trailing `\` (pushed back
+  as platform-specific known divergence).** Codex's
+  reproduction `source: "/g/?\\/bar"` against
+  `/g/a%5C/bar` shows reference matches via minimatch but
+  IrServe doesn't. Empirical investigation (verified by
+  inspecting `Minimatch.matchOne` directly returning false
+  while `m.match()` returns true) traced the divergence to
+  `minimatch.js:742-745`:
+  `if (path.sep !== '/') { f = f.split(path.sep).join('/') }`.
+  This is filesystem-aware behavior — minimatch on Windows
+  treats `\` as a path separator and converts it to `/`
+  BEFORE segment matching. On Linux the same source/request
+  is 404 in reference too. Mirroring would require
+  `cfg!(target_os = "windows")` conditional code that
+  produces platform-divergent test behavior (same source/
+  request 404s on Linux but 301s on Windows) — an
+  anti-pattern for the IrServe codebase. The case is also
+  narrow (non-final glob segment with trailing `\`).
+  Documented as a known divergence in D-012 alongside `\*\*`
+  (per-alt parsing) and `{a\,b,c}` (brace-with-escaped-
+  comma). If a future user reports this, the fix would be a
+  Windows-only `\` → `/` normalization in `match_segments`,
+  scoped and clearly labeled.
+- [x] 15.5 D-012 in `decisions.md` extended with the
+  round-12 P1 fix narrative AND the round-12 P2 push-back
+  reasoning; oracle-matrix.md ORC-139..143 added;
+  inventory.md SRV-RDIR-001 oracle list extended through
+  ORC-143; `006-configured-redirects` delta
+  `specs/redirects/spec.md` updated to "61 anchors" over the
+  `ORC-084..ORC-143` range.
+- [x] 15.6 Verify: `cargo test -p irserve-core redirects`
+  94/94 green (was 91); `cargo test --test oracle` 37 passed
+  (was 36, +1 case from new probe), 21 skipped, 0 failed;
+  `node tools/probe/run.mjs --all --target=reference
+  --snapshot=verify` 58/58 (was 57); `npx -y
+  @fission-ai/openspec@latest validate --all --strict` —
+  14/14.

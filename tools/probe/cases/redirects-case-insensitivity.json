@@ -1,0 +1,43 @@
+{
+  "id": "redirects-case-insensitivity",
+  "description": "Codex round 12 P1: path-to-regexp v3.3.0 ships its compiled regex with the `i` flag by default, so source patterns are case-insensitive on the path-to-regexp branch. Pinned by inspecting `pathToRegExp('/Case').flags === 'i'`. Reference matches `/Case → /literal-case` against request `/case`, `/P/:id → /param/:id` against `/p/Foo`, and `/S/* → /star` against `/s/x`. Control case `/G/? → /g` against `/g/a` is 404 because path-to-regexp parses `?` as a literal (no match) and minimatch (case-sensitive by default) doesn't accept the case-mismatched `g`.",
+  "fixture": {
+    "files": {
+      "_marker.txt": "marker\n"
+    },
+    "serveJson": {
+      "redirects": [
+        { "source": "/Case", "destination": "/literal-case" },
+        { "source": "/P/:id", "destination": "/param/:id" },
+        { "source": "/S/*", "destination": "/star" },
+        { "source": "/G/?", "destination": "/g" }
+      ]
+    }
+  },
+  "runner": {
+    "l0": {
+      "clean": [
+        "literal_case_matches_lowercase",
+        "literal_case_matches_same_case",
+        "pattern_param_case_insensitive",
+        "pattern_star_case_insensitive",
+        "glob_only_remains_case_sensitive"
+      ],
+      "contentLengthMayDiffer": [
+        "literal_case_matches_lowercase",
+        "literal_case_matches_same_case",
+        "pattern_param_case_insensitive",
+        "pattern_star_case_insensitive",
+        "glob_only_remains_case_sensitive"
+      ],
+      "bodyMayDiffer": ["glob_only_remains_case_sensitive"]
+    }
+  },
+  "requests": [
+    { "name": "literal_case_matches_lowercase", "method": "GET", "path": "/case" },
+    { "name": "literal_case_matches_same_case", "method": "GET", "path": "/Case" },
+    { "name": "pattern_param_case_insensitive", "method": "GET", "path": "/p/Foo" },
+    { "name": "pattern_star_case_insensitive", "method": "GET", "path": "/s/x" },
+    { "name": "glob_only_remains_case_sensitive", "method": "GET", "path": "/g/a" }
+  ]
+}

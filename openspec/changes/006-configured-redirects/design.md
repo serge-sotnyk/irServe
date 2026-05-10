@@ -515,6 +515,36 @@ plan:
     fallback can never match a resolved path. Pinned by
     ORC-133..138.
 
+11. **Case-insensitive matching on the path-to-regexp branch
+    (Codex round 12 P1).** Empirical: `pathToRegExp('/Case').flags
+    === 'i'` — path-to-regexp v3.3.0 ships its compiled regex with
+    the `i` flag by default. Reference matches `/Case → /literal-
+    case` against `/case` and similar across `:name`/`*` Pattern
+    sources. Decision: `literal_matches` takes a `case_sensitive:
+    bool` parameter; the Literal arm calls it with `false` for
+    `source_ptr` (path-to-regexp) and `true` for `source_mm`
+    (minimatch). `compile_source_regex` uses
+    `RegexBuilder::case_insensitive(true)`. The Glob matcher and
+    Pattern's `glob_fallback` stay case-sensitive (minimatch
+    default `nocase: false`). Pinned by ORC-139..143.
+
+12. **Segment-internal trailing `\` in glob sources (Codex round
+    12 P2 — pushed back).** Codex's reproduction `source:
+    "/g/?\\/bar"` against request `/g/a%5C/bar` showed reference
+    matches but IrServe doesn't. Empirical investigation
+    (`Minimatch.matchOne` returns false directly; `m.match()`
+    returns true) traced the divergence to `minimatch.js:742-745`,
+    a Windows-only normalization
+    `f = f.split(path.sep).join('/')` that treats `\` as a path
+    separator. On Linux the same source/request is 404 in
+    reference too. Decision: pushed back as a platform-specific
+    known divergence — mirroring requires `cfg!(target_os =
+    "windows")` conditional code that creates platform-divergent
+    test behavior. Documented in D-012 alongside `\*\*` and
+    `{a\,b,c}`. The case is narrow (non-final glob segment with
+    trailing `\`); deferred to a future round if a user reports
+    it as blocking.
+
 ## 9. Hard stops
 
 - `third_party/` — read-only.

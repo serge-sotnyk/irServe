@@ -841,7 +841,9 @@ impl RedirectRuleCompiled {
                 source_mm,
                 destination,
             } => {
-                if literal_matches(source_ptr, path) {
+                // Path-to-regexp branch: case-insensitive (default
+                // `i` flag in v3.3.0). Codex review round 12 P1.
+                if literal_matches(source_ptr, path, false) {
                     return Some(destination.clone());
                 }
                 // Minimatch fallback for inner-`\X` sources like
@@ -851,9 +853,10 @@ impl RedirectRuleCompiled {
                 // mirror via direct string comparison against the
                 // raw source body — this is exact for the no-glob,
                 // no-trailing-backslash case which is when
-                // `source_mm` is `Some`.
+                // `source_mm` is `Some`. Case-SENSITIVE per
+                // minimatch's default `nocase: false`.
                 if let Some(mm) = source_mm {
-                    if literal_matches(mm, path) {
+                    if literal_matches(mm, path, true) {
                         return Some(destination.clone());
                     }
                 }
@@ -933,15 +936,29 @@ impl DestTemplate {
 /// `/old` and `/old/` (single optional trailing slash). We accept the
 /// flexion symmetrically so that requests with or without a trailing
 /// slash still hit literal redirect rules.
-fn literal_matches(source: &str, path: &str) -> bool {
-    if source == path {
+///
+/// `case_sensitive: false` mirrors path-to-regexp v3.3.0's default
+/// `i` flag on the compiled regex (verified by inspecting `flags`
+/// on the returned RegExp). Used for `Literal.source_ptr` matching.
+/// `case_sensitive: true` is for `Literal.source_mm`, which mirrors
+/// minimatch's default case-sensitive comparison. Codex review
+/// round 12 P1.
+fn literal_matches(source: &str, path: &str, case_sensitive: bool) -> bool {
+    let eq = |a: &str, b: &str| -> bool {
+        if case_sensitive {
+            a == b
+        } else {
+            a.eq_ignore_ascii_case(b)
+        }
+    };
+    if eq(source, path) {
         return true;
     }
     if !source.ends_with('/') && path.len() == source.len() + 1 && path.ends_with('/') {
-        return path[..source.len()] == *source;
+        return eq(&path[..source.len()], source);
     }
     if !path.ends_with('/') && source.len() == path.len() + 1 && source.ends_with('/') {
-        return source[..path.len()] == *path;
+        return eq(&source[..path.len()], path);
     }
     false
 }
@@ -1088,7 +1105,15 @@ fn compile_source_regex(slashed: &str) -> Result<regex::Regex, regex::Error> {
         }
     }
     pattern.push_str("/?$");
-    regex::Regex::new(&pattern)
+    // Path-to-regexp v3.3.0 ships its compiled regex with the `i`
+    // flag by default, so source `/Case` matches `/case`. Mirror via
+    // `RegexBuilder::case_insensitive(true)`. ASCII-only is enough
+    // for parity — JS's regex `i` flag without `u` does ASCII case-
+    // folding, and our path inputs are URL paths that most callers
+    // confine to ASCII. Codex review round 12 P1.
+    regex::RegexBuilder::new(&pattern)
+        .case_insensitive(true)
+        .build()
 }
 
 /// Pre-parse a destination string into literal + `:name` fragments.
@@ -1412,6 +1437,62 @@ mod tests {
         // Path without trailing `\`: must NOT match (regex
         // requires literal `\`, glob_fallback disabled).
         assert!(compute_configured_redirects("/v/x", &rules).is_none());
+    }
+
+    #[test]
+    fn literal_source_matches_case_insensitively_via_ptr_branch() {
+        // Codex review round 12 P1: path-to-regexp v3.3.0 ships
+        // the compiled regex with the `i` flag by default, so a
+        // literal source like `/Case` matches a request path
+        // `/case`. Empirical: `pathToRegExp('/Case').flags === 'i'`.
+        let rules = compile(&[rule("/Case", "/literal-case", None)]);
+        let (target, _) = compute_configured_redirects("/case", &rules)
+            .expect("Literal source `/Case` should match `/case` (path-to-regexp default `i`)");
+        assert_eq!(target, "/literal-case");
+        // Same-case still matches.
+        let (target, _) = compute_configured_redirects("/Case", &rules).unwrap();
+        assert_eq!(target, "/literal-case");
+        // Mixed case — anywhere in the source — also matches.
+        let rules2 = compile(&[rule("/MyPath/Sub", "/m", None)]);
+        assert!(compute_configured_redirects("/mypath/sub", &rules2).is_some());
+        assert!(compute_configured_redirects("/MYPATH/SUB", &rules2).is_some());
+    }
+
+    #[test]
+    fn pattern_source_matches_case_insensitively() {
+        // Codex review round 12 P1: the Pattern matcher's regex
+        // is now built with `RegexBuilder::case_insensitive(true)`,
+        // mirroring path-to-regexp's default `i`. Both `:name`
+        // and `*` sources are affected.
+        let rules = compile(&[rule("/P/:id", "/param/:id", None)]);
+        let (target, _) = compute_configured_redirects("/p/Foo", &rules)
+            .expect("`/P/:id` should match `/p/Foo` case-insensitively");
+        assert_eq!(target, "/param/Foo");
+        let rules2 = compile(&[rule("/S/*", "/star", None)]);
+        let (target, _) = compute_configured_redirects("/s/x", &rules2)
+            .expect("`/S/*` should match `/s/x`");
+        assert_eq!(target, "/star");
+    }
+
+    #[test]
+    fn glob_source_remains_case_sensitive() {
+        // Codex review round 12 P1 control case: minimatch
+        // (the Glob matcher and Pattern's glob_fallback) is
+        // case-sensitive by default (`nocase: false`). Sources
+        // that route through the Glob path remain case-sensitive
+        // — the empirical reference behavior is that
+        // `minimatch('/g/A', '/G/?')` is false.
+        let rules = compile(&[rule("/G/?", "/g", None)]);
+        // path-to-regexp parses `/G/?` as literal `?` (not a glob),
+        // so the regex match fails for `/g/a`. minimatch sees
+        // `?` as single-char glob but is case-sensitive, so
+        // `/G/?` against `/g/a` (lowercase `g`) does NOT match.
+        // Reference returns 404 here too (control case).
+        assert!(compute_configured_redirects("/g/a", &rules).is_none());
+        // Same-case path matches via minimatch single-char.
+        let (target, _) = compute_configured_redirects("/G/a", &rules)
+            .expect("`/G/?` should match `/G/a` (same case, ? glob)");
+        assert_eq!(target, "/g");
     }
 
     #[test]
