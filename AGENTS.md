@@ -18,6 +18,9 @@ Authoritative version with examples is in [README §Anti-hallucination rules](./
 5. Out-of-scope for MVP: Node middleware API, exact terminal output, exact HTML listing, bug-for-bug parity.
 6. Verify with probes against the pinned reference, not external installs.
 7. Stage discipline: inventory → specs → implementation proposals. Do not skip.
+8. Empirical-before-implement when mirroring a third-party library: 5-10 probes against the library *before* writing the equivalent.
+9. 3+ consecutive review rounds on the same subsystem → stop fixing, declare compat level, enumerate known divergences, ask user.
+10. Stages that mirror a non-trivial library MUST ship an explicit "out of scope for this stage" list in the plan/proposal.
 
 ## Pointers
 
