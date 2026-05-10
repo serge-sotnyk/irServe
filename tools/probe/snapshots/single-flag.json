@@ -1,0 +1,98 @@
+{
+  "$schemaVersion": 1,
+  "case": "single-flag",
+  "description": "SRV-CLI-008: `--single` SPA fallback. Per third_party/serve/source/main.ts:78-90 the CLI prepends a synthetic rewrite `{source: '**', destination: '/index.html'}` to the user's rewrites at config-load time, then runs the standard phase-7 rewrite pipeline. Three anchors: `spa_root` (GET / serves index.html via the catch-all), `spa_deep` (deep extensionless path served by the same rule), `spa_with_existing_html` (has-extension request whose original file exists — pre-stat asymmetry per openspec/specs/rewrites/spec.md:24-26 means the file is served directly, NOT replaced by the synthetic rewrite). cleanUrls is explicitly disabled in serve.json to isolate phase-7 behavior; with cleanUrls on (the default), the existing-html anchor would 301 via phase 4 instead of testing the pre-stat asymmetry.",
+  "fixture": {
+    "files": {
+      "index.html": "<p>spa-index</p>\n",
+      "existing.html": "<p>existing</p>\n"
+    },
+    "serveJson": {
+      "cleanUrls": false
+    }
+  },
+  "serveArgs": [
+    "--single"
+  ],
+  "volatileHeaders": [
+    "last-modified"
+  ],
+  "volatileBodies": [],
+  "requests": [
+    {
+      "name": "spa_root",
+      "request": {
+        "method": "GET",
+        "mode": "fetch",
+        "path": "/"
+      },
+      "response": {
+        "body": {
+          "kind": "text",
+          "length": 17,
+          "sha256": "a0afc801feefad44e7edcd0d4722792daedfacab6005c0b297e2ee19af2ef21e",
+          "preview": "<p>spa-index</p>\n"
+        },
+        "headers": {
+          "accept-ranges": "bytes",
+          "content-length": "17",
+          "content-type": "text/html; charset=utf-8",
+          "etag": "\"720266f7da0fae6ee705c1124d3ae515165e3958\"",
+          "vary": "Accept-Encoding"
+        },
+        "status": 200,
+        "statusText": "OK"
+      }
+    },
+    {
+      "name": "spa_deep",
+      "request": {
+        "method": "GET",
+        "mode": "fetch",
+        "path": "/some/deep/path"
+      },
+      "response": {
+        "body": {
+          "kind": "text",
+          "length": 17,
+          "sha256": "a0afc801feefad44e7edcd0d4722792daedfacab6005c0b297e2ee19af2ef21e",
+          "preview": "<p>spa-index</p>\n"
+        },
+        "headers": {
+          "accept-ranges": "bytes",
+          "content-length": "17",
+          "content-type": "text/html; charset=utf-8",
+          "etag": "\"720266f7da0fae6ee705c1124d3ae515165e3958\"",
+          "vary": "Accept-Encoding"
+        },
+        "status": 200,
+        "statusText": "OK"
+      }
+    },
+    {
+      "name": "spa_with_existing_html",
+      "request": {
+        "method": "GET",
+        "mode": "fetch",
+        "path": "/existing.html"
+      },
+      "response": {
+        "body": {
+          "kind": "text",
+          "length": 16,
+          "sha256": "25211d5a5329b83744ef424e4626f3ff38b085c812ac7959e28158780001a19a",
+          "preview": "<p>existing</p>\n"
+        },
+        "headers": {
+          "accept-ranges": "bytes",
+          "content-length": "16",
+          "content-type": "text/html; charset=utf-8",
+          "etag": "\"8551d410bb4dccd1b09702a325a0b618dd1707dc\"",
+          "vary": "Accept-Encoding"
+        },
+        "status": 200,
+        "statusText": "OK"
+      }
+    }
+  ]
+}

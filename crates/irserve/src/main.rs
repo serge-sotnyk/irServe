@@ -2,7 +2,7 @@ use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::path::PathBuf;
 
 use clap::{ArgAction, Parser};
-use irserve_core::{load_serve_json, run, ServerConfig};
+use irserve_core::{load_serve_json, run, RewriteRule, ServerConfig};
 
 #[derive(Parser)]
 #[command(
@@ -28,6 +28,16 @@ struct Cli {
 
     #[arg(short = 'c', long = "config", value_name = "PATH")]
     config: Option<PathBuf>,
+
+    /// SRV-CLI-008: rewrite all not-found requests to `/index.html`,
+    /// implemented as a high-priority rewrite that's prepended to the
+    /// user's `rewrites` list in `serve.json`. Mirrors
+    /// `third_party/serve/source/main.ts:78-90`. The synthetic rule
+    /// `{source: "**", destination: "/index.html"}` participates in
+    /// the standard phase-7 rewrite pipeline, so an earlier-firing
+    /// redirect (phase 6) still wins.
+    #[arg(short = 's', long = "single")]
+    single: bool,
 
     #[arg(value_name = "DIRECTORY", default_value = ".")]
     directory: PathBuf,
@@ -68,7 +78,23 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             ServeJson | Explicit => {}
         }
     }
-    let serve_config = loaded.map(|l| l.config).unwrap_or_default();
+    let mut serve_config = loaded.map(|l| l.config).unwrap_or_default();
+
+    // SRV-CLI-008: when `--single` is given, prepend a synthetic
+    // catch-all rewrite to `/index.html`. Mirrors
+    // `third_party/serve/source/main.ts:78-90` which prepends to
+    // the user's `rewrites` (so earlier user rules cannot override
+    // it from the same list — but a redirect in phase 6 still wins
+    // since redirects fire before rewrites).
+    if cli.single {
+        let mut combined = Vec::with_capacity(serve_config.rewrites.len() + 1);
+        combined.push(RewriteRule {
+            source: "**".to_string(),
+            destination: "/index.html".to_string(),
+        });
+        combined.extend(serve_config.rewrites.drain(..));
+        serve_config.rewrites = combined;
+    }
 
     let public_segment = serve_config.public.as_deref().unwrap_or(".");
     let root = cli.directory.join(public_segment).canonicalize()?;

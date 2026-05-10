@@ -1,0 +1,54 @@
+{
+  "$schemaVersion": 1,
+  "case": "single-with-rewrites",
+  "description": "Prepend-position contract: per third_party/serve/source/main.ts:78-90, `--single` prepends `{source: '**', destination: '/index.html'}` to the user's rewrites BEFORE evaluation. The synthetic rule wins for any path the user rule would also catch, because the catch-all matches first under first-match-wins iteration (and per Stage-6e D-013 chaining the matched rule is consumed; downstream user rules then receive the rewritten path /index.html which they don't match). Anchor `extensionless_user_path_shadowed_by_single`: GET /api/42 with user rule `/api/:id → /api/handler-:id.html` and --single returns the contents of /index.html, not /api/handler-42.html. cleanUrls disabled to isolate phase-7 behavior.",
+  "fixture": {
+    "files": {
+      "index.html": "<p>spa-index</p>\n",
+      "api/handler-42.html": "<p>handler-42</p>\n"
+    },
+    "serveJson": {
+      "cleanUrls": false,
+      "rewrites": [
+        {
+          "source": "/api/:id",
+          "destination": "/api/handler-:id.html"
+        }
+      ]
+    }
+  },
+  "serveArgs": [
+    "--single"
+  ],
+  "volatileHeaders": [
+    "last-modified"
+  ],
+  "volatileBodies": [],
+  "requests": [
+    {
+      "name": "extensionless_user_path_shadowed_by_single",
+      "request": {
+        "method": "GET",
+        "mode": "fetch",
+        "path": "/api/42"
+      },
+      "response": {
+        "body": {
+          "kind": "text",
+          "length": 17,
+          "sha256": "a0afc801feefad44e7edcd0d4722792daedfacab6005c0b297e2ee19af2ef21e",
+          "preview": "<p>spa-index</p>\n"
+        },
+        "headers": {
+          "accept-ranges": "bytes",
+          "content-length": "17",
+          "content-type": "text/html; charset=utf-8",
+          "etag": "\"720266f7da0fae6ee705c1124d3ae515165e3958\"",
+          "vary": "Accept-Encoding"
+        },
+        "status": 200,
+        "statusText": "OK"
+      }
+    }
+  ]
+}

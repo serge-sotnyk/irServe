@@ -1,0 +1,25 @@
+{
+  "id": "single-with-rewrites",
+  "description": "Prepend-position contract: per third_party/serve/source/main.ts:78-90, `--single` prepends `{source: '**', destination: '/index.html'}` to the user's rewrites BEFORE evaluation. The synthetic rule wins for any path the user rule would also catch, because the catch-all matches first under first-match-wins iteration (and per Stage-6e D-013 chaining the matched rule is consumed; downstream user rules then receive the rewritten path /index.html which they don't match). Anchor `extensionless_user_path_shadowed_by_single`: GET /api/42 with user rule `/api/:id → /api/handler-:id.html` and --single returns the contents of /index.html, not /api/handler-42.html. cleanUrls disabled to isolate phase-7 behavior.",
+  "fixture": {
+    "files": {
+      "index.html": "<p>spa-index</p>\n",
+      "api/handler-42.html": "<p>handler-42</p>\n"
+    },
+    "serveJson": {
+      "cleanUrls": false,
+      "rewrites": [
+        { "source": "/api/:id", "destination": "/api/handler-:id.html" }
+      ]
+    }
+  },
+  "serveArgs": ["--single"],
+  "runner": {
+    "l0": {
+      "clean": ["extensionless_user_path_shadowed_by_single"]
+    }
+  },
+  "requests": [
+    { "name": "extensionless_user_path_shadowed_by_single", "method": "GET", "path": "/api/42" }
+  ]
+}

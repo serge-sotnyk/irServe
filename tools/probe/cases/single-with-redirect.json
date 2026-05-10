@@ -1,0 +1,25 @@
+{
+  "id": "single-with-redirect",
+  "description": "Phase precedence: a configured redirect (phase 6) fires BEFORE the synthetic --single rewrite (phase 7). Per openspec/specs/routing/spec.md SRV-ROUT-006, redirects are evaluated before rewrites. With redirect /old → /new and --single set, GET /old must 301 to /new (NOT 200 with /index.html body via the SPA catch-all). Anchor: `redirect_wins_over_single`. cleanUrls is disabled to keep the test focused on the redirect-vs-rewrite ordering.",
+  "fixture": {
+    "files": {
+      "index.html": "<p>spa-index</p>\n"
+    },
+    "serveJson": {
+      "cleanUrls": false,
+      "redirects": [
+        { "source": "/old", "destination": "/new" }
+      ]
+    }
+  },
+  "serveArgs": ["--single"],
+  "runner": {
+    "l0": {
+      "clean": ["redirect_wins_over_single"],
+      "contentLengthMayDiffer": ["redirect_wins_over_single"]
+    }
+  },
+  "requests": [
+    { "name": "redirect_wins_over_single", "method": "GET", "path": "/old" }
+  ]
+}

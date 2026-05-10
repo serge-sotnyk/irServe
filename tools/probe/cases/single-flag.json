@@ -1,0 +1,24 @@
+{
+  "id": "single-flag",
+  "description": "SRV-CLI-008: `--single` SPA fallback. Per third_party/serve/source/main.ts:78-90 the CLI prepends a synthetic rewrite `{source: '**', destination: '/index.html'}` to the user's rewrites at config-load time, then runs the standard phase-7 rewrite pipeline. Three anchors: `spa_root` (GET / serves index.html via the catch-all), `spa_deep` (deep extensionless path served by the same rule), `spa_with_existing_html` (has-extension request whose original file exists — pre-stat asymmetry per openspec/specs/rewrites/spec.md:24-26 means the file is served directly, NOT replaced by the synthetic rewrite). cleanUrls is explicitly disabled in serve.json to isolate phase-7 behavior; with cleanUrls on (the default), the existing-html anchor would 301 via phase 4 instead of testing the pre-stat asymmetry.",
+  "fixture": {
+    "files": {
+      "index.html": "<p>spa-index</p>\n",
+      "existing.html": "<p>existing</p>\n"
+    },
+    "serveJson": {
+      "cleanUrls": false
+    }
+  },
+  "serveArgs": ["--single"],
+  "runner": {
+    "l0": {
+      "clean": ["spa_root", "spa_deep", "spa_with_existing_html"]
+    }
+  },
+  "requests": [
+    { "name": "spa_root", "method": "GET", "path": "/" },
+    { "name": "spa_deep", "method": "GET", "path": "/some/deep/path" },
+    { "name": "spa_with_existing_html", "method": "GET", "path": "/existing.html" }
+  ]
+}
