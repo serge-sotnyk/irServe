@@ -28,6 +28,7 @@ Concretely: take `vercel/serve` (a small but real Node.js static file server), r
 - **Stage 6g — directory listing (HTML / JSON, `unlisted`, `renderSingle`).** Done.
 - **Stage 6h — CLI fill-in (`tcp://`, `-p`, `--cors`, `--debug`, `--no-request-logging`, `--no-port-switching`).** Done.
 - **Stage 7a — ETag + 304 conditional GET.** Done.
+- **Stage 7b — `Last-Modified` + `--no-etag` + `If-Modified-Since`.** Done.
 
 Rust code lives under `crates/irserve` (the bin) and `crates/irserve-core` (the lib). The first slice (Stage 5b) is strict-L0: eight SRVs (`SRV-CLI-001/002/007/019`, `SRV-FILE-001/002/004/005`). Stage 6a un-defers SRV-CFG-001, SRV-CFG-002, and SRV-CLI-009 (`-c/--config`); the remaining capabilities are still deferred per `D-008`/`D-009`.
 
@@ -70,7 +71,7 @@ The methodology runs in nine stages. Status is updated when entering or completi
 | 6g | Directory listing (HTML / JSON, `unlisted`, `renderSingle`) | `openspec/changes/009-directory-listing` | done |
 | 6h | CLI fill-in (`tcp://`, `-p`, `--cors` L1, `--debug`, `--no-request-logging`, `--no-port-switching`) | `openspec/changes/010-cli-fill-in` | done |
 | 7a | ETag + 304 conditional GET | `openspec/changes/011-etag-conditional` | done |
-| 7b | `Last-Modified` + `--no-etag` + `If-Modified-Since` | `openspec/changes/012-last-modified` | todo |
+| 7b | `Last-Modified` + `--no-etag` + `If-Modified-Since` | `openspec/changes/012-last-modified` | done |
 | 7c | Range requests (`206`/`416`) | `openspec/changes/013-range-requests` | todo |
 | 7d | `Cache-Control` default + `OPTIONS` (CORS preflight) | `openspec/changes/014-cache-headers-and-preflight` | todo |
 | 7e | HTTP compression (`-u`/`--no-compression`) | `openspec/changes/015-compression` | todo |
@@ -230,6 +231,19 @@ curl -sI http://127.0.0.1:3010/asset.css | grep -i ^etag             # capture t
 curl -i -H 'If-None-Match: "<captured-etag>"' http://127.0.0.1:3010/asset.css   # 304, no body
 # Disable ETag per-deployment via serve.json: {"etag": false} (no header emitted, no 304).
 
+# Last-Modified + If-Modified-Since (Stage 7b, SRV-CACHE-002/003 + SRV-CLI-013, D-018).
+# Under --no-etag, the file response carries Last-Modified instead of ETag
+# (mutex per serve-handler/src/index.js:227-236).
+cargo run -- --no-etag --listen 3010 _tmp
+curl -sI http://127.0.0.1:3010/asset.css | grep -iE '^(etag|last-modified):'
+# Expect: last-modified: <IMF-fixdate UTC>; no etag header.
+# Then replay the captured Last-Modified as If-Modified-Since:
+curl -i -H 'If-Modified-Since: <captured-LM>' http://127.0.0.1:3010/asset.css   # 304, no body
+# (D-018 irserve adaptation — the pinned reference returns 200 here since it has no IMS branch.)
+# Malformed IMS is treated as absent per RFC 9111 §13.1.3:
+curl -i -H 'If-Modified-Since: not-a-date' http://127.0.0.1:3010/asset.css      # 200, full body
+# serve.json {"etag": false} achieves the same Last-Modified surface without the CLI flag.
+
 # Directory listing (Stage 6g). Default config — start in a directory
 # without index.html and request its root:
 # rm _tmp/index.html; touch _tmp/a.txt _tmp/b.txt; mkdir _tmp/sub
@@ -290,7 +304,7 @@ curl -s http://127.0.0.1:3010/ > /dev/null
 ```
 
 What is NOT yet observable (still deferred to Stage 7+ L3 polish):
-`Last-Modified`/`If-Modified-Since` conditional GETs, Range requests (`206`/`416`), default `Cache-Control`, full L3 CORS preflight surface, gzip compression, symlink resolution, TLS.
+Range requests (`206`/`416`), default `Cache-Control`, full L3 CORS preflight surface, gzip compression, symlink resolution, TLS.
 
 ## References
 
