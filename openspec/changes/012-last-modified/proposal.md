@@ -16,13 +16,13 @@ short-circuit irserve adapts on top of that branch.
 
 This change closes:
 
-- **SRV-CLI-013** (P1, `accepted` → exercised) — `--no-etag`
+- **SRV-CLI-013** (P1, `accepted` → `verified` via ORC-167) — `--no-etag`
   CLI flag, long-only, no short alias. Mirrors
   `third_party/serve/source/utilities/cli.ts:155`
   (`--no-etag: Boolean`) and the post-parse mapping at
   `source/utilities/config.ts:140`
   (`config.etag = !args['--no-etag']`).
-- **SRV-CACHE-002** (P1, `accepted` → exercised) — under
+- **SRV-CACHE-002** (P1, `accepted` → `verified` via ORC-167) — under
   `etag: false` (the CLI flag or `serve.json#etag: false`),
   emit `Last-Modified` (RFC 7231 IMF-fixdate, UTC) in place of
   `ETag`. Mirrors the `else` branch of
@@ -128,9 +128,13 @@ required.
   to `done`. The "Try IrServe" curl-based demo gains a
   `--no-etag` + Last-Modified + IMS-304 round-trip. Inventory
   flip for SRV-CACHE-003 (`unknown` → `verified`) landed in
-  slice 0; SRV-CACHE-002 and SRV-CLI-013 stay `accepted`
-  (already accepted from Stage 1 evidence) — irserve-side
-  surface delivery is what 7b adds, not contractual change.
+  slice 0; SRV-CACHE-002 and SRV-CLI-013 were promoted
+  `accepted` → `verified` in round-3 Codex fixes once ORC-167
+  was identified as exercising both end-to-end (under
+  `serveArgs: ["--no-etag"]`, Last-Modified emitted, no ETag).
+  Per README §Anti-hallucination rules #2, an SRV transitions
+  to `verified` when an Oracle test demonstrates the behavior;
+  ORC-167 is that test.
 
 ## Out of scope
 

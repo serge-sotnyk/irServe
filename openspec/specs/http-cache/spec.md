@@ -176,10 +176,10 @@ error body, or custom `<status>.html` error pages. Same scope
 rules as ETag in Stage 7a (and the same custom-error-page
 divergence from reference — see Compatibility note).
 
-Evidence: SRV-CACHE-002 (status: accepted, level: L3),
+Evidence: SRV-CACHE-002 (status: verified, level: L3),
 SRV-CACHE-003 (status: verified for the reference path,
 adapted for the irserve path, level: L3), SRV-CLI-013
-(status: accepted, level: L3); oracle: ORC-167
+(status: verified, level: L3); oracle: ORC-167
 (`cases/last-modified-roundtrip.json#first_get`), ORC-168
 (`#ims_exact`, reference-only — D-018 divergence), ORC-169
 (`#ims_future`, reference-only — D-018 divergence), ORC-170

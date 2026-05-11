@@ -279,7 +279,7 @@ shipped).
   package's historical citations stay untouched (closed
   change record).
 
-### Round 3 — P3 fixes (this commit)
+### Round 3 — P3 fixes (commit `cef7185`)
 
 - [x] **P3 — compatibility-levels.md L61 + L92 stale.** L61
   ("`Last-Modified`/IMS — status `unknown`, see Q-009")
@@ -303,7 +303,34 @@ shipped).
 - [x] **P3 — tasks.md L228 placeholder.** Replaced
   `commit <this commit>` with `13b66bb` (Round 1 commit hash).
 
-## Validation
+### Round 4 — P3 fixes (this commit)
+
+- [x] **P3 — propagate the SRV-CLI-013 / SRV-CACHE-002
+  `accepted` → `verified` promotion across all docs.** Round 3
+  flipped `inventory.md` but missed five sites carrying the
+  old status text:
+  - `openspec/specs/http-cache/spec.md:179` (canonical
+    Evidence line) — both SRVs `accepted` → `verified`.
+  - `openspec/changes/012-last-modified/specs/http-cache/spec.md:59`
+    (delta) — same.
+  - `openspec/changes/012-last-modified/proposal.md:19,25`
+    (Why bullets) — phrased as `accepted → verified via
+    ORC-167` (transitional phrasing documenting the
+    promotion event, not a stale status).
+  - `openspec/changes/012-last-modified/proposal.md:131`
+    (Documentation updates bullet) — rewrote "stay accepted"
+    to describe the round-3 promotion outcome + cite
+    README §Anti-hallucination rules #2 as the taxonomy
+    rationale.
+  - `docs/reference/serve/compatibility-levels.md:61,92` —
+    Level 3 list entry + Coverage gaps entry both updated
+    to reflect the verified status.
+
+The plan file `docs/features/0016_PLAN_stage7b_last_modified.md`
+is intentionally left at the point-in-time `accepted` wording
+it carried on commit; plan files are historical snapshots
+(same convention as the 011-etag-conditional package's
+historical citations).
 
 - `cargo test --workspace --lib` — **278/278** unit tests
   green at end of slice 3 (was 265 in slice 1; +6 in slice 2;
