@@ -17,6 +17,7 @@ serde_json = { workspace = true }
 percent-encoding = { workspace = true }
 globset = { workspace = true }
 regex = { workspace = true }
+sha1 = "0.10"
 
 [dev-dependencies]
 tempfile = "3"

@@ -6,6 +6,7 @@ mod cors;
 mod custom_headers;
 mod dispatch;
 mod error;
+mod etag;
 mod listing;
 mod mime;
 mod normalize;
