@@ -332,7 +332,28 @@ it carried on commit; plan files are historical snapshots
 (same convention as the 011-etag-conditional package's
 historical citations).
 
-### Round 5 — P3 fix (this commit)
+### Round 6 — P3 fix (commit pending; pinned in next round if any)
+
+- [x] **P3 — pin Round 5's commit hash + refresh `## Validation`
+  intro.** Round 5's heading was committed with the
+  `(this commit)` placeholder per the established convention
+  (rounds 1–4 followed the same pattern: each round-N+1 commit
+  pins round-N's hash). Round 6 pins `7ed7fe4` for Round 5.
+  The `## Validation` intro is rephrased to drop the
+  `post-Codex round 4` qualifier — counts have been stable
+  since Codex round 1 (which added the
+  `etag_on_ignores_ims_even_with_user_lm_rule` test bringing
+  the lib total to 279/279); rounds 2–6 are doc-hygiene only.
+  The new phrasing makes the section stable regardless of how
+  many further doc-hygiene rounds happen.
+- Acknowledged self-reference window: the round-N section,
+  when committed, contains the `(commit pending)` marker for
+  itself. The next round (if any) pins the hash. Stage 7b's
+  closing commit (if no further rounds) leaves this round's
+  hash unpinned in the doc but visible in `git log`. This is a
+  known artifact of the round-log convention.
+
+### Round 5 — P3 fix (commit `7ed7fe4`)
 
 - [x] **P3 — restore the `## Validation` heading clobbered by
   Round 4.** When the Round 4 section was inserted at the end
@@ -345,7 +366,9 @@ historical citations).
 
 ## Validation
 
-Latest totals at end of Stage 7b (post-Codex round 4):
+Latest totals at end of Stage 7b (refreshed after every Codex
+round; rounds 5+ have been doc-hygiene only and do not change
+the underlying counts):
 
 - `cargo test --workspace --lib` — **279/279** unit tests
   green. Stage-7b additions: 4 in `last_modified.rs` (slice 2)
