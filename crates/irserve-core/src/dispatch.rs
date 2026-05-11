@@ -2,8 +2,8 @@ use std::borrow::Cow;
 use std::path::Path;
 
 use axum::body::Body;
-use axum::http::header::{HeaderValue, CONTENT_TYPE, ETAG, LOCATION};
-use axum::http::{Method, Request, Response, StatusCode};
+use axum::http::header::{HeaderValue, CONTENT_TYPE, ETAG, IF_NONE_MATCH, LOCATION, RANGE};
+use axum::http::{HeaderMap, Method, Request, Response, StatusCode};
 use percent_encoding::{percent_decode_str, utf8_percent_encode, AsciiSet, CONTROLS};
 
 use crate::clean_urls::{compute_clean_urls_redirect, try_clean_urls_resolve, CleanUrlsView};
@@ -319,10 +319,10 @@ async fn dispatch_inner(
 
     match outcome {
         ResolveOutcome::File(p) | ResolveOutcome::Index(p) => match tokio::fs::read(&p).await {
-            Ok(bytes) => {
-                let etag = etag_value(serve_config, &p, &bytes);
-                (file_response(&p, bytes, etag), Some(lexical_url))
-            }
+            Ok(bytes) => (
+                build_file_or_304(serve_config, req.headers(), &p, bytes),
+                Some(lexical_url),
+            ),
             Err(_) => {
                 let resp = error_response(
                     StatusCode::NOT_FOUND,
@@ -404,7 +404,6 @@ async fn dispatch_inner(
                     }
                 }
                 Ok(RenderResult::Single { path, bytes }) => {
-                    let etag = etag_value(serve_config, &path, &bytes);
                     // Headers-path mirrors reference's `getHeaders(..,
                     // absolutePath, stats)` at `index.js:746`. After
                     // a rewrite (`/old → /docs`), reference overrode
@@ -432,7 +431,10 @@ async fn dispatch_inner(
                     };
                     let filename = path.file_name().and_then(|s| s.to_str()).unwrap_or("");
                     let url = format!("{prefix}{filename}");
-                    (file_response(&path, bytes, etag), Some(url))
+                    (
+                        build_file_or_304(serve_config, req.headers(), &path, bytes),
+                        Some(url),
+                    )
                 }
                 Err(_) => {
                     let resp = error_response(
@@ -610,7 +612,94 @@ fn redirect_with_status(target: &str, status: u16) -> Response<Body> {
 
 #[cfg(test)]
 mod tests {
-    use super::{encode_uri_target, url_path_has_extension};
+    use super::{build_file_or_304, encode_uri_target, url_path_has_extension};
+    use crate::config::ServeConfig;
+    use axum::http::header::{HeaderValue, IF_NONE_MATCH, RANGE};
+    use axum::http::{HeaderMap, StatusCode};
+    use std::path::PathBuf;
+
+    fn cfg_etag(value: Option<bool>) -> ServeConfig {
+        ServeConfig {
+            etag: value,
+            ..ServeConfig::default()
+        }
+    }
+
+    // The reference ETag for `body{color:red}\n` named `asset.css`,
+    // pinned by the `etag-roundtrip` probe and the unit test in
+    // `etag.rs`. Reused here to drive 304 round-trips.
+    const ASSET_CSS_ETAG: &str = "\"3638b78821a961fcf35969f0bc67cc5944d64a0b\"";
+    const ASSET_CSS_BYTES: &[u8] = b"body{color:red}\n";
+
+    fn asset_path() -> PathBuf {
+        PathBuf::from("asset.css")
+    }
+
+    #[test]
+    fn etag_match_returns_304() {
+        let cfg = cfg_etag(None);
+        let mut h = HeaderMap::new();
+        h.insert(IF_NONE_MATCH, HeaderValue::from_static(ASSET_CSS_ETAG));
+        let resp = build_file_or_304(&cfg, &h, &asset_path(), ASSET_CSS_BYTES.to_vec());
+        assert_eq!(resp.status(), StatusCode::NOT_MODIFIED);
+        // 304 response carries no ETag echo and no Content-Type —
+        // mirrors `serve-handler/src/index.js:761-764` which calls
+        // `response.statusCode = 304; response.end()` without going
+        // through `writeHead(headers)`.
+        assert!(resp.headers().get(axum::http::header::ETAG).is_none());
+        assert!(resp.headers().get(axum::http::header::CONTENT_TYPE).is_none());
+    }
+
+    #[test]
+    fn etag_mismatch_returns_200_with_etag() {
+        let cfg = cfg_etag(None);
+        let mut h = HeaderMap::new();
+        h.insert(IF_NONE_MATCH, HeaderValue::from_static("\"deadbeef\""));
+        let resp = build_file_or_304(&cfg, &h, &asset_path(), ASSET_CSS_BYTES.to_vec());
+        assert_eq!(resp.status(), StatusCode::OK);
+        assert_eq!(
+            resp.headers().get(axum::http::header::ETAG).unwrap(),
+            ASSET_CSS_ETAG
+        );
+    }
+
+    #[test]
+    fn range_present_skips_304_even_on_match() {
+        // SRV-CACHE-001 + 7c precursor: reference's
+        // `serve-handler/src/index.js:760` guards the 304 check with
+        // `request.headers.range == null`. We do not parse Range yet
+        // (Stage 7c lands 206/416), but the guard goes in now.
+        let cfg = cfg_etag(None);
+        let mut h = HeaderMap::new();
+        h.insert(IF_NONE_MATCH, HeaderValue::from_static(ASSET_CSS_ETAG));
+        h.insert(RANGE, HeaderValue::from_static("bytes=0-3"));
+        let resp = build_file_or_304(&cfg, &h, &asset_path(), ASSET_CSS_BYTES.to_vec());
+        assert_eq!(resp.status(), StatusCode::OK);
+    }
+
+    #[test]
+    fn etag_disabled_never_304() {
+        let cfg = cfg_etag(Some(false));
+        let mut h = HeaderMap::new();
+        h.insert(IF_NONE_MATCH, HeaderValue::from_static(ASSET_CSS_ETAG));
+        let resp = build_file_or_304(&cfg, &h, &asset_path(), ASSET_CSS_BYTES.to_vec());
+        assert_eq!(resp.status(), StatusCode::OK);
+        // No ETag header when disabled.
+        assert!(resp.headers().get(axum::http::header::ETAG).is_none());
+    }
+
+    #[test]
+    fn no_if_none_match_returns_200() {
+        let cfg = cfg_etag(None);
+        let h = HeaderMap::new();
+        let resp = build_file_or_304(&cfg, &h, &asset_path(), ASSET_CSS_BYTES.to_vec());
+        assert_eq!(resp.status(), StatusCode::OK);
+        assert_eq!(
+            resp.headers().get(axum::http::header::ETAG).unwrap(),
+            ASSET_CSS_ETAG
+        );
+    }
+
 
     #[test]
     fn extension_basic_paths() {
@@ -731,4 +820,38 @@ fn etag_value(serve_config: &ServeConfig, path: &Path, bytes: &[u8]) -> Option<H
         return None;
     }
     HeaderValue::from_str(&compute_etag(path, bytes)).ok()
+}
+
+// SRV-CACHE-001: build either a 200 file response or a 304 short-
+// circuit, mirroring `serve-handler/src/index.js:760-765`. The 304
+// branch fires iff (a) ETag emission is enabled, (b) the request
+// carries no `Range` header (reference defers Range/304 interaction
+// to the 206/416 path — Stage 7c lands Range parsing, the guard is
+// here now so 7c doesn't have to revisit this site), and (c) the
+// request's `If-None-Match` matches the computed ETag verbatim. The
+// match is exact string equality on the strong-quoted form; no
+// weak/strong distinction, no comma-list, no `*` — mirrors
+// reference's `===`. The 304 response carries no body, no
+// `Content-Type`, and no `ETag` echo, matching the reference's
+// `response.statusCode = 304; response.end()`.
+fn build_file_or_304(
+    serve_config: &ServeConfig,
+    req_headers: &HeaderMap,
+    path: &Path,
+    bytes: Vec<u8>,
+) -> Response<Body> {
+    let etag = etag_value(serve_config, path, &bytes);
+    if let Some(ref etag_value) = etag {
+        if req_headers.get(RANGE).is_none() {
+            if let Some(inm) = req_headers.get(IF_NONE_MATCH) {
+                if inm == etag_value {
+                    return Response::builder()
+                        .status(StatusCode::NOT_MODIFIED)
+                        .body(Body::empty())
+                        .expect("304 response should always build");
+                }
+            }
+        }
+    }
+    file_response(path, bytes, etag)
 }
