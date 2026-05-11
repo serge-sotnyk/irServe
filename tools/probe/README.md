@@ -15,6 +15,34 @@ Two request transports are available, selected per-request via the `mode` field:
 - `mode: "fetch"` (default) — uses Node's built-in `fetch`. Handy and high-level, but the URL parser normalizes `..`, decodes `%2e%2e`, and collapses `//` before the request reaches the wire. Most behavior probes use this.
 - `mode: "raw"` — opens a `net.Socket` and writes the literal HTTP request line and headers bytes verbatim. The runner injects `Host` and `Connection: close` only if the case did not. Use this for wire-level probes (path traversal, malformed paths). The result file's `requestLine` field shows exactly what was sent. Limitations: the parser handles `Content-Length`-framed or connection-close-framed responses only; `Transfer-Encoding: chunked` is not decoded.
 
+### Round-trip cases: `$fromResponse` request-header references
+
+A request header value may be either a literal string OR an object of
+the form `{"$fromResponse": {"request": "<prior-name>", "header":
+"<lowercase-header-name>"}}`. The runner resolves the reference at
+request time by reading the named header from the prior request's
+captured response and substituting it as the header value on the wire.
+The snapshot records the symbolic `$fromResponse` form (not the
+resolved string), keeping the case hash-/timestamp-agnostic across
+reference and irserve targets.
+
+Used for ETag → `If-None-Match` (Stage 7a), and reusable for
+`Last-Modified` → `If-Modified-Since` (Stage 7b) and `If-Range` cases
+(Stage 7c). Example:
+
+```json
+{
+  "requests": [
+    { "name": "first_get",       "method": "GET", "path": "/asset.css" },
+    { "name": "second_with_inm", "method": "GET", "path": "/asset.css",
+      "headers": {
+        "if-none-match": { "$fromResponse": { "request": "first_get", "header": "etag" } }
+      }
+    }
+  ]
+}
+```
+
 ## Usage
 
 ```bash

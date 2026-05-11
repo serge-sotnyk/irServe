@@ -1,7 +1,7 @@
 {
   "$schemaVersion": 1,
   "case": "etag-roundtrip",
-  "description": "ETag round-trip: request a non-html file (no cleanUrls redirect), capture its ETag, then re-request with matching If-None-Match. Expect 304 and an empty body.",
+  "description": "ETag round-trip: request a non-html file (no cleanUrls redirect), capture its ETag, then re-request with matching If-None-Match. Expect 304 and an empty body. Second request's If-None-Match is resolved via `$fromResponse` from `first_get` so the case stays hash-agnostic across reference and irserve targets.",
   "fixture": {
     "files": {
       "asset.css": "body{color:red}\n"
@@ -45,7 +45,12 @@
         "mode": "fetch",
         "path": "/asset.css",
         "headers": {
-          "if-none-match": "\"3638b78821a961fcf35969f0bc67cc5944d64a0b\""
+          "if-none-match": {
+            "$fromResponse": {
+              "request": "first_get",
+              "header": "etag"
+            }
+          }
         }
       },
       "response": {

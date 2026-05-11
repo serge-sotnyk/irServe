@@ -163,8 +163,34 @@
           },
           "headers": {
             "type": "object",
-            "description": "Request headers, name → value.",
-            "additionalProperties": { "type": "string" }
+            "description": "Request headers, name → value. A value may be a literal string OR a `$fromResponse` reference object that the runner resolves at request time by reading the named header from a prior request's response in the same probe. This is used for round-trip cases (e.g. ETag → If-None-Match, Last-Modified → If-Modified-Since) so the captured value is hash-/timestamp-agnostic and the same case file runs identically against `target=reference` and `target=irserve`.",
+            "additionalProperties": {
+              "oneOf": [
+                { "type": "string" },
+                {
+                  "type": "object",
+                  "required": ["$fromResponse"],
+                  "additionalProperties": false,
+                  "properties": {
+                    "$fromResponse": {
+                      "type": "object",
+                      "required": ["request", "header"],
+                      "additionalProperties": false,
+                      "properties": {
+                        "request": {
+                          "type": "string",
+                          "description": "`name` of an earlier request in the same probe whose response is captured."
+                        },
+                        "header": {
+                          "type": "string",
+                          "description": "Lowercase header name to read from the captured response and substitute as this request header's value."
+                        }
+                      }
+                    }
+                  }
+                }
+              ]
+            }
           },
           "body": {
             "type": "string",

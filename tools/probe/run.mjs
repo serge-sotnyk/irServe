@@ -301,6 +301,64 @@ function pickHeaders(headers, extraTracked = []) {
   return out;
 }
 
+// Resolve `$fromResponse` references in a request's headers against the
+// list of prior captured responses. Returns a {wireReq, symbolicHeaders}
+// pair: `wireReq` carries the substituted string values so the request
+// can actually be sent on the wire, while `symbolicHeaders` is the
+// original case-file header map (with the `$fromResponse` object
+// preserved) — used to record the request in results / snapshots so
+// the recording stays hash-/timestamp-agnostic across targets.
+//
+// This is the round-trip mechanism for ETag → If-None-Match (Stage 7a),
+// Last-Modified → If-Modified-Since (Stage 7b), and If-Range cases
+// (Stage 7c). One investment, multi-stage payback.
+function resolveRequestHeaders(req, priorResults) {
+  if (!req.headers || typeof req.headers !== 'object') {
+    return { wireReq: req, symbolicHeaders: null };
+  }
+  let hasDynamic = false;
+  const wireHeaders = {};
+  for (const [name, value] of Object.entries(req.headers)) {
+    if (typeof value === 'string') {
+      wireHeaders[name] = value;
+      continue;
+    }
+    if (value && typeof value === 'object' && value.$fromResponse) {
+      hasDynamic = true;
+      const { request: ref, header: headerName } = value.$fromResponse;
+      if (typeof ref !== 'string' || typeof headerName !== 'string') {
+        throw new Error(
+          `request '${req.name}': $fromResponse must be {request: string, header: string}`,
+        );
+      }
+      const prior = priorResults.find((r) => r.name === ref);
+      if (!prior) {
+        throw new Error(
+          `request '${req.name}': $fromResponse references unknown prior request '${ref}'`,
+        );
+      }
+      const captured = prior.headers?.[headerName.toLowerCase()];
+      if (captured === undefined) {
+        throw new Error(
+          `request '${req.name}': $fromResponse('${ref}', '${headerName}') — response did not carry that header`,
+        );
+      }
+      wireHeaders[name] = captured;
+      continue;
+    }
+    throw new Error(
+      `request '${req.name}': header '${name}' has unsupported value (must be string or $fromResponse object)`,
+    );
+  }
+  if (!hasDynamic) {
+    return { wireReq: req, symbolicHeaders: null };
+  }
+  return {
+    wireReq: { ...req, headers: wireHeaders },
+    symbolicHeaders: req.headers,
+  };
+}
+
 async function runRequest(port, req, opts = {}) {
   const { fixtureDir = null, extraTracked = [] } = opts;
   if (req.mode === 'raw') return runRequestRaw(port, req, opts);
@@ -456,7 +514,8 @@ function renderMarkdown(probe, runMeta, results, opts = {}) {
     if (Object.keys(r.requestHeaders).length) {
       lines.push(`- Request headers:`);
       for (const [k, v] of Object.entries(r.requestHeaders)) {
-        lines.push(`  - \`${k}: ${v}\``);
+        const repr = typeof v === 'string' ? v : JSON.stringify(v);
+        lines.push(`  - \`${k}: ${repr}\``);
       }
     }
     lines.push(`- Status: \`${r.status} ${r.statusText}\``);
@@ -953,7 +1012,16 @@ async function runProbe(probeId, options = {}) {
     const requestOpts = { fixtureDir, extraTracked };
     const results = [];
     for (const req of probe.requests ?? []) {
-      results.push(await runRequest(port, req, requestOpts));
+      const { wireReq, symbolicHeaders } = resolveRequestHeaders(req, results);
+      const result = await runRequest(port, wireReq, requestOpts);
+      // Preserve `$fromResponse` references in the snapshot recording
+      // so round-trip cases stay hash-/timestamp-agnostic across
+      // reference/irserve targets. The wire saw the resolved string;
+      // the snapshot records the symbolic form.
+      if (symbolicHeaders) {
+        result.requestHeaders = symbolicHeaders;
+      }
+      results.push(result);
     }
     const md = renderMarkdown(probe, runMeta, results, { l0: target === 'irserve' ? l0 : null });
     const json = {

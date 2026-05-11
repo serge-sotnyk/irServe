@@ -9,5 +9,11 @@
   "requests": [
     { "name": "first_get", "method": "GET", "path": "/page.html" },
     { "name": "if_none_match_bogus", "method": "GET", "path": "/page.html", "headers": { "if-none-match": "\"deadbeef\"" } }
-  ]
+  ],
+  "runner": {
+    "l0": {
+      "clean": ["first_get", "if_none_match_bogus"],
+      "contentLengthMayDiffer": ["first_get", "if_none_match_bogus"]
+    }
+  }
 }
