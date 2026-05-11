@@ -27,6 +27,7 @@ Concretely: take `vercel/serve` (a small but real Node.js static file server), r
 - **Stage 6f — custom error pages, full L2 security, custom response headers.** Done.
 - **Stage 6g — directory listing (HTML / JSON, `unlisted`, `renderSingle`).** Done.
 - **Stage 6h — CLI fill-in (`tcp://`, `-p`, `--cors`, `--debug`, `--no-request-logging`, `--no-port-switching`).** Done.
+- **Stage 7a — ETag + 304 conditional GET.** Done.
 
 Rust code lives under `crates/irserve` (the bin) and `crates/irserve-core` (the lib). The first slice (Stage 5b) is strict-L0: eight SRVs (`SRV-CLI-001/002/007/019`, `SRV-FILE-001/002/004/005`). Stage 6a un-defers SRV-CFG-001, SRV-CFG-002, and SRV-CLI-009 (`-c/--config`); the remaining capabilities are still deferred per `D-008`/`D-009`.
 
@@ -68,7 +69,7 @@ The methodology runs in nine stages. Status is updated when entering or completi
 | 6f | Custom error pages, full L2 security, custom response headers | `openspec/changes/008-error-pages-and-security` | done |
 | 6g | Directory listing (HTML / JSON, `unlisted`, `renderSingle`) | `openspec/changes/009-directory-listing` | done |
 | 6h | CLI fill-in (`tcp://`, `-p`, `--cors` L1, `--debug`, `--no-request-logging`, `--no-port-switching`) | `openspec/changes/010-cli-fill-in` | done |
-| 7a | ETag + 304 conditional GET | `openspec/changes/011-etag-conditional` | todo |
+| 7a | ETag + 304 conditional GET | `openspec/changes/011-etag-conditional` | done |
 | 7b | `Last-Modified` + `--no-etag` + `If-Modified-Since` | `openspec/changes/012-last-modified` | todo |
 | 7c | Range requests (`206`/`416`) | `openspec/changes/013-range-requests` | todo |
 | 7d | `Cache-Control` default + `OPTIONS` (CORS preflight) | `openspec/changes/014-cache-headers-and-preflight` | todo |
@@ -222,6 +223,13 @@ curl -i 'http://127.0.0.1:3010/%zz'                                  # 400 (malf
 # echo 'body{}' > _tmp/asset.css
 curl -i http://127.0.0.1:3010/asset.css                              # 200, x-custom: yes, cache-control: public, max-age=600
 
+# ETag + 304 conditional GET (Stage 7a, SRV-CACHE-001).
+# echo 'body{color:red}' > _tmp/asset.css
+curl -sI http://127.0.0.1:3010/asset.css | grep -i ^etag             # capture the ETag value (strong-quoted hex)
+# Then replay with the captured value:
+curl -i -H 'If-None-Match: "<captured-etag>"' http://127.0.0.1:3010/asset.css   # 304, no body
+# Disable ETag per-deployment via serve.json: {"etag": false} (no header emitted, no 304).
+
 # Directory listing (Stage 6g). Default config — start in a directory
 # without index.html and request its root:
 # rm _tmp/index.html; touch _tmp/a.txt _tmp/b.txt; mkdir _tmp/sub
@@ -282,7 +290,7 @@ curl -s http://127.0.0.1:3010/ > /dev/null
 ```
 
 What is NOT yet observable (still deferred to Stage 7+ L3 polish):
-`ETag`/`Last-Modified`/conditional GETs, full L3 CORS preflight surface, gzip compression, symlink resolution, TLS.
+`Last-Modified`/`If-Modified-Since` conditional GETs, Range requests (`206`/`416`), default `Cache-Control`, full L3 CORS preflight surface, gzip compression, symlink resolution, TLS.
 
 ## References
 
