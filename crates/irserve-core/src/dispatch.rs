@@ -1,8 +1,11 @@
 use std::borrow::Cow;
+use std::fs::Metadata;
 use std::path::Path;
 
 use axum::body::Body;
-use axum::http::header::{HeaderValue, CONTENT_TYPE, ETAG, IF_NONE_MATCH, LOCATION, RANGE};
+use axum::http::header::{
+    HeaderValue, CONTENT_TYPE, ETAG, IF_NONE_MATCH, LAST_MODIFIED, LOCATION, RANGE,
+};
 use axum::http::{HeaderMap, Method, Request, Response, StatusCode};
 use percent_encoding::{percent_decode_str, utf8_percent_encode, AsciiSet, CONTROLS};
 
@@ -11,6 +14,7 @@ use crate::config::ServeConfig;
 use crate::custom_headers::{apply_custom_headers, HeaderRuleCompiled};
 use crate::error::error_response;
 use crate::etag::compute_etag;
+use crate::last_modified::last_modified_value;
 use crate::listing::{
     render as render_listing, DirectoryListingView, RenderResult, UnlistedFilter,
 };
@@ -318,37 +322,51 @@ async fn dispatch_inner(
     };
 
     match outcome {
-        ResolveOutcome::File(p) | ResolveOutcome::Index(p) => match tokio::fs::read(&p).await {
-            Ok(bytes) => (
-                // SRV-CACHE-001 / Codex round 1 P1: 304 check must see
-                // user-merged headers, so `build_file_or_304` runs the
-                // headers overlay itself and we return `None` here to
-                // tell the outer `dispatch` wrapper "headers pass is
-                // done." Mirrors reference's getHeaders-then-304
-                // ordering at `serve-handler/src/index.js:241, 760`.
-                build_file_or_304(
-                    serve_config,
-                    req.headers(),
-                    &p,
-                    bytes,
-                    header_rules,
-                    &lexical_url,
+        ResolveOutcome::File(p) | ResolveOutcome::Index(p) => {
+            // SRV-CACHE-002 / Stage 7b slice 2: metadata is fetched
+            // alongside the file bytes so `build_file_or_304` can
+            // emit `Last-Modified` from the file's mtime under
+            // `etag: false`. A stat failure here gracefully degrades
+            // to "no Last-Modified header"; a read failure still
+            // surfaces as 404 below. The metadata call is the
+            // cheaper of the two and races with the read only on
+            // pathological concurrent-modification timing — the
+            // mtime might lag the bytes by a microsecond, which is
+            // immaterial at IMF-fixdate's whole-second resolution.
+            let meta = tokio::fs::metadata(&p).await.ok();
+            match tokio::fs::read(&p).await {
+                Ok(bytes) => (
+                    // SRV-CACHE-001 / Codex round 1 P1: 304 check must see
+                    // user-merged headers, so `build_file_or_304` runs the
+                    // headers overlay itself and we return `None` here to
+                    // tell the outer `dispatch` wrapper "headers pass is
+                    // done." Mirrors reference's getHeaders-then-304
+                    // ordering at `serve-handler/src/index.js:241, 760`.
+                    build_file_or_304(
+                        serve_config,
+                        req.headers(),
+                        &p,
+                        bytes,
+                        meta.as_ref(),
+                        header_rules,
+                        &lexical_url,
+                    ),
+                    None,
                 ),
-                None,
-            ),
-            Err(_) => {
-                let resp = error_response(
-                    StatusCode::NOT_FOUND,
-                    req.headers(),
-                    root,
-                    header_rules,
-                    &decoded_path,
-                    false,
-                )
-                .await;
-                (resp, None)
+                Err(_) => {
+                    let resp = error_response(
+                        StatusCode::NOT_FOUND,
+                        req.headers(),
+                        root,
+                        header_rules,
+                        &decoded_path,
+                        false,
+                    )
+                    .await;
+                    (resp, None)
+                }
             }
-        },
+        }
         // Stage 6g phase 11: directory listing branch. Mirrors
         // `serve-handler/src/index.js:325-374, 644-680`:
         //
@@ -417,6 +435,15 @@ async fn dispatch_inner(
                     }
                 }
                 Ok(RenderResult::Single { path, bytes }) => {
+                    // SRV-CACHE-002 / Stage 7b slice 2: same metadata
+                    // fetch as the File/Index arm. The renderSingle
+                    // path read bytes via the listing renderer
+                    // (`listing::render`) and never stat'd the file;
+                    // we re-stat here so `build_file_or_304` has the
+                    // mtime under `etag: false`. The renderer could
+                    // surface metadata via its return type later if
+                    // the extra syscall becomes a hot-path concern.
+                    let meta = tokio::fs::metadata(&path).await.ok();
                     // Headers-path mirrors reference's `getHeaders(..,
                     // absolutePath, stats)` at `index.js:746`. After
                     // a rewrite (`/old → /docs`), reference overrode
@@ -454,6 +481,7 @@ async fn dispatch_inner(
                             req.headers(),
                             &path,
                             bytes,
+                            meta.as_ref(),
                             header_rules,
                             &url,
                         ),
@@ -634,13 +662,27 @@ fn redirect_with_status(target: &str, status: u16) -> Response<Body> {
         .expect("redirect response should always build")
 }
 
-fn file_response(path: &Path, bytes: Vec<u8>, etag: Option<HeaderValue>) -> Response<Body> {
+fn file_response(
+    path: &Path,
+    bytes: Vec<u8>,
+    etag: Option<HeaderValue>,
+    last_modified: Option<HeaderValue>,
+) -> Response<Body> {
     let mut builder = Response::builder().status(StatusCode::OK);
     if let Some(mime) = mime_for(path) {
         builder = builder.header(CONTENT_TYPE, HeaderValue::from_static(mime));
     }
+    // SRV-CACHE-001 / SRV-CACHE-002: reference emits exactly one of
+    // ETag / Last-Modified per file response — the mutex is enforced
+    // by `etag_value` and `last_modified_value` returning opposite-
+    // gated `Some`. We still write whichever value(s) the caller
+    // hands us so that user `headers` rules (applied later by
+    // `apply_custom_headers`) can override or supplement them.
     if let Some(etag) = etag {
         builder = builder.header(ETAG, etag);
+    }
+    if let Some(last_modified) = last_modified {
+        builder = builder.header(LAST_MODIFIED, last_modified);
     }
     builder
         .body(Body::from(bytes))
@@ -692,16 +734,19 @@ fn etag_value(serve_config: &ServeConfig, path: &Path, bytes: &[u8]) -> Option<H
 // carries no body, no `Content-Type`, and no `ETag` echo — matches the
 // reference's `response.statusCode = 304; response.end()` (no
 // `writeHead`).
+#[allow(clippy::too_many_arguments)]
 fn build_file_or_304(
     serve_config: &ServeConfig,
     req_headers: &HeaderMap,
     path: &Path,
     bytes: Vec<u8>,
+    meta: Option<&Metadata>,
     header_rules: &[HeaderRuleCompiled],
     request_path: &str,
 ) -> Response<Body> {
     let etag = etag_value(serve_config, path, &bytes);
-    let response_200 = file_response(path, bytes, etag);
+    let last_modified = last_modified_value(serve_config, meta);
+    let response_200 = file_response(path, bytes, etag, last_modified);
     let merged = apply_custom_headers(response_200, request_path, header_rules);
     if req_headers.get(RANGE).is_none() {
         if let (Some(inm), Some(effective_etag)) =
@@ -767,6 +812,7 @@ mod tests {
             &h,
             &asset_path(),
             ASSET_CSS_BYTES.to_vec(),
+            None,
             &[],
             "/asset.css",
         );
@@ -792,6 +838,7 @@ mod tests {
             &h,
             &asset_path(),
             ASSET_CSS_BYTES.to_vec(),
+            None,
             &[],
             "/asset.css",
         );
@@ -814,6 +861,7 @@ mod tests {
             &h,
             &asset_path(),
             ASSET_CSS_BYTES.to_vec(),
+            None,
             &[],
             "/asset.css",
         );
@@ -830,12 +878,75 @@ mod tests {
             &h,
             &asset_path(),
             ASSET_CSS_BYTES.to_vec(),
+            None,
             &[],
             "/asset.css",
         );
         assert_eq!(resp.status(), StatusCode::OK);
         // No ETag header when disabled.
         assert!(resp.headers().get(ETAG).is_none());
+    }
+
+    /// SRV-CACHE-002 / Stage 7b slice 2: under `etag: false`, when
+    /// the dispatcher passes a real `Metadata`, the 200 response
+    /// carries `Last-Modified` (IMF-fixdate shape) and no `ETag`.
+    /// Mirrors the `else` branch at
+    /// `serve-handler/src/index.js:234-236`. IMS handling is slice 3.
+    #[test]
+    fn etag_off_emits_last_modified_from_meta() {
+        let cfg = cfg_etag(Some(false));
+        let tmp = tempfile::NamedTempFile::new().expect("tempfile");
+        let meta = tmp.as_file().metadata().expect("metadata");
+        let h = HeaderMap::new();
+        let resp = build_file_or_304(
+            &cfg,
+            &h,
+            &asset_path(),
+            ASSET_CSS_BYTES.to_vec(),
+            Some(&meta),
+            &[],
+            "/asset.css",
+        );
+        assert_eq!(resp.status(), StatusCode::OK);
+        assert!(resp.headers().get(ETAG).is_none());
+        let lm = resp
+            .headers()
+            .get(axum::http::header::LAST_MODIFIED)
+            .expect("Last-Modified header")
+            .to_str()
+            .expect("ascii");
+        // IMF-fixdate shape sanity (full string is volatile across
+        // runs; the underlying formatter is unit-tested in
+        // last_modified.rs).
+        assert!(lm.ends_with(" GMT"));
+        assert_eq!(lm.len(), 29);
+    }
+
+    /// Mutex: ETag-on path emits no `Last-Modified` even when
+    /// `Metadata` is available. Mirrors the `if (etag)` branch at
+    /// `serve-handler/src/index.js:227-233` — the helper sets
+    /// `defaultHeaders['ETag']` and never reaches the LM assignment.
+    #[test]
+    fn etag_on_suppresses_last_modified_even_with_meta() {
+        let cfg = cfg_etag(None); // default → ETag on
+        let tmp = tempfile::NamedTempFile::new().expect("tempfile");
+        let meta = tmp.as_file().metadata().expect("metadata");
+        let h = HeaderMap::new();
+        let resp = build_file_or_304(
+            &cfg,
+            &h,
+            &asset_path(),
+            ASSET_CSS_BYTES.to_vec(),
+            Some(&meta),
+            &[],
+            "/asset.css",
+        );
+        assert_eq!(resp.status(), StatusCode::OK);
+        assert!(resp.headers().get(ETAG).is_some());
+        assert!(resp
+            .headers()
+            .get(axum::http::header::LAST_MODIFIED)
+            .is_none());
     }
 
     #[test]
@@ -847,6 +958,7 @@ mod tests {
             &h,
             &asset_path(),
             ASSET_CSS_BYTES.to_vec(),
+            None,
             &[],
             "/asset.css",
         );
@@ -872,6 +984,7 @@ mod tests {
             &h_custom,
             &asset_path(),
             ASSET_CSS_BYTES.to_vec(),
+            None,
             &rules,
             "/asset.css",
         );
@@ -887,6 +1000,7 @@ mod tests {
             &h_default,
             &asset_path(),
             ASSET_CSS_BYTES.to_vec(),
+            None,
             &rules,
             "/asset.css",
         );
@@ -912,6 +1026,7 @@ mod tests {
             &h_empty,
             &asset_path(),
             ASSET_CSS_BYTES.to_vec(),
+            None,
             &rules,
             "/asset.css",
         );
@@ -927,6 +1042,7 @@ mod tests {
             &h_custom,
             &asset_path(),
             ASSET_CSS_BYTES.to_vec(),
+            None,
             &rules,
             "/asset.css",
         );
@@ -948,6 +1064,7 @@ mod tests {
             &h,
             &asset_path(),
             ASSET_CSS_BYTES.to_vec(),
+            None,
             &rules,
             "/asset.css",
         );

@@ -7,6 +7,7 @@ mod custom_headers;
 mod dispatch;
 mod error;
 mod etag;
+mod last_modified;
 mod listing;
 mod mime;
 mod normalize;
