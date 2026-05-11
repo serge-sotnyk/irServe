@@ -4,7 +4,8 @@ use std::path::Path;
 
 use axum::body::Body;
 use axum::http::header::{
-    HeaderValue, CONTENT_TYPE, ETAG, IF_NONE_MATCH, LAST_MODIFIED, LOCATION, RANGE,
+    HeaderValue, CONTENT_TYPE, ETAG, IF_MODIFIED_SINCE, IF_NONE_MATCH, LAST_MODIFIED, LOCATION,
+    RANGE,
 };
 use axum::http::{HeaderMap, Method, Request, Response, StatusCode};
 use percent_encoding::{percent_decode_str, utf8_percent_encode, AsciiSet, CONTROLS};
@@ -706,34 +707,49 @@ fn etag_value(serve_config: &ServeConfig, path: &Path, bytes: &[u8]) -> Option<H
     HeaderValue::from_str(&compute_etag(path, bytes)).ok()
 }
 
-// SRV-CACHE-001: build either a 200 file response or a 304 short-
-// circuit, mirroring `serve-handler/src/index.js:227-254` + `:760-765`.
+// SRV-CACHE-001 + SRV-CACHE-003 (D-018): build either a 200 file
+// response or a 304 short-circuit, mirroring
+// `serve-handler/src/index.js:227-254` + `:760-765` for the ETag/INM
+// path and extending with an If-Modified-Since path on the
+// `Last-Modified` branch (irserve-only adaptation per D-018; the
+// reference has no IMS handling — `tools/probe/snapshots/last-modified-roundtrip.json`
+// pins the 200-with-full-body behavior under `target=reference`).
 //
-// User `serve.json#headers` rules CAN override the default ETag — the
-// reference's flow is `getHeaders` (defaults + customHeaders merged via
-// `Object.assign(defaultHeaders, related)` at `index.js:241`), THEN
-// `if (headers.ETag === request.headers['if-none-match']) ...` at
-// `:760`. The 304 comparison runs against the MERGED ETag, not the
-// default. Codex round 1 P1: the prior implementation ran the 304
-// check before `apply_custom_headers`, so any deployment overriding or
-// deleting ETag via `headers` broke the round-trip contract. We now
-// run the custom-headers merge inside this helper before the 304
-// decision, and signal to the outer `dispatch` wrapper that the
-// headers pass is already done (by returning `None` for `headers_path`
-// at the call sites).
+// User `serve.json#headers` rules CAN override the default ETag /
+// Last-Modified — the reference's flow is `getHeaders` (defaults +
+// customHeaders merged via `Object.assign(defaultHeaders, related)`
+// at `index.js:241`), THEN the 304 check at `:760` reads the MERGED
+// `headers.ETag`. Codex round 1 P1 (Stage 7a) reshaped the irserve
+// helper to match this ordering; the Last-Modified branch reuses
+// the same merge-then-decide structure.
 //
-// 304 fires iff (a) the merged response carries an `ETag` header —
-// either the default sha1 (when `serve_config.etag != Some(false)`) OR
-// one supplied by a user `headers` rule, even when `etag: false`
-// disabled the default (Codex round 2 P3); (b) the request carries no
-// `Range` header (Stage 7c precursor — mirrors the reference's
-// `req.headers.range == null` guard at `index.js:760`; Range parsing
-// itself lands in 7c); and (c) the request's `If-None-Match` matches
-// the merged response's `ETag` verbatim (strong-quoted string equality;
-// no weak/strong distinction, no comma-list, no `*`). The 304 response
-// carries no body, no `Content-Type`, and no `ETag` echo — matches the
-// reference's `response.statusCode = 304; response.end()` (no
-// `writeHead`).
+// ETag/INM 304 fires iff (a) the merged response carries an `ETag`
+// header — either the default sha1 (when `serve_config.etag !=
+// Some(false)`) OR one supplied by a user `headers` rule, even when
+// `etag: false` disabled the default (Codex round 2 P3, Stage 7a);
+// (b) the request carries no `Range` header (Stage 7c precursor —
+// mirrors `req.headers.range == null` at `index.js:760`); and (c)
+// the request's `If-None-Match` matches the merged response's
+// `ETag` verbatim (strong-quoted string equality; no weak/strong
+// distinction, no comma-list, no `*`).
+//
+// Last-Modified/IMS 304 (D-018, Stage 7b slice 3, irserve-only)
+// fires iff (b) above AND (d) the merged response carries a
+// `Last-Modified` header (default emission under `etag: false`,
+// or a user `headers` rule supplying it) AND (e) the request's
+// `If-Modified-Since` parses as an HTTP-date AND the merged
+// `Last-Modified` also parses AND (f) `IMS >= merged_LM` (whole-
+// second comparison naturally falls out of `httpdate`'s round-trip:
+// the formatter writes whole-second IMF-fixdate; the parser reads
+// it back as a `SystemTime` at that whole-second). Malformed IMS
+// is treated as absent (no 304), mirroring RFC 9111 §13.1.3
+// recipient guidance. The IMS check is symmetric with the ETag
+// path: it reads the MERGED value so a user-supplied
+// `Last-Modified` override drives the decision.
+//
+// 304 response carries no body, no `Content-Type`, no `ETag` /
+// `Last-Modified` echo — mirrors reference's
+// `response.statusCode = 304; response.end()` (no `writeHead`).
 #[allow(clippy::too_many_arguments)]
 fn build_file_or_304(
     serve_config: &ServeConfig,
@@ -749,18 +765,40 @@ fn build_file_or_304(
     let response_200 = file_response(path, bytes, etag, last_modified);
     let merged = apply_custom_headers(response_200, request_path, header_rules);
     if req_headers.get(RANGE).is_none() {
+        // SRV-CACHE-001: ETag/INM 304 path (Stage 7a).
         if let (Some(inm), Some(effective_etag)) =
             (req_headers.get(IF_NONE_MATCH), merged.headers().get(ETAG))
         {
             if inm == effective_etag {
-                return Response::builder()
-                    .status(StatusCode::NOT_MODIFIED)
-                    .body(Body::empty())
-                    .expect("304 response should always build");
+                return not_modified_response();
+            }
+        }
+        // SRV-CACHE-003 / D-018: Last-Modified/IMS 304 path
+        // (Stage 7b slice 3, irserve-only).
+        if let (Some(ims_raw), Some(lm_raw)) = (
+            req_headers.get(IF_MODIFIED_SINCE),
+            merged.headers().get(LAST_MODIFIED),
+        ) {
+            if let (Ok(ims_str), Ok(lm_str)) = (ims_raw.to_str(), lm_raw.to_str()) {
+                if let (Ok(ims), Ok(lm)) = (
+                    httpdate::parse_http_date(ims_str),
+                    httpdate::parse_http_date(lm_str),
+                ) {
+                    if ims >= lm {
+                        return not_modified_response();
+                    }
+                }
             }
         }
     }
     merged
+}
+
+fn not_modified_response() -> Response<Body> {
+    Response::builder()
+        .status(StatusCode::NOT_MODIFIED)
+        .body(Body::empty())
+        .expect("304 response should always build")
 }
 
 #[cfg(test)]
@@ -768,7 +806,9 @@ mod tests {
     use super::{build_file_or_304, encode_uri_target, url_path_has_extension};
     use crate::config::{HeaderItem, HeaderRule, ServeConfig};
     use crate::custom_headers::{compile_rules, HeaderRuleCompiled};
-    use axum::http::header::{HeaderValue, ETAG, IF_NONE_MATCH, RANGE};
+    use axum::http::header::{
+        HeaderValue, ETAG, IF_MODIFIED_SINCE, IF_NONE_MATCH, LAST_MODIFIED, RANGE,
+    };
     use axum::http::{HeaderMap, StatusCode};
     use std::path::PathBuf;
 
@@ -794,6 +834,22 @@ mod tests {
             source: source.to_string(),
             headers: vec![HeaderItem {
                 key: "ETag".to_string(),
+                value: value.map(|s| s.to_string()),
+            }],
+        }];
+        let (compiled, invalid) = compile_rules(&rules);
+        assert!(invalid.is_empty(), "rule should compile: {invalid:?}");
+        compiled
+    }
+
+    fn compile_last_modified_override(
+        source: &str,
+        value: Option<&str>,
+    ) -> Vec<HeaderRuleCompiled> {
+        let rules = vec![HeaderRule {
+            source: source.to_string(),
+            headers: vec![HeaderItem {
+                key: "Last-Modified".to_string(),
                 value: value.map(|s| s.to_string()),
             }],
         }];
@@ -943,10 +999,245 @@ mod tests {
         );
         assert_eq!(resp.status(), StatusCode::OK);
         assert!(resp.headers().get(ETAG).is_some());
+        assert!(resp.headers().get(LAST_MODIFIED).is_none());
+    }
+
+    // ---- Stage 7b slice 3: SRV-CACHE-003 / D-018 IMS 304 tests ----
+    //
+    // Reference returns 200 for every IMS variant under `--no-etag`
+    // (closure of Q-009 by `tools/probe/snapshots/last-modified-roundtrip.json`).
+    // irserve adapts (D-018) to a 304 short-circuit when
+    // `If-Modified-Since` ≥ merged `Last-Modified`, mirroring the
+    // ETag/INM round-trip shape: no body, no `Content-Type`, no
+    // `Last-Modified` echo. The merged-LM comparison (rather than
+    // raw mtime) keeps the path symmetric with ETag/INM so a user
+    // `headers` rule that overrides `Last-Modified` also drives the
+    // 304 decision.
+
+    /// IMS = the LM the response just emitted → 304. Round-trip via
+    /// first-call-then-replay mirrors how a real client interacts
+    /// with the server (it sends back what it received).
+    #[test]
+    fn ims_exact_match_returns_304() {
+        let cfg = cfg_etag(Some(false));
+        let tmp = tempfile::NamedTempFile::new().expect("tempfile");
+        let meta = tmp.as_file().metadata().expect("metadata");
+
+        let first = build_file_or_304(
+            &cfg,
+            &HeaderMap::new(),
+            &asset_path(),
+            ASSET_CSS_BYTES.to_vec(),
+            Some(&meta),
+            &[],
+            "/asset.css",
+        );
+        let captured_lm = first
+            .headers()
+            .get(LAST_MODIFIED)
+            .expect("first response should carry Last-Modified")
+            .clone();
+
+        let mut h = HeaderMap::new();
+        h.insert(IF_MODIFIED_SINCE, captured_lm);
+        let resp = build_file_or_304(
+            &cfg,
+            &h,
+            &asset_path(),
+            ASSET_CSS_BYTES.to_vec(),
+            Some(&meta),
+            &[],
+            "/asset.css",
+        );
+        assert_eq!(resp.status(), StatusCode::NOT_MODIFIED);
+        // Mirror ETag 304 shape: no echo, no Content-Type.
+        assert!(resp.headers().get(LAST_MODIFIED).is_none());
         assert!(resp
             .headers()
-            .get(axum::http::header::LAST_MODIFIED)
+            .get(axum::http::header::CONTENT_TYPE)
             .is_none());
+    }
+
+    /// Client's cached copy is from the future relative to file
+    /// mtime → 304. Static far-future IMS sidesteps mtime sensitivity.
+    #[test]
+    fn ims_future_returns_304() {
+        let cfg = cfg_etag(Some(false));
+        let tmp = tempfile::NamedTempFile::new().expect("tempfile");
+        let meta = tmp.as_file().metadata().expect("metadata");
+        let mut h = HeaderMap::new();
+        h.insert(
+            IF_MODIFIED_SINCE,
+            HeaderValue::from_static("Thu, 01 Jan 2099 00:00:00 GMT"),
+        );
+        let resp = build_file_or_304(
+            &cfg,
+            &h,
+            &asset_path(),
+            ASSET_CSS_BYTES.to_vec(),
+            Some(&meta),
+            &[],
+            "/asset.css",
+        );
+        assert_eq!(resp.status(), StatusCode::NOT_MODIFIED);
+    }
+
+    /// Client's cached copy is from before file mtime → 200 with
+    /// full body and `Last-Modified`. Epoch IMS suffices.
+    #[test]
+    fn ims_past_returns_200_with_last_modified() {
+        let cfg = cfg_etag(Some(false));
+        let tmp = tempfile::NamedTempFile::new().expect("tempfile");
+        let meta = tmp.as_file().metadata().expect("metadata");
+        let mut h = HeaderMap::new();
+        h.insert(
+            IF_MODIFIED_SINCE,
+            HeaderValue::from_static("Thu, 01 Jan 1970 00:00:00 GMT"),
+        );
+        let resp = build_file_or_304(
+            &cfg,
+            &h,
+            &asset_path(),
+            ASSET_CSS_BYTES.to_vec(),
+            Some(&meta),
+            &[],
+            "/asset.css",
+        );
+        assert_eq!(resp.status(), StatusCode::OK);
+        assert!(resp.headers().get(LAST_MODIFIED).is_some());
+        assert!(resp.headers().get(ETAG).is_none()); // mutex
+    }
+
+    /// RFC 9111 §13.1.3: recipients SHOULD treat unparseable IMS as
+    /// absent. Reference is inert too (no branch). Either way, 200.
+    #[test]
+    fn ims_malformed_returns_200() {
+        let cfg = cfg_etag(Some(false));
+        let tmp = tempfile::NamedTempFile::new().expect("tempfile");
+        let meta = tmp.as_file().metadata().expect("metadata");
+        let mut h = HeaderMap::new();
+        h.insert(IF_MODIFIED_SINCE, HeaderValue::from_static("not-a-date"));
+        let resp = build_file_or_304(
+            &cfg,
+            &h,
+            &asset_path(),
+            ASSET_CSS_BYTES.to_vec(),
+            Some(&meta),
+            &[],
+            "/asset.css",
+        );
+        assert_eq!(resp.status(), StatusCode::OK);
+    }
+
+    /// Stage 7c precursor: a `Range` request suppresses ALL 304
+    /// short-circuits, ETag/INM and Last-Modified/IMS alike. Mirrors
+    /// `serve-handler/src/index.js:760` (`request.headers.range ==
+    /// null`). Range parsing itself lands in 7c.
+    #[test]
+    fn range_present_skips_ims_304_even_on_match() {
+        let cfg = cfg_etag(Some(false));
+        let tmp = tempfile::NamedTempFile::new().expect("tempfile");
+        let meta = tmp.as_file().metadata().expect("metadata");
+        let mut h = HeaderMap::new();
+        h.insert(
+            IF_MODIFIED_SINCE,
+            HeaderValue::from_static("Thu, 01 Jan 2099 00:00:00 GMT"),
+        );
+        h.insert(RANGE, HeaderValue::from_static("bytes=0-3"));
+        let resp = build_file_or_304(
+            &cfg,
+            &h,
+            &asset_path(),
+            ASSET_CSS_BYTES.to_vec(),
+            Some(&meta),
+            &[],
+            "/asset.css",
+        );
+        assert_eq!(resp.status(), StatusCode::OK);
+    }
+
+    /// A user `serve.json#headers` rule with `Last-Modified: null`
+    /// (the SRV-HDR-002 prune form) deletes the default header from
+    /// the merged response. With no `Last-Modified` to compare
+    /// against, IMS cannot fire a 304. Symmetric with the
+    /// Stage 7a Codex round 1 P1 fix for `ETag: null`.
+    #[test]
+    fn user_last_modified_null_rule_suppresses_304() {
+        let cfg = cfg_etag(Some(false));
+        let tmp = tempfile::NamedTempFile::new().expect("tempfile");
+        let meta = tmp.as_file().metadata().expect("metadata");
+        let rules = compile_last_modified_override("**", None);
+        let mut h = HeaderMap::new();
+        h.insert(
+            IF_MODIFIED_SINCE,
+            HeaderValue::from_static("Thu, 01 Jan 2099 00:00:00 GMT"),
+        );
+        let resp = build_file_or_304(
+            &cfg,
+            &h,
+            &asset_path(),
+            ASSET_CSS_BYTES.to_vec(),
+            Some(&meta),
+            &rules,
+            "/asset.css",
+        );
+        assert_eq!(resp.status(), StatusCode::OK);
+        assert!(resp.headers().get(LAST_MODIFIED).is_none());
+    }
+
+    /// A user `headers` rule that overrides `Last-Modified` drives
+    /// the 304 decision against the override value (not the raw
+    /// mtime). Mirrors the ETag-override-drives-304 invariant from
+    /// Stage 7a round 1 P1: the contract is "the client got X in
+    /// the response; if X ≥ IMS, 304." Tested by setting LM to a
+    /// far-past date so the file's own mtime is irrelevant; only
+    /// the override matters.
+    #[test]
+    fn user_last_modified_override_drives_304_decision() {
+        let cfg = cfg_etag(Some(false));
+        let tmp = tempfile::NamedTempFile::new().expect("tempfile");
+        let meta = tmp.as_file().metadata().expect("metadata");
+        let custom = "Mon, 01 Jan 2001 00:00:00 GMT";
+        let rules = compile_last_modified_override("**", Some(custom));
+
+        // IMS == custom → 304.
+        let mut h_match = HeaderMap::new();
+        h_match.insert(IF_MODIFIED_SINCE, HeaderValue::from_static(custom));
+        let r_match = build_file_or_304(
+            &cfg,
+            &h_match,
+            &asset_path(),
+            ASSET_CSS_BYTES.to_vec(),
+            Some(&meta),
+            &rules,
+            "/asset.css",
+        );
+        assert_eq!(r_match.status(), StatusCode::NOT_MODIFIED);
+
+        // IMS < custom → 200 (client cache predates the override).
+        let mut h_old = HeaderMap::new();
+        h_old.insert(
+            IF_MODIFIED_SINCE,
+            HeaderValue::from_static("Sun, 01 Jan 1995 00:00:00 GMT"),
+        );
+        let r_old = build_file_or_304(
+            &cfg,
+            &h_old,
+            &asset_path(),
+            ASSET_CSS_BYTES.to_vec(),
+            Some(&meta),
+            &rules,
+            "/asset.css",
+        );
+        assert_eq!(r_old.status(), StatusCode::OK);
+        // Merged LM should be the override, not the default mtime.
+        let lm = r_old
+            .headers()
+            .get(LAST_MODIFIED)
+            .expect("LM")
+            .to_str()
+            .unwrap();
+        assert_eq!(lm, custom);
     }
 
     #[test]

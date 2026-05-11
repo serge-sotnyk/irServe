@@ -21,7 +21,7 @@
       "name": "ims_future",
       "method": "GET",
       "path": "/asset.css",
-      "headers": { "if-modified-since": "Fri, 01 Jan 2099 00:00:00 GMT" }
+      "headers": { "if-modified-since": "Thu, 01 Jan 2099 00:00:00 GMT" }
     },
     {
       "name": "ims_past",
@@ -39,7 +39,14 @@
       "name": "ims_on_404",
       "method": "GET",
       "path": "/does-not-exist.css",
-      "headers": { "if-modified-since": "Fri, 01 Jan 2099 00:00:00 GMT" }
+      "headers": { "if-modified-since": "Thu, 01 Jan 2099 00:00:00 GMT" }
     }
-  ]
+  ],
+  "runner": {
+    "l0": {
+      "clean": ["first_get", "ims_past", "ims_malformed", "ims_on_404"],
+      "divergent": ["ims_exact", "ims_future"],
+      "bodyMayDiffer": ["ims_on_404"]
+    }
+  }
 }
