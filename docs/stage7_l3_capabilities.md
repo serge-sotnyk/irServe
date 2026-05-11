@@ -47,7 +47,7 @@ any order within their own dependency constraints.
 | Sub | Name | SRVs delivered | OpenSpec change | Depends on | Closes / touches |
 |---|---|---|---|---|---|
 | **7a** | ETag + 304 conditional GET | SRV-CACHE-001 (P0) | `011-etag-conditional` | — | **DONE.** Flips ORC-042 (`etag-roundtrip#first_get`) and ORC-043 (`etag-roundtrip#second_with_inm`) from reference-only to dual-target; the probe `etag-conditional` gains an `l0` partition. New `etag` module + `build_file_or_304` helper in the dispatcher; user `headers` rules can still override or delete the default ETag (the merge runs before the 304 decision per `serve-handler/src/index.js:241, 760`). Hash mirrors reference exactly — `sha1(extname + '-' + fileContents)` per **D-017** (the spec contract is the round-trip per anti-hallucination #4; the hex value is not, but irserve's mirror is byte-identical to the reference's). Probe runner gained a `$fromResponse` capture-replay extension that the rest of Stage 7 reuses. |
-| **7b** | `Last-Modified` + `--no-etag` + `If-Modified-Since` | SRV-CACHE-002, SRV-CACHE-003, SRV-CLI-013 | `012-last-modified` | 7a | Closes Q-009 (If-Modified-Since handling under `--no-etag` — currently `unknown`; needs probe-first per anti-hallucination #8). Adds the `--no-etag` CLI flag (the `serve.json` `etag: bool` field is already wired in 7a — only the flag is missing). With `--no-etag` (or `etag: false`), file responses emit `Last-Modified` (RFC 7231 IMF-fixdate UTC) and no `ETag`. The capture-replay mechanism from 7a (`$fromResponse`) carries over to the `If-Modified-Since` round-trip probe so the case stays target-agnostic. |
+| **7b** | `Last-Modified` + `--no-etag` + `If-Modified-Since` | SRV-CACHE-002, SRV-CACHE-003, SRV-CLI-013 | `012-last-modified` | 7a | **DONE.** Closed Q-009 via `tools/probe/snapshots/last-modified-roundtrip.json` (slice 0): reference has no IMS branch — every variant returns 200 with the full body. Wired `--no-etag` CLI flag (slice 1); added `last_modified` module + emission with the ETag/LM mutex at the default-emission seam (slice 2); irserve adapts to short-circuit on `IMS >= merged Last-Modified` under the `etag: false` gate per **D-018** (slice 3 + Codex round 1 P2 — the gate confines D-018 to the `--no-etag` path, leaving ETag-on responses IMS-inert to match reference). Probe partitions: `clean: [first_get, ims_past, ims_malformed, ims_on_404]` (dual-target via the slice-3 promotion), `divergent: [ims_exact, ims_future]` (reference-only — irserve diverges to 304, recorded as D-018), `bodyMayDiffer: [ims_on_404]` (404 HTML body not contractual per D-002). The 7a `$fromResponse` capture-replay extension carries over verbatim. ORC-167..172 record the surface. |
 | **7c** | Range requests (`206`/`416`) | SRV-CACHE-004 (P2) | `013-range-requests` | — (independent of 7a/7b) | Flips ORC-044/045/046 from reference-only to dual-target. Parses `Range: bytes=<start>-<end>`/`<start>-`/`-<suffix>`; on a satisfiable range, emits 206 with `Content-Range: bytes <s>-<e>/<total>` and `Content-Length: <e-s+1>`. On a strictly out-of-range value, emits 416 with `Content-Range: bytes */<total>`. Multiple ranges (`bytes=0-3, 8-11`) are explicitly OUT of scope — reference doesn't implement them either ("TODO ? multiple ranges" in source). |
 | **7d** | `Cache-Control` default + `OPTIONS` (CORS preflight) | SRV-CACHE-005 (P2), SRV-CORS-001 (preflight semantics) | `014-cache-headers-and-preflight` | — | Two small loose ends. SRV-CACHE-005 is *verification-only* — the contract is "no default `Cache-Control`; the header appears verbatim only when a user `headers` rule sets it". irserve already behaves this way; flip ORC-047..052 from reference-only to dual-target. SRV-CORS-001 was substantially closed in 6h (all four headers on every status), but the preflight pass-through (reference does NOT short-circuit `OPTIONS` to 204; it serves the file via the static pipeline) needs to be either mirrored or `adapted` with a D-NNN. Flip ORC-056 (`cors-preflight#preflight_options`) to dual-target after the decision lands. |
 | **7e** | HTTP compression (`-u`/`--no-compression` un-no-op) | SRV-CLI-012 (P2) | `015-compression` | — | The biggest methodological risk in Stage 7 (anti-hallucination rule #8: mirroring a third-party library — Node's `compression` middleware — with defaults that aren't fully visible from source). D-006 currently defers entirely; this sub-stage promotes it from `adapted` to a real implementation. Closes Q-002 (compressed content-type set + minimum body-size threshold). Flips ORC-058 from reference-only to dual-target. The runner's `fetch` transparently decompresses bodies, so the on-the-wire `Content-Encoding` is unobservable via standard probes; expect raw-mode (`net.Socket`) probes to pin the wire-level shape, mirroring the strategy used for SRV-SEC-001 in Stage 6f. |
@@ -125,15 +125,15 @@ Stage-7-specific signals worth flagging up front:
   `*MayDiffer` overlay or a derived "any non-empty etag" comparator
   rather than byte-equal match.
 
-- **7b / If-Modified-Since semantics (Q-009 closure).** Source has no
-  explicit branch. Anti-hallucination rule #8 mandates 5-10 probes
-  against the reference BEFORE implementation. The probe shape:
-  `serve --no-etag`, capture `Last-Modified`, re-issue with
-  `If-Modified-Since: <that-value>`. Expected reference behavior is
-  *probably* "no 304; returns 200 with full body" (since source lacks
-  the branch), but until probed it stays `unknown`. Close Q-009 with
-  the probe outcome; do not write the implementation against the
-  guess.
+- **7b / If-Modified-Since semantics (Q-009 closure) — DONE.** Closed
+  via `tools/probe/snapshots/last-modified-roundtrip.json` in slice 0:
+  the reference is **IMS-inert** — every variant probed (`ims_exact`
+  via `$fromResponse` capture-replay, `ims_future`, `ims_past`,
+  `ims_malformed`, `ims_on_404`) returns 200 with the full body
+  (or 404 unchanged for the missing-file case). irserve adapts per
+  **D-018** under the `etag: false` gate (Codex round 1 P2 fix —
+  ETag-on path stays IMS-inert to match reference). SRV-CACHE-003
+  flipped `unknown` → `verified` in inventory.
 
 - **7d / preflight pass-through vs short-circuit (D-NNN candidate).**
   The reference does NOT short-circuit `OPTIONS`; it sends the

@@ -143,15 +143,25 @@ The CLI flag wins over `serve.json` when set; when unset, the
 (`--no-etag`, no short alias) per
 `third_party/serve/source/utilities/cli.ts:155`.
 
-A subsequent request for the same resource that includes an
-`If-Modified-Since` header whose value parses as an HTTP-date
-and is `>=` the MERGED response's `Last-Modified` SHALL
-short-circuit to status `304 Not Modified` with no body, no
-`Content-Type`, and no `Last-Modified` echo, provided no
-`Range` header is present on the conditional request. This is
-an **irserve adaptation** (D-018) — the reference has no IMS
-handling and returns 200 with the full body in every IMS case
-(see Compatibility notes below).
+A subsequent request for the same resource, **when the
+response was emitted under `etag: false`** (the CLI flag or
+`serve.json#etag: false`), that includes an `If-Modified-Since`
+header whose value parses as an HTTP-date and is `>=` the
+MERGED response's `Last-Modified` SHALL short-circuit to status
+`304 Not Modified` with no body, no `Content-Type`, and no
+`Last-Modified` echo, provided no `Range` header is present on
+the conditional request. This is an **irserve adaptation**
+(D-018) — the reference has no IMS handling and returns 200
+with the full body in every IMS case (see Compatibility notes
+below).
+
+Under ETag-on (default or explicit `"etag": true`), `If-Modified-Since`
+is **ignored** — even if a user `serve.json#headers` rule
+supplies a `Last-Modified` on the merged response, the 304
+trigger is exclusively `If-None-Match` per SRV-CACHE-001. This
+gate narrows D-018's scope to the `etag: false` path, matching
+the inventory rule for SRV-CACHE-003 and minimising divergence
+from the reference (which has no IMS branch at all).
 
 A request whose `If-Modified-Since` is parseable but `<` the
 merged `Last-Modified`, or whose IMS is unparseable, or which
@@ -297,10 +307,11 @@ not have to revisit `build_file_or_304`.
   is verified under both `target=reference` and `target=irserve`
   without pinning a literal hex string.
 
-- **`If-Modified-Since` 304 is an irserve adaptation (D-018).**
-  The reference (`third_party/serve-handler/src/index.js`) has
-  no IMS branch — grep across `third_party/serve-handler/src/`
-  and `third_party/serve/src/` returns no hits for
+- **`If-Modified-Since` 304 is an irserve adaptation (D-018),
+  gated on `etag: false`.** The reference
+  (`third_party/serve-handler/src/index.js`) has no IMS branch —
+  grep across `third_party/serve-handler/src/` and
+  `third_party/serve/src/` returns no hits for
   `if-modified-since`/`ifModifiedSince`. The 304 short-circuit
   at `index.js:760-764` branches only on `if-none-match`.
   Empirically pinned by `tools/probe/snapshots/last-modified-roundtrip.json`:
@@ -310,13 +321,23 @@ not have to revisit `build_file_or_304`.
   adapts to short-circuit on `IMS >= merged Last-Modified`
   under the same `Range`-absent guard and the same
   no-body / no-`Content-Type` / no-validator-echo 304 shape
-  established for ETag/INM in Stage 7a. The adaptation is
-  anchored in anti-hallucination rule #5 (no bug-for-bug
-  parity for MVP; SRV-CACHE-003's contract was `unknown`
-  until slice 0 — once `verified` as "reference is IMS-inert",
-  irserve's adapted status is the correct taxonomy outcome)
-  and the symmetry with the ETag/INM path. Pinned in this
-  spec by the Scenarios above and by `dispatch::tests::ims_*`
+  established for ETag/INM in Stage 7a, but **only when
+  `serve_config.etag == Some(false)`** (the `--no-etag` CLI flag
+  or `serve.json#etag: false`). Under ETag-on the IMS branch is
+  bypassed even when a user `headers` rule supplies a
+  `Last-Modified` on the merged response — the symmetric-with-
+  ETag design considered in plan-mode would have widened
+  D-018 unnecessarily and contradicted the inventory rule for
+  SRV-CACHE-003 ("When ETag is on, IMS is ignored"). The
+  narrower gate keeps the divergence from reference contained
+  to the documented `--no-etag` path. The adaptation is anchored
+  in anti-hallucination rule #5 (no bug-for-bug parity for MVP;
+  SRV-CACHE-003's contract was `unknown` until slice 0 — once
+  `verified` as "reference is IMS-inert", irserve's adapted
+  status is the correct taxonomy outcome) and the symmetry with
+  the ETag/INM path under the same `etag` predicate. Pinned in
+  this spec by the Scenarios above and by `dispatch::tests::ims_*`
+  + `dispatch::tests::etag_on_ignores_ims_even_with_user_lm_rule`
   (irserve path) + `last-modified-roundtrip.json` reference
   snapshot (reference path).
 

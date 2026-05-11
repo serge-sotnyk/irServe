@@ -30,8 +30,10 @@ shipped).
   pending until D-018 lands in slice 4).
 - [x] Add **ORC-167..ORC-172** in
   `docs/reference/serve/oracle-matrix.md` (reference-only
-  initially; ORC-167/168/169 promoted to dual-target in
-  slice 3).
+  initially; ORC-167/170/171/172 promoted to dual-target in
+  slice 3 via the `clean` partition; ORC-168/169 stay
+  reference-only as the `divergent` partition — irserve
+  diverges to 304 per D-018).
 - [x] Verify: `node tools/probe/run.mjs last-modified-roundtrip
   --target=reference --snapshot=verify` green; no Rust changes
   so `cargo` untouched.
@@ -201,25 +203,61 @@ shipped).
     with multiple Scenarios; MODIFIED note on the Stage 7a
     SRV-CACHE-001 Requirement adding the ETag/Last-Modified
     mutex paragraph; Compatibility notes section.
-- [ ] **Main agent only (NOT this subagent):**
-  - [ ] Mirror the delta into
+- [x] **Main agent (NOT the subagent):**
+  - [x] Mirror the delta into
     `openspec/specs/http-cache/spec.md` (the canonical merged
     spec) once the change package validates.
-  - [ ] Append **D-018** to
+  - [x] Append **D-018** to
     `docs/reference/serve/decisions.md` with the IMS 304
     adaptation rationale (anti-hallucination rule #5 framing,
     SRV-CACHE-003 status-taxonomy reasoning, symmetry with
-    the ETag/INM path, user's plan-mode AskUserQuestion D1
-    answer).
-  - [ ] `README.md`: flip Stage 7b row to `done`; trim the
+    the ETag/INM path under the `etag: false` gate, user's
+    plan-mode AskUserQuestion D1 answer).
+  - [x] `README.md`: flip Stage 7b row to `done`; trim the
     "What is NOT yet observable" footer (drop
-    `Last-Modified`, drop IMS semantics, drop `--no-etag`);
-    add `--no-etag` + `Last-Modified` + IMS-304 curl demo to
-    "Try IrServe".
-  - [ ] Run `npx -y @fission-ai/openspec@latest validate
-    --all --strict` and report any failures.
-  - [ ] Commit (after main-agent review of subagent output):
-    `docs(stage-7b): spec deltas + D-018 + oracle-matrix promotion + meta`.
+    `Last-Modified`/IMS); add `--no-etag` + `Last-Modified` +
+    IMS-304 curl demo to "Try IrServe".
+  - [x] Run `npx -y @fission-ai/openspec@latest validate
+    --all --strict` and report any failures (21/21 passed,
+    0 failed).
+  - [x] Commit: `docs(stage-7b): spec deltas + D-018 +
+    http-cache merge + README` (`9605bb5`).
+
+## Codex review rounds
+
+### Round 1 — P2 + P3 fixes (commit `<this commit>`)
+
+- [x] **P2 — gate IMS branch on `etag: false`.** Slice 3's
+  symmetric-with-ETag IMS implementation fired 304 even under
+  default ETag when a user `serve.json#headers` rule supplied
+  a `Last-Modified` on the merged response — diverging from
+  reference (which returned 200) and from the inventory rule
+  "When ETag is on, IMS is ignored." Added the
+  `serve_config.etag == Some(false)` gate to the IMS branch
+  in `dispatch.rs::build_file_or_304`; updated doc comment +
+  spec.md (ADDED Requirement + Compatibility note) + canonical
+  http-cache spec + D-018 in decisions.md. New unit test
+  `dispatch::tests::etag_on_ignores_ims_even_with_user_lm_rule`
+  pins the corner case.
+- [x] **P3 — stage7_l3_capabilities.md row + Methodological
+  signals.** Flipped the 7b row to past tense (DONE, with
+  partition + D-018 citations); rewrote the "7b / IMS
+  semantics (Q-009 closure)" bullet under "Methodological
+  signals to watch for" to reflect the slice-0 probe outcome
+  + D-018 + the round-1 gate.
+- [x] **P3 — tasks.md slice 4 checkboxes.** Marked the
+  main-agent slice-4 items as done; pinned the slice-4
+  commit hash (`9605bb5`).
+- [x] **P3 — remove unused `SystemTime` import** in
+  `crates/irserve-core/src/last_modified.rs::tests`. Build
+  warning fixed.
+- [x] **P3 — fix stale "ORC-167/168/169 promoted to
+  dual-target" in tasks.md slice 0.** Slice 3 promoted
+  ORC-167/170/171/172 via the `clean` partition;
+  ORC-168/169 stay reference-only in `divergent`. Line 31-34
+  rewritten to match the actual partition split. The
+  oracle-matrix.md rows themselves were already correct;
+  only tasks.md carried the stale summary.
 
 ## Validation
 

@@ -734,18 +734,22 @@ fn etag_value(serve_config: &ServeConfig, path: &Path, bytes: &[u8]) -> Option<H
 // distinction, no comma-list, no `*`).
 //
 // Last-Modified/IMS 304 (D-018, Stage 7b slice 3, irserve-only)
-// fires iff (b) above AND (d) the merged response carries a
-// `Last-Modified` header (default emission under `etag: false`,
-// or a user `headers` rule supplying it) AND (e) the request's
-// `If-Modified-Since` parses as an HTTP-date AND the merged
-// `Last-Modified` also parses AND (f) `IMS >= merged_LM` (whole-
-// second comparison naturally falls out of `httpdate`'s round-trip:
-// the formatter writes whole-second IMF-fixdate; the parser reads
-// it back as a `SystemTime` at that whole-second). Malformed IMS
-// is treated as absent (no 304), mirroring RFC 9111 §13.1.3
-// recipient guidance. The IMS check is symmetric with the ETag
-// path: it reads the MERGED value so a user-supplied
-// `Last-Modified` override drives the decision.
+// fires iff (a') `serve_config.etag == Some(false)` (Codex round 1
+// P2 — the gate narrows D-018's scope to the `--no-etag` /
+// `etag: false` path; under ETag-on, IMS is ignored even when a
+// user `headers` rule supplied a `Last-Modified` on the merged
+// response) AND (b) above AND (d) the merged response carries a
+// `Last-Modified` header (the default emission under `etag: false`,
+// optionally overridden by a user `headers` rule) AND (e) the
+// request's `If-Modified-Since` parses as an HTTP-date AND the
+// merged `Last-Modified` also parses AND (f) `IMS >= merged_LM`
+// (whole-second comparison naturally falls out of `httpdate`'s
+// round-trip: the formatter writes whole-second IMF-fixdate; the
+// parser reads it back as a `SystemTime` at that whole-second).
+// Malformed IMS is treated as absent (no 304), mirroring RFC 9111
+// §13.1.3 recipient guidance. The IMS check reads the MERGED value
+// so under `etag: false` a user-supplied `Last-Modified` override
+// drives the decision.
 //
 // 304 response carries no body, no `Content-Type`, no `ETag` /
 // `Last-Modified` echo — mirrors reference's
@@ -774,18 +778,31 @@ fn build_file_or_304(
             }
         }
         // SRV-CACHE-003 / D-018: Last-Modified/IMS 304 path
-        // (Stage 7b slice 3, irserve-only).
-        if let (Some(ims_raw), Some(lm_raw)) = (
-            req_headers.get(IF_MODIFIED_SINCE),
-            merged.headers().get(LAST_MODIFIED),
-        ) {
-            if let (Ok(ims_str), Ok(lm_str)) = (ims_raw.to_str(), lm_raw.to_str()) {
-                if let (Ok(ims), Ok(lm)) = (
-                    httpdate::parse_http_date(ims_str),
-                    httpdate::parse_http_date(lm_str),
-                ) {
-                    if ims >= lm {
-                        return not_modified_response();
+        // (Stage 7b slice 3, irserve-only). Codex round 1 P2:
+        // gated on `serve_config.etag == Some(false)`. When ETag
+        // is on (default or `Some(true)`), IMS is ignored even
+        // if a user `serve.json#headers` rule supplied a
+        // `Last-Modified` on the merged response — the 304 trigger
+        // under ETag-on is exclusively `If-None-Match` per
+        // SRV-CACHE-001. This narrows D-018's scope to the
+        // `--no-etag` / `etag: false` path (matches the inventory
+        // rule for SRV-CACHE-003 and the plan's "Decisions taken
+        // without asking" entry — the prior symmetric-with-ETag
+        // implementation widened the divergence from reference
+        // unnecessarily).
+        if serve_config.etag == Some(false) {
+            if let (Some(ims_raw), Some(lm_raw)) = (
+                req_headers.get(IF_MODIFIED_SINCE),
+                merged.headers().get(LAST_MODIFIED),
+            ) {
+                if let (Ok(ims_str), Ok(lm_str)) = (ims_raw.to_str(), lm_raw.to_str()) {
+                    if let (Ok(ims), Ok(lm)) = (
+                        httpdate::parse_http_date(ims_str),
+                        httpdate::parse_http_date(lm_str),
+                    ) {
+                        if ims >= lm {
+                            return not_modified_response();
+                        }
                     }
                 }
             }
@@ -1183,6 +1200,51 @@ mod tests {
         );
         assert_eq!(resp.status(), StatusCode::OK);
         assert!(resp.headers().get(LAST_MODIFIED).is_none());
+    }
+
+    /// Codex round 1 P2: under default ETag (i.e. `etag == None`
+    /// or `Some(true)`), `If-Modified-Since` is ignored even when
+    /// a user `serve.json#headers` rule supplies a `Last-Modified`
+    /// on the merged response. The 304 trigger under ETag-on is
+    /// exclusively `If-None-Match` per SRV-CACHE-001. This pins
+    /// the `serve_config.etag == Some(false)` gate that narrows
+    /// D-018's scope to the `--no-etag` / `etag: false` path,
+    /// matching the inventory rule for SRV-CACHE-003 and the
+    /// plan's Decisions-taken-without-asking entry. Pre-fix
+    /// (slice-3 symmetric impl) returned 304 here.
+    #[test]
+    fn etag_on_ignores_ims_even_with_user_lm_rule() {
+        let cfg = cfg_etag(None); // default → ETag on
+        let tmp = tempfile::NamedTempFile::new().expect("tempfile");
+        let meta = tmp.as_file().metadata().expect("metadata");
+        let custom = "Mon, 01 Jan 2001 00:00:00 GMT";
+        let rules = compile_last_modified_override("**", Some(custom));
+        let mut h = HeaderMap::new();
+        // IMS = custom: under the symmetric impl this would 304;
+        // under the gated impl it must return 200 (ETag-on path).
+        h.insert(IF_MODIFIED_SINCE, HeaderValue::from_static(custom));
+        let resp = build_file_or_304(
+            &cfg,
+            &h,
+            &asset_path(),
+            ASSET_CSS_BYTES.to_vec(),
+            Some(&meta),
+            &rules,
+            "/asset.css",
+        );
+        assert_eq!(resp.status(), StatusCode::OK);
+        // Both validators present on the merged response (default
+        // ETag emission + user LM rule); only INM would drive 304
+        // here, not IMS.
+        assert!(resp.headers().get(ETAG).is_some());
+        assert_eq!(
+            resp.headers()
+                .get(LAST_MODIFIED)
+                .unwrap()
+                .to_str()
+                .unwrap(),
+            custom
+        );
     }
 
     /// A user `headers` rule that overrides `Last-Modified` drives

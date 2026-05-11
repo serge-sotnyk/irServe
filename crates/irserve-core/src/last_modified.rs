@@ -39,7 +39,7 @@ pub fn last_modified_value(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::time::{Duration, SystemTime, UNIX_EPOCH};
+    use std::time::{Duration, UNIX_EPOCH};
 
     fn cfg_etag(value: Option<bool>) -> ServeConfig {
         ServeConfig {
