@@ -1,0 +1,186 @@
+{
+  "$schemaVersion": 1,
+  "case": "last-modified-roundtrip",
+  "description": "Closes Q-009. Under `--no-etag`, reference emits Last-Modified instead of ETag. Probes confirm that the reference has no `If-Modified-Since` branch (`serve-handler/src/index.js:758-765` only checks `if-none-match`): every IMS variant returns the full 200 body. First request captures `Last-Modified`; subsequent requests replay it via `$fromResponse` or use static past/future/malformed values. The 404 case pins that IMS against a missing file is inert too.",
+  "fixture": {
+    "files": {
+      "asset.css": "body{color:red}\n"
+    }
+  },
+  "serveArgs": [
+    "--no-etag"
+  ],
+  "volatileHeaders": [
+    "last-modified"
+  ],
+  "volatileBodies": [],
+  "requests": [
+    {
+      "name": "first_get",
+      "request": {
+        "method": "GET",
+        "mode": "fetch",
+        "path": "/asset.css"
+      },
+      "response": {
+        "body": {
+          "kind": "text",
+          "length": 16,
+          "sha256": "74d94aede163ac74eb42fe7cac4066626820fa15001ddf02c3b2d25df8e6c771",
+          "preview": "body{color:red}\n"
+        },
+        "headers": {
+          "accept-ranges": "bytes",
+          "content-length": "16",
+          "content-type": "text/css; charset=utf-8",
+          "last-modified": "Mon, 11 May 2026 10:49:41 GMT",
+          "vary": "Accept-Encoding"
+        },
+        "status": 200,
+        "statusText": "OK"
+      }
+    },
+    {
+      "name": "ims_exact",
+      "request": {
+        "method": "GET",
+        "mode": "fetch",
+        "path": "/asset.css",
+        "headers": {
+          "if-modified-since": {
+            "$fromResponse": {
+              "request": "first_get",
+              "header": "last-modified"
+            }
+          }
+        }
+      },
+      "response": {
+        "body": {
+          "kind": "text",
+          "length": 16,
+          "sha256": "74d94aede163ac74eb42fe7cac4066626820fa15001ddf02c3b2d25df8e6c771",
+          "preview": "body{color:red}\n"
+        },
+        "headers": {
+          "accept-ranges": "bytes",
+          "content-length": "16",
+          "content-type": "text/css; charset=utf-8",
+          "last-modified": "Mon, 11 May 2026 10:49:41 GMT",
+          "vary": "Accept-Encoding"
+        },
+        "status": 200,
+        "statusText": "OK"
+      }
+    },
+    {
+      "name": "ims_future",
+      "request": {
+        "method": "GET",
+        "mode": "fetch",
+        "path": "/asset.css",
+        "headers": {
+          "if-modified-since": "Fri, 01 Jan 2099 00:00:00 GMT"
+        }
+      },
+      "response": {
+        "body": {
+          "kind": "text",
+          "length": 16,
+          "sha256": "74d94aede163ac74eb42fe7cac4066626820fa15001ddf02c3b2d25df8e6c771",
+          "preview": "body{color:red}\n"
+        },
+        "headers": {
+          "accept-ranges": "bytes",
+          "content-length": "16",
+          "content-type": "text/css; charset=utf-8",
+          "last-modified": "Mon, 11 May 2026 10:49:41 GMT",
+          "vary": "Accept-Encoding"
+        },
+        "status": 200,
+        "statusText": "OK"
+      }
+    },
+    {
+      "name": "ims_past",
+      "request": {
+        "method": "GET",
+        "mode": "fetch",
+        "path": "/asset.css",
+        "headers": {
+          "if-modified-since": "Thu, 01 Jan 1970 00:00:00 GMT"
+        }
+      },
+      "response": {
+        "body": {
+          "kind": "text",
+          "length": 16,
+          "sha256": "74d94aede163ac74eb42fe7cac4066626820fa15001ddf02c3b2d25df8e6c771",
+          "preview": "body{color:red}\n"
+        },
+        "headers": {
+          "accept-ranges": "bytes",
+          "content-length": "16",
+          "content-type": "text/css; charset=utf-8",
+          "last-modified": "Mon, 11 May 2026 10:49:41 GMT",
+          "vary": "Accept-Encoding"
+        },
+        "status": 200,
+        "statusText": "OK"
+      }
+    },
+    {
+      "name": "ims_malformed",
+      "request": {
+        "method": "GET",
+        "mode": "fetch",
+        "path": "/asset.css",
+        "headers": {
+          "if-modified-since": "not-a-date"
+        }
+      },
+      "response": {
+        "body": {
+          "kind": "text",
+          "length": 16,
+          "sha256": "74d94aede163ac74eb42fe7cac4066626820fa15001ddf02c3b2d25df8e6c771",
+          "preview": "body{color:red}\n"
+        },
+        "headers": {
+          "accept-ranges": "bytes",
+          "content-length": "16",
+          "content-type": "text/css; charset=utf-8",
+          "last-modified": "Mon, 11 May 2026 10:49:41 GMT",
+          "vary": "Accept-Encoding"
+        },
+        "status": 200,
+        "statusText": "OK"
+      }
+    },
+    {
+      "name": "ims_on_404",
+      "request": {
+        "method": "GET",
+        "mode": "fetch",
+        "path": "/does-not-exist.css",
+        "headers": {
+          "if-modified-since": "Fri, 01 Jan 2099 00:00:00 GMT"
+        }
+      },
+      "response": {
+        "body": {
+          "kind": "text",
+          "length": 1641,
+          "sha256": "8c45c679f40c3f81c111fbf2398d568189c3ab34d8a9704ad225cd8efe1b819f",
+          "preview": "<!DOCTYPE html><head> <meta name=\"viewport\" content=\"width=device-width, initial-scale=1, user-scalable=no\"/> <style> body { margin: 0; font-family: -apple-system, BlinkMacSystemFont, \"Segoe UI\", \"Rob"
+        },
+        "headers": {
+          "content-type": "text/html; charset=utf-8",
+          "vary": "Accept-Encoding"
+        },
+        "status": 404,
+        "statusText": "Not Found"
+      }
+    }
+  ]
+}

@@ -87,7 +87,7 @@ Affected area: http-cache (SRV-CACHE-003)
 Suspected behavior: When `--no-etag` is set, the server emits `Last-Modified` but no source-level branch handles `If-Modified-Since`. So a conditional GET probably returns 200 with the full body.
 How to verify:
 - Probe: serve with `--no-etag`, capture `Last-Modified`, re-issue with `If-Modified-Since: <that-value>`.
-Resolution: open.
+Resolution: closed by snapshot `tools/probe/snapshots/last-modified-roundtrip.json`. The pinned reference, run with `--no-etag`, emits `Last-Modified` (no `ETag`) on file 200s and ignores `If-Modified-Since` in every variant probed (exact match captured via `$fromResponse`, future date, epoch, malformed string): all return **200 with the full body**. A request against a missing path with `If-Modified-Since` returns the normal **404**. Confirms the verbatim source finding that `serve-handler/src/index.js:758-765` only short-circuits on `if-none-match` and has no `if-modified-since` branch. SRV-CACHE-003 promoted to `verified` (reference path) in inventory; irserve's adaptation to do a 304 short-circuit on `If-Modified-Since ≥ mtime` is recorded as D-018 in Stage 7b slice 3.
 
 ## Q-010: Wire-level path traversal behavior against a non-normalizing client
 

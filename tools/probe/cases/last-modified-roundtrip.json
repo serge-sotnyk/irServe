@@ -1,0 +1,45 @@
+{
+  "id": "last-modified-roundtrip",
+  "description": "Closes Q-009. Under `--no-etag`, reference emits Last-Modified instead of ETag. Probes confirm that the reference has no `If-Modified-Since` branch (`serve-handler/src/index.js:758-765` only checks `if-none-match`): every IMS variant returns the full 200 body. First request captures `Last-Modified`; subsequent requests replay it via `$fromResponse` or use static past/future/malformed values. The 404 case pins that IMS against a missing file is inert too.",
+  "fixture": {
+    "files": {
+      "asset.css": "body{color:red}\n"
+    }
+  },
+  "serveArgs": ["--no-etag"],
+  "requests": [
+    { "name": "first_get", "method": "GET", "path": "/asset.css" },
+    {
+      "name": "ims_exact",
+      "method": "GET",
+      "path": "/asset.css",
+      "headers": {
+        "if-modified-since": { "$fromResponse": { "request": "first_get", "header": "last-modified" } }
+      }
+    },
+    {
+      "name": "ims_future",
+      "method": "GET",
+      "path": "/asset.css",
+      "headers": { "if-modified-since": "Fri, 01 Jan 2099 00:00:00 GMT" }
+    },
+    {
+      "name": "ims_past",
+      "method": "GET",
+      "path": "/asset.css",
+      "headers": { "if-modified-since": "Thu, 01 Jan 1970 00:00:00 GMT" }
+    },
+    {
+      "name": "ims_malformed",
+      "method": "GET",
+      "path": "/asset.css",
+      "headers": { "if-modified-since": "not-a-date" }
+    },
+    {
+      "name": "ims_on_404",
+      "method": "GET",
+      "path": "/does-not-exist.css",
+      "headers": { "if-modified-since": "Fri, 01 Jan 2099 00:00:00 GMT" }
+    }
+  ]
+}

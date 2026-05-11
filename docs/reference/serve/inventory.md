@@ -1422,7 +1422,7 @@ Open questions:
 
 #### SRV-CACHE-003: `If-Modified-Since` 304 handling
 
-Status: unknown
+Status: verified
 Area: http-cache
 Compatibility level: 3
 Priority: P1
@@ -1431,14 +1431,18 @@ Reference source:
 - README: absent.
 - serve-handler source: `src/index.js:758-765` only short-circuits on `If-None-Match`. No explicit `If-Modified-Since` branch.
 - Existing test: absent.
-- Probe: not run.
+- Probe: `tools/probe/cases/last-modified-roundtrip.json` (Stage 7b slice 0, closes Q-009).
 - Oracle test: planned.
 
 Requirement (draft):
-Behavior of `If-Modified-Since` against the `Last-Modified` header (when `--no-etag` is set) is not directly visible in the source. Probing required.
+Pinned reference behavior, recorded by `tools/probe/snapshots/last-modified-roundtrip.json`: under `--no-etag`, the reference emits `Last-Modified` and never consults `If-Modified-Since` — every IMS variant (exact match via `$fromResponse`, far-future date, epoch, malformed string) yields **200 with the full body**; an IMS against a missing file yields the normal **404**. IrServe adapts (Stage 7b slice 3, D-018) to short-circuit to **304** when `If-Modified-Since ≥ floor(mtime, second)` and no `Range` header is present, on a file response that carries `Last-Modified` (i.e. under `etag: false` / `--no-etag`). The adaptation is documented in the spec's Compatibility note; the reference's 200 path is a deliberate, recorded divergence and is not a contract irserve mirrors.
+
+Compatibility notes:
+- Malformed `If-Modified-Since` values are ignored by irserve (treated as absent → 200), mirroring RFC 9111 §13.1.3 recipient guidance.
+- The 304 short-circuit only fires under the Last-Modified branch (mutex with ETag mirrors reference). When ETag is on, IMS is ignored — the 304 trigger is `If-None-Match` per SRV-CACHE-001.
 
 Open questions:
-- Q-009.
+- None.
 
 #### SRV-CACHE-004: Range requests return 206 / 416
 
