@@ -71,6 +71,17 @@ struct Cli {
     #[arg(short = 'L', long = "no-request-logging")]
     no_request_logging: bool,
 
+    /// SRV-CLI-013: disable the default `ETag` and emit `Last-Modified`
+    /// instead. Mirrors `third_party/serve/source/utilities/cli.ts:155`
+    /// (`--no-etag: Boolean`, long-only) and the post-parse mapping at
+    /// `source/utilities/config.ts:140` (`config.etag = !args['--no-etag']`).
+    /// When set, irserve forces `serve_config.etag = Some(false)` after
+    /// the `serve.json` merge — the flag wins. When unset, the
+    /// `serve.json` `etag` field (if any) is honored as it was after
+    /// Stage 7a; absence defaults to ETag-on.
+    #[arg(long = "no-etag")]
+    no_etag: bool,
+
     #[arg(short = 'c', long = "config", value_name = "PATH")]
     config: Option<PathBuf>,
 
@@ -122,6 +133,17 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     }
     let mut serve_config = loaded.map(|l| l.config).unwrap_or_default();
+
+    // SRV-CLI-013: `--no-etag` forces `etag: false` after the
+    // serve.json merge. Mirrors reference's
+    // `config.etag = !args['--no-etag']` at
+    // `third_party/serve/source/utilities/config.ts:140`; here we
+    // only assert the disabling direction (the absence of the flag
+    // leaves whatever `serve.json` said in place, which is the
+    // Stage-7a default).
+    if cli.no_etag {
+        serve_config.etag = Some(false);
+    }
 
     // SRV-CLI-008: when `--single` is given, prepend a synthetic
     // catch-all rewrite to `/index.html`. Mirrors
