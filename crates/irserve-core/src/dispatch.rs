@@ -2,7 +2,7 @@ use std::borrow::Cow;
 use std::path::Path;
 
 use axum::body::Body;
-use axum::http::header::{HeaderValue, CONTENT_TYPE, LOCATION};
+use axum::http::header::{HeaderValue, CONTENT_TYPE, ETAG, LOCATION};
 use axum::http::{Method, Request, Response, StatusCode};
 use percent_encoding::{percent_decode_str, utf8_percent_encode, AsciiSet, CONTROLS};
 
@@ -10,6 +10,7 @@ use crate::clean_urls::{compute_clean_urls_redirect, try_clean_urls_resolve, Cle
 use crate::config::ServeConfig;
 use crate::custom_headers::{apply_custom_headers, HeaderRuleCompiled};
 use crate::error::error_response;
+use crate::etag::compute_etag;
 use crate::listing::{
     render as render_listing, DirectoryListingView, RenderResult, UnlistedFilter,
 };
@@ -318,7 +319,10 @@ async fn dispatch_inner(
 
     match outcome {
         ResolveOutcome::File(p) | ResolveOutcome::Index(p) => match tokio::fs::read(&p).await {
-            Ok(bytes) => (file_response(&p, bytes), Some(lexical_url)),
+            Ok(bytes) => {
+                let etag = etag_value(serve_config, &p, &bytes);
+                (file_response(&p, bytes, etag), Some(lexical_url))
+            }
             Err(_) => {
                 let resp = error_response(
                     StatusCode::NOT_FOUND,
@@ -400,6 +404,7 @@ async fn dispatch_inner(
                     }
                 }
                 Ok(RenderResult::Single { path, bytes }) => {
+                    let etag = etag_value(serve_config, &path, &bytes);
                     // Headers-path mirrors reference's `getHeaders(..,
                     // absolutePath, stats)` at `index.js:746`. After
                     // a rewrite (`/old → /docs`), reference overrode
@@ -427,7 +432,7 @@ async fn dispatch_inner(
                     };
                     let filename = path.file_name().and_then(|s| s.to_str()).unwrap_or("");
                     let url = format!("{prefix}{filename}");
-                    (file_response(&path, bytes), Some(url))
+                    (file_response(&path, bytes, etag), Some(url))
                 }
                 Err(_) => {
                     let resp = error_response(
@@ -703,12 +708,27 @@ mod tests {
     }
 }
 
-fn file_response(path: &Path, bytes: Vec<u8>) -> Response<Body> {
+fn file_response(path: &Path, bytes: Vec<u8>, etag: Option<HeaderValue>) -> Response<Body> {
     let mut builder = Response::builder().status(StatusCode::OK);
     if let Some(mime) = mime_for(path) {
         builder = builder.header(CONTENT_TYPE, HeaderValue::from_static(mime));
     }
+    if let Some(etag) = etag {
+        builder = builder.header(ETAG, etag);
+    }
     builder
         .body(Body::from(bytes))
         .expect("file response should always build")
+}
+
+// SRV-CACHE-001 / D-017 / D3 (plan 0015): irserve's CLI default is
+// `etag=true`, matching `vercel/serve/source/main.ts` which sets
+// `config.etag = !args['--no-etag']` before invoking the handler. Only
+// an explicit `"etag": false` in `serve.json` disables emission. Hash
+// formula mirrors `serve-handler/src/index.js:24-36`.
+fn etag_value(serve_config: &ServeConfig, path: &Path, bytes: &[u8]) -> Option<HeaderValue> {
+    if serve_config.etag == Some(false) {
+        return None;
+    }
+    HeaderValue::from_str(&compute_etag(path, bytes)).ok()
 }

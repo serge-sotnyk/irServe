@@ -9,7 +9,6 @@ use sha1::{Digest, Sha1};
 /// is the contract; the hash function is implementation-defined per the
 /// inventory note on SRV-CACHE-001. irserve mirrors the reference
 /// formula so probe values match byte-for-byte.
-#[cfg_attr(not(test), allow(dead_code))]
 pub fn compute_etag(path: &Path, bytes: &[u8]) -> String {
     let mut hasher = Sha1::new();
     if let Some(ext) = path.extension().and_then(|e| e.to_str()) {
