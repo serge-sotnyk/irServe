@@ -332,7 +332,18 @@ it carried on commit; plan files are historical snapshots
 (same convention as the 011-etag-conditional package's
 historical citations).
 
-### Round 6 — P3 fix (commit pending; pinned in next round if any)
+### Round 5 — P3 fix (commit `7ed7fe4`)
+
+- [x] **P3 — restore the `## Validation` heading clobbered by
+  Round 4.** When the Round 4 section was inserted at the end
+  of the round log, the existing `## Validation` heading was
+  removed but its bullets were left in place — so the bullets
+  visually attached to Round 4 and read as Round-4 validation
+  output. The bullets also still cited slice-3 numbers
+  (278/278) instead of the current totals. Heading restored
+  below; counts refreshed to the post-round-4 state.
+
+### Round 6 — P3 fix (commit `7f219e1`)
 
 - [x] **P3 — pin Round 5's commit hash + refresh `## Validation`
   intro.** Round 5's heading was committed with the
@@ -353,18 +364,16 @@ historical citations).
   hash unpinned in the doc but visible in `git log`. This is a
   known artifact of the round-log convention.
 
-### Round 5 — P3 fix (commit `7ed7fe4`)
+### Round 7 — P3 fix (commit pending; pinned in next round if any)
 
-- [x] **P3 — restore the `## Validation` heading clobbered by
-  Round 4.** When the Round 4 section was inserted at the end
-  of the round log, the existing `## Validation` heading was
-  removed but its bullets were left in place — so the bullets
-  visually attached to Round 4 and read as Round-4 validation
-  output. The bullets also still cited slice-3 numbers
-  (278/278) instead of the current totals. Heading restored
-  below; counts refreshed to the post-round-4 state.
-
-## Validation
+- [x] **P3 — reorder round-log so Round 6 follows Round 5
+  chronologically.** Round 6's commit inserted the new section
+  *before* Round 5 (at the spot just after Round 4's narrative
+  paragraph, where the previous round had been appended),
+  producing the order `1, 2, 3, 4, 6, 5` in the rendered
+  document. Round 7 swaps the two blocks so the log reads
+  `1, 2, 3, 4, 5, 6, 7` — the order Codex review sequencing
+  expects. No content edits to either block.
 
 Latest totals at end of Stage 7b (refreshed after every Codex
 round; rounds 5+ have been doc-hygiene only and do not change
