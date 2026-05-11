@@ -303,7 +303,7 @@ shipped).
 - [x] **P3 — tasks.md L228 placeholder.** Replaced
   `commit <this commit>` with `13b66bb` (Round 1 commit hash).
 
-### Round 4 — P3 fixes (this commit)
+### Round 4 — P3 fixes (commit `3437082`)
 
 - [x] **P3 — propagate the SRV-CLI-013 / SRV-CACHE-002
   `accepted` → `verified` promotion across all docs.** Round 3
@@ -332,20 +332,37 @@ it carried on commit; plan files are historical snapshots
 (same convention as the 011-etag-conditional package's
 historical citations).
 
-- `cargo test --workspace --lib` — **278/278** unit tests
-  green at end of slice 3 (was 265 in slice 1; +6 in slice 2;
-  +7 in slice 3). New tests across stages: 4
-  (`last_modified.rs`) + 9 (`dispatch::tests` LM + IMS
-  surface) = 13.
+### Round 5 — P3 fix (this commit)
+
+- [x] **P3 — restore the `## Validation` heading clobbered by
+  Round 4.** When the Round 4 section was inserted at the end
+  of the round log, the existing `## Validation` heading was
+  removed but its bullets were left in place — so the bullets
+  visually attached to Round 4 and read as Round-4 validation
+  output. The bullets also still cited slice-3 numbers
+  (278/278) instead of the current totals. Heading restored
+  below; counts refreshed to the post-round-4 state.
+
+## Validation
+
+Latest totals at end of Stage 7b (post-Codex round 4):
+
+- `cargo test --workspace --lib` — **279/279** unit tests
+  green. Stage-7b additions: 4 in `last_modified.rs` (slice 2)
+  + 9 in `dispatch::tests` (2 LM-shape in slice 2, 7 IMS in
+  slice 3) + 1 in `dispatch::tests` (`etag_on_ignores_ims_even_with_user_lm_rule`
+  added in Codex round 1 P2) = 14 new tests across the stage.
 - Oracle harness: `target=irserve total=82 passed=76 skipped=6
-  failed=0` at end of slice 3; reference 81/81 (the
-  reference-only `divergent` requests count under reference
-  but skip under irserve, hence the asymmetric totals).
-  Promotion delta: +4 dual-target requests from
-  `last-modified-roundtrip.json` clean partition.
+  failed=0`; reference 81/81. The reference-only `divergent`
+  requests (`ims_exact`, `ims_future`) count under reference
+  but are stripped from the irserve diff via the L0
+  partition, hence the asymmetric totals. Promotion delta vs.
+  slice 1: +4 dual-target requests from `last-modified-
+  roundtrip.json` `clean` partition (slice 3).
 - `node tools/probe/run.mjs last-modified-roundtrip
   --target=reference --snapshot=verify` — green.
 - `node tools/probe/run.mjs last-modified-roundtrip
   --target=irserve --snapshot=verify` — green.
-- `openspec validate --all --strict` — slice 4 final step
-  (main agent runs).
+- `npx -y @fission-ai/openspec@latest validate --all --strict`
+  — **21 passed, 0 failed** (12 change packages + 9 canonical
+  spec capabilities). Run end of every Codex review round.
