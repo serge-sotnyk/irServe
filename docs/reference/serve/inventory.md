@@ -397,7 +397,7 @@ Open questions:
 
 #### SRV-CLI-013: `--no-etag` switches default to `Last-Modified`
 
-Status: accepted
+Status: verified
 Area: cli
 Compatibility level: 3
 Priority: P1
@@ -406,8 +406,8 @@ Reference source:
 - README: yes — help text: `Send 'Last-Modified' header instead of 'ETag'`.
 - serve source: `source/utilities/config.ts:140` — `config.etag = !args['--no-etag']` (i.e. ETag is on by default in the CLI even though the handler library defaults to off).
 - Existing test: `automatically handle ETag headers for normal files` and `etag header is set` in `test/integration.test.js`.
-- Probe: `tools/probe/cases/etag-roundtrip.json` (confirms ETag presence and 304 round-trip in default config).
-- Oracle test: planned.
+- Probe: `tools/probe/cases/etag-roundtrip.json` (default-ETag round-trip); `tools/probe/cases/last-modified-roundtrip.json` (Stage 7b, `serveArgs: ["--no-etag"]` — pins the `--no-etag` → `Last-Modified` substitution end-to-end).
+- Oracle: ORC-167 (`last-modified-roundtrip.json#first_get` — Last-Modified present, no ETag); ORC-042 (`etag-roundtrip.json#first_get` — default ETag emission). Promoted `accepted` → `verified` in Stage 7b slice 0 once ORC-167 landed.
 
 Requirement (draft):
 By default the server emits a strong `ETag` on file responses. With `--no-etag`, no `ETag` is emitted and `Last-Modified` is sent instead.
@@ -1399,17 +1399,17 @@ Open questions:
 
 #### SRV-CACHE-002: With `--no-etag`, `Last-Modified` is sent instead
 
-Status: accepted
+Status: verified
 Area: http-cache
 Compatibility level: 3
 Priority: P1
 
 Reference source:
 - README: yes — `--no-etag` CLI flag help text.
-- serve-handler source: `src/index.js:227-236`.
+- serve-handler source: `src/index.js:227-236` (the `if (etag) / else` mutex: `defaultHeaders['Last-Modified'] = stats.mtime.toUTCString()` runs only in the `else` branch).
 - Existing test: covered transitively by `set 'headers' to fixed headers and check default headers`.
-- Probe: not run for this branch.
-- Oracle test: planned.
+- Probe: `tools/probe/cases/last-modified-roundtrip.json` (Stage 7b slice 0, `serveArgs: ["--no-etag"]`).
+- Oracle: ORC-167 (`last-modified-roundtrip.json#first_get` — `Last-Modified` present in IMF-fixdate shape, `ETag` absent, body unchanged). Promoted `accepted` → `verified` in Stage 7b slice 0.
 
 Requirement (draft):
 With `--no-etag`, file responses include a `Last-Modified` header (RFC 7231 IMF-fixdate of the file's mtime in UTC) and no `ETag`. `If-Modified-Since` handling is governed by SRV-CACHE-003.
@@ -1432,7 +1432,7 @@ Reference source:
 - serve-handler source: `src/index.js:758-765` only short-circuits on `If-None-Match`. No explicit `If-Modified-Since` branch.
 - Existing test: absent.
 - Probe: `tools/probe/cases/last-modified-roundtrip.json` (Stage 7b slice 0, closes Q-009).
-- Oracle test: planned.
+- Oracle: ORC-167 (`#first_get`); ORC-168 (`#ims_exact`, reference-only — D-018 divergence); ORC-169 (`#ims_future`, reference-only — D-018 divergence); ORC-170 (`#ims_past`); ORC-171 (`#ims_malformed`); ORC-172 (`#ims_on_404`). irserve-side IMS coverage via `dispatch::tests::ims_*` (7 unit tests) + `dispatch::tests::etag_on_ignores_ims_even_with_user_lm_rule` (Codex round 1 P2 gate).
 
 Requirement (draft):
 Pinned reference behavior, recorded by `tools/probe/snapshots/last-modified-roundtrip.json`: under `--no-etag`, the reference emits `Last-Modified` and never consults `If-Modified-Since` — every IMS variant (exact match via `$fromResponse`, far-future date, epoch, malformed string) yields **200 with the full body**; an IMS against a missing file yields the normal **404**. IrServe adapts (Stage 7b slice 3, D-018) to short-circuit to **304** when `If-Modified-Since ≥ floor(mtime, second)` and no `Range` header is present, on a file response that carries `Last-Modified` (i.e. under `etag: false` / `--no-etag`). The adaptation is documented in the spec's Compatibility note; the reference's 200 path is a deliberate, recorded divergence and is not a contract irserve mirrors.

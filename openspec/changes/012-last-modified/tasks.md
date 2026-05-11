@@ -225,7 +225,7 @@ shipped).
 
 ## Codex review rounds
 
-### Round 1 — P2 + P3 fixes (commit `<this commit>`)
+### Round 1 — P2 + P3 fixes (commit `13b66bb`)
 
 - [x] **P2 — gate IMS branch on `etag: false`.** Slice 3's
   symmetric-with-ETag IMS implementation fired 304 even under
@@ -258,6 +258,50 @@ shipped).
   rewritten to match the actual partition split. The
   oracle-matrix.md rows themselves were already correct;
   only tasks.md carried the stale summary.
+
+### Round 2 — P3 fixes (commit `60058e4`)
+
+- [x] **P3 — oracle-matrix.md Coverage gaps section.** Three
+  entries (SRV-CLI-013, SRV-CACHE-002, SRV-CACHE-003) flipped
+  from "no probe / probe gap / unknown" to strike-through
+  "closed in Stage 7b" with the ORC-167..172 cross-link and
+  the D-018 citation for SRV-CACHE-003's irserve adaptation.
+- [x] **P3 — proposal.md stale ORC partition.** Same fix as the
+  round-1 tasks.md edit, applied to proposal.md L116:
+  `ORC-167/170/171/172` clean dual-target,
+  `ORC-168/169` reference-only `divergent` per D-018.
+- [x] **P3 — stale `dispatch.rs:NNN` citations** after the
+  round-1 guard insertion. Updated across 5 files
+  (canonical spec, delta spec, proposal, design, tasks +
+  D-018 entry): `dispatch.rs:754→:758`, `:763-765→:767-769`,
+  `:776-792→:780-809`, `:797-802→:814`, `:797→:814`,
+  `:767→:771`, `:736-748→:710-756`. The 011-etag-conditional
+  package's historical citations stay untouched (closed
+  change record).
+
+### Round 3 — P3 fixes (this commit)
+
+- [x] **P3 — compatibility-levels.md L61 + L92 stale.** L61
+  ("`Last-Modified`/IMS — status `unknown`, see Q-009")
+  rewritten to reflect Stage 7b's outcome: SRV-CACHE-002
+  promoted to `verified`, SRV-CACHE-003 `verified` for the
+  reference path and `adapted` for irserve per D-018, Q-009
+  closed. L92 ("Coverage gaps / `--no-etag` / Last-Modified
+  path — no probe") flipped to strike-through closed in
+  Stage 7b with the ORC-167..172 + D-018 cross-link.
+- [x] **P3 — inventory.md L398/1400/1423 stale evidence
+  fields.** SRV-CLI-013 + SRV-CACHE-002 promoted
+  `accepted` → `verified` (ORC-167 exercises both end-to-end
+  via `last-modified-roundtrip.json#first_get` under
+  `serveArgs: ["--no-etag"]`). SRV-CACHE-003 (already
+  `verified` from slice 0) gains an explicit Oracle line
+  citing ORC-167..172 + the irserve-side `dispatch::tests`
+  coverage. "Probe: not run for this branch" /
+  "Oracle test: planned" replaced with the actual probe +
+  ORC anchors. Status taxonomy applied literally as
+  README §Anti-hallucination rules #2 prescribes.
+- [x] **P3 — tasks.md L228 placeholder.** Replaced
+  `commit <this commit>` with `13b66bb` (Round 1 commit hash).
 
 ## Validation
 

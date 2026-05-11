@@ -58,7 +58,7 @@ Each bullet cites the backing `SRV-*` entries from `inventory.md`. Bullets with 
 - Custom `headers` rules — SRV-HDR-001, SRV-HDR-002.
 - MIME-fallback for rewritten responses — SRV-RWRT-002.
 - `ETag` and `If-None-Match` 304 — SRV-CACHE-001, with override SRV-CLI-013.
-- `Last-Modified` and `If-Modified-Since` — SRV-CACHE-002, SRV-CACHE-003 (status `unknown`, see Q-009).
+- `Last-Modified` and `If-Modified-Since` — SRV-CACHE-002 (`accepted` / verified by ORC-167 in Stage 7b), SRV-CACHE-003 (`verified` for the reference path / `adapted` for irserve per D-018; Q-009 closed in Stage 7b slice 0).
 - Range requests / 206 / 416 — SRV-CACHE-004.
 - `Cache-Control` header default and override — SRV-CACHE-005.
 - HTTP compression on/off — SRV-CLI-012.
@@ -89,7 +89,7 @@ Stage 3 introduces these residual coverage gaps (full list with rationale in [`o
 - ~~Process-level CLI behavior (`--help`, `--version`, two-positional error)~~ — closed in Stage 3 review round 1. The runner now has a CLI-mode branch (`runCliProbe`) that snapshots exit code + stdout/stderr; SRV-CLI-019 promoted to `verified`; SRV-CLI-007 scenario 3 now has an ORC.
 - `--no-clipboard` and `--no-port-switching` happy-path-only — every probe passes both flags, but the runner does not assert clipboard suppression or refuse-to-fall-back-on-occupied-port (would need a probe that occupies the port first). SRV-CLI-011 and SRV-CLI-016 stay `accepted`.
 - Default-port path (no `--listen`, no `PORT`) — every probe passes an explicit `--listen`; SRV-CLI-001 stays `accepted`.
-- `--no-etag` / `Last-Modified` path — no probe in Stage 3. SRV-CLI-013 and SRV-CACHE-002 stay `accepted`; SRV-CACHE-003 stays `unknown` (Q-009 open).
+- ~~`--no-etag` / `Last-Modified` path~~ — closed in Stage 7b. `last-modified-roundtrip.json` (`serveArgs: ["--no-etag"]`, 6 requests) pins ORC-167..172. SRV-CLI-013 / SRV-CACHE-002 stay `accepted` with the new probe attached; SRV-CACHE-003 promoted `unknown` → `verified` (reference path) / `adapted` (irserve, D-018); Q-009 closed.
 - `headers` rule with `value: null` removal — the existing `headers-custom` probe is broken (intercepted by cleanUrls 301); SRV-HDR-002 stays `accepted`. Stage-5b cleanup TODO logged in `oracle-matrix.md`.
 - External-URL redirects (SRV-RDIR-003) — no probe; Q-007 stays open.
 - Symlinks / TLS / UDS / Windows pipe — Level 4 `deferred` SRVs remain at that status.
