@@ -177,10 +177,7 @@ pub async fn serve(config: ServerConfig) -> Result<(), Error> {
 ///   exits non-zero. The reference declares the flag but never reads it.
 ///
 /// All other I/O errors propagate unchanged.
-async fn bind_with_fallback(
-    addr: SocketAddr,
-    allow_switching: bool,
-) -> Result<TcpListener, Error> {
+async fn bind_with_fallback(addr: SocketAddr, allow_switching: bool) -> Result<TcpListener, Error> {
     match TcpListener::bind(addr).await {
         Ok(l) => Ok(l),
         Err(e) if e.kind() == std::io::ErrorKind::AddrInUse => {
@@ -193,9 +190,7 @@ async fn bind_with_fallback(
             let fallback = SocketAddr::new(addr.ip(), 0);
             let listener = TcpListener::bind(fallback).await?;
             let actual = listener.local_addr()?;
-            eprintln!(
-                "warning: listen address {addr} is already in use, switched to {actual}"
-            );
+            eprintln!("warning: listen address {addr} is already in use, switched to {actual}");
             Ok(listener)
         }
         Err(e) => Err(Error::Io(e)),
@@ -206,8 +201,8 @@ async fn handler(State(state): State<SharedState>, req: Request<Body>) -> Respon
     // SRV-CLI-014/015: capture log metadata before dispatch consumes
     // the request. Format is implementation-defined per D-002 (terminal
     // output is not contractual).
-    let log_meta = (!state.no_request_logging)
-        .then(|| (req.method().clone(), req.uri().path().to_string()));
+    let log_meta =
+        (!state.no_request_logging).then(|| (req.method().clone(), req.uri().path().to_string()));
     let start = state.debug.then(std::time::Instant::now);
 
     let response = dispatch(

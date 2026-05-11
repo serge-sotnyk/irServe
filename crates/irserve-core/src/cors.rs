@@ -99,13 +99,20 @@ mod tests {
             "https://example.com"
         );
         // The other three CORS defaults still fill in.
-        assert_eq!(resp.headers().get("access-control-allow-headers").unwrap(), "*");
         assert_eq!(
-            resp.headers().get("access-control-allow-credentials").unwrap(),
+            resp.headers().get("access-control-allow-headers").unwrap(),
+            "*"
+        );
+        assert_eq!(
+            resp.headers()
+                .get("access-control-allow-credentials")
+                .unwrap(),
             "true"
         );
         assert_eq!(
-            resp.headers().get("access-control-allow-private-network").unwrap(),
+            resp.headers()
+                .get("access-control-allow-private-network")
+                .unwrap(),
             "true"
         );
     }

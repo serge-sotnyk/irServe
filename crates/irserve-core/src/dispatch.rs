@@ -320,8 +320,21 @@ async fn dispatch_inner(
     match outcome {
         ResolveOutcome::File(p) | ResolveOutcome::Index(p) => match tokio::fs::read(&p).await {
             Ok(bytes) => (
-                build_file_or_304(serve_config, req.headers(), &p, bytes),
-                Some(lexical_url),
+                // SRV-CACHE-001 / Codex round 1 P1: 304 check must see
+                // user-merged headers, so `build_file_or_304` runs the
+                // headers overlay itself and we return `None` here to
+                // tell the outer `dispatch` wrapper "headers pass is
+                // done." Mirrors reference's getHeaders-then-304
+                // ordering at `serve-handler/src/index.js:241, 760`.
+                build_file_or_304(
+                    serve_config,
+                    req.headers(),
+                    &p,
+                    bytes,
+                    header_rules,
+                    &lexical_url,
+                ),
+                None,
             ),
             Err(_) => {
                 let resp = error_response(
@@ -432,8 +445,19 @@ async fn dispatch_inner(
                     let filename = path.file_name().and_then(|s| s.to_str()).unwrap_or("");
                     let url = format!("{prefix}{filename}");
                     (
-                        build_file_or_304(serve_config, req.headers(), &path, bytes),
-                        Some(url),
+                        // Codex round 1 P1: same rationale as the
+                        // File/Index arm above — `build_file_or_304`
+                        // applies user `headers` rules itself so the
+                        // 304 check sees the merged ETag.
+                        build_file_or_304(
+                            serve_config,
+                            req.headers(),
+                            &path,
+                            bytes,
+                            header_rules,
+                            &url,
+                        ),
+                        None,
                     )
                 }
                 Err(_) => {
@@ -610,11 +634,88 @@ fn redirect_with_status(target: &str, status: u16) -> Response<Body> {
         .expect("redirect response should always build")
 }
 
+fn file_response(path: &Path, bytes: Vec<u8>, etag: Option<HeaderValue>) -> Response<Body> {
+    let mut builder = Response::builder().status(StatusCode::OK);
+    if let Some(mime) = mime_for(path) {
+        builder = builder.header(CONTENT_TYPE, HeaderValue::from_static(mime));
+    }
+    if let Some(etag) = etag {
+        builder = builder.header(ETAG, etag);
+    }
+    builder
+        .body(Body::from(bytes))
+        .expect("file response should always build")
+}
+
+// SRV-CACHE-001 / D-017 / D3 (plan 0015): irserve's CLI default is
+// `etag=true`, matching `vercel/serve/source/main.ts` which sets
+// `config.etag = !args['--no-etag']` before invoking the handler. Only
+// an explicit `"etag": false` in `serve.json` disables emission. Hash
+// formula mirrors `serve-handler/src/index.js:24-36`.
+fn etag_value(serve_config: &ServeConfig, path: &Path, bytes: &[u8]) -> Option<HeaderValue> {
+    if serve_config.etag == Some(false) {
+        return None;
+    }
+    HeaderValue::from_str(&compute_etag(path, bytes)).ok()
+}
+
+// SRV-CACHE-001: build either a 200 file response or a 304 short-
+// circuit, mirroring `serve-handler/src/index.js:227-254` + `:760-765`.
+//
+// User `serve.json#headers` rules CAN override the default ETag — the
+// reference's flow is `getHeaders` (defaults + customHeaders merged via
+// `Object.assign(defaultHeaders, related)` at `index.js:241`), THEN
+// `if (headers.ETag === request.headers['if-none-match']) ...` at
+// `:760`. The 304 comparison runs against the MERGED ETag, not the
+// default. Codex round 1 P1: the prior implementation ran the 304
+// check before `apply_custom_headers`, so any deployment overriding or
+// deleting ETag via `headers` broke the round-trip contract. We now
+// run the custom-headers merge inside this helper before the 304
+// decision, and signal to the outer `dispatch` wrapper that the
+// headers pass is already done (by returning `None` for `headers_path`
+// at the call sites).
+//
+// 304 fires iff (a) ETag emission is enabled by config (default true),
+// (b) the request carries no `Range` header (Stage 7c precursor —
+// mirrors the reference's `req.headers.range == null` guard at
+// `index.js:760`; Range parsing itself lands in 7c), and (c) the
+// request's `If-None-Match` matches the merged response's `ETag`
+// verbatim (strong-quoted string equality; no weak/strong distinction,
+// no comma-list, no `*`). The 304 response carries no body, no
+// `Content-Type`, and no `ETag` echo — matches the reference's
+// `response.statusCode = 304; response.end()` (no `writeHead`).
+fn build_file_or_304(
+    serve_config: &ServeConfig,
+    req_headers: &HeaderMap,
+    path: &Path,
+    bytes: Vec<u8>,
+    header_rules: &[HeaderRuleCompiled],
+    request_path: &str,
+) -> Response<Body> {
+    let etag = etag_value(serve_config, path, &bytes);
+    let response_200 = file_response(path, bytes, etag);
+    let merged = apply_custom_headers(response_200, request_path, header_rules);
+    if req_headers.get(RANGE).is_none() {
+        if let (Some(inm), Some(effective_etag)) =
+            (req_headers.get(IF_NONE_MATCH), merged.headers().get(ETAG))
+        {
+            if inm == effective_etag {
+                return Response::builder()
+                    .status(StatusCode::NOT_MODIFIED)
+                    .body(Body::empty())
+                    .expect("304 response should always build");
+            }
+        }
+    }
+    merged
+}
+
 #[cfg(test)]
 mod tests {
     use super::{build_file_or_304, encode_uri_target, url_path_has_extension};
-    use crate::config::ServeConfig;
-    use axum::http::header::{HeaderValue, IF_NONE_MATCH, RANGE};
+    use crate::config::{HeaderItem, HeaderRule, ServeConfig};
+    use crate::custom_headers::{compile_rules, HeaderRuleCompiled};
+    use axum::http::header::{HeaderValue, ETAG, IF_NONE_MATCH, RANGE};
     use axum::http::{HeaderMap, StatusCode};
     use std::path::PathBuf;
 
@@ -635,19 +736,42 @@ mod tests {
         PathBuf::from("asset.css")
     }
 
+    fn compile_etag_override(source: &str, value: Option<&str>) -> Vec<HeaderRuleCompiled> {
+        let rules = vec![HeaderRule {
+            source: source.to_string(),
+            headers: vec![HeaderItem {
+                key: "ETag".to_string(),
+                value: value.map(|s| s.to_string()),
+            }],
+        }];
+        let (compiled, invalid) = compile_rules(&rules);
+        assert!(invalid.is_empty(), "rule should compile: {invalid:?}");
+        compiled
+    }
+
     #[test]
     fn etag_match_returns_304() {
         let cfg = cfg_etag(None);
         let mut h = HeaderMap::new();
         h.insert(IF_NONE_MATCH, HeaderValue::from_static(ASSET_CSS_ETAG));
-        let resp = build_file_or_304(&cfg, &h, &asset_path(), ASSET_CSS_BYTES.to_vec());
+        let resp = build_file_or_304(
+            &cfg,
+            &h,
+            &asset_path(),
+            ASSET_CSS_BYTES.to_vec(),
+            &[],
+            "/asset.css",
+        );
         assert_eq!(resp.status(), StatusCode::NOT_MODIFIED);
         // 304 response carries no ETag echo and no Content-Type —
         // mirrors `serve-handler/src/index.js:761-764` which calls
         // `response.statusCode = 304; response.end()` without going
         // through `writeHead(headers)`.
-        assert!(resp.headers().get(axum::http::header::ETAG).is_none());
-        assert!(resp.headers().get(axum::http::header::CONTENT_TYPE).is_none());
+        assert!(resp.headers().get(ETAG).is_none());
+        assert!(resp
+            .headers()
+            .get(axum::http::header::CONTENT_TYPE)
+            .is_none());
     }
 
     #[test]
@@ -655,12 +779,16 @@ mod tests {
         let cfg = cfg_etag(None);
         let mut h = HeaderMap::new();
         h.insert(IF_NONE_MATCH, HeaderValue::from_static("\"deadbeef\""));
-        let resp = build_file_or_304(&cfg, &h, &asset_path(), ASSET_CSS_BYTES.to_vec());
-        assert_eq!(resp.status(), StatusCode::OK);
-        assert_eq!(
-            resp.headers().get(axum::http::header::ETAG).unwrap(),
-            ASSET_CSS_ETAG
+        let resp = build_file_or_304(
+            &cfg,
+            &h,
+            &asset_path(),
+            ASSET_CSS_BYTES.to_vec(),
+            &[],
+            "/asset.css",
         );
+        assert_eq!(resp.status(), StatusCode::OK);
+        assert_eq!(resp.headers().get(ETAG).unwrap(), ASSET_CSS_ETAG);
     }
 
     #[test]
@@ -673,7 +801,14 @@ mod tests {
         let mut h = HeaderMap::new();
         h.insert(IF_NONE_MATCH, HeaderValue::from_static(ASSET_CSS_ETAG));
         h.insert(RANGE, HeaderValue::from_static("bytes=0-3"));
-        let resp = build_file_or_304(&cfg, &h, &asset_path(), ASSET_CSS_BYTES.to_vec());
+        let resp = build_file_or_304(
+            &cfg,
+            &h,
+            &asset_path(),
+            ASSET_CSS_BYTES.to_vec(),
+            &[],
+            "/asset.css",
+        );
         assert_eq!(resp.status(), StatusCode::OK);
     }
 
@@ -682,24 +817,96 @@ mod tests {
         let cfg = cfg_etag(Some(false));
         let mut h = HeaderMap::new();
         h.insert(IF_NONE_MATCH, HeaderValue::from_static(ASSET_CSS_ETAG));
-        let resp = build_file_or_304(&cfg, &h, &asset_path(), ASSET_CSS_BYTES.to_vec());
+        let resp = build_file_or_304(
+            &cfg,
+            &h,
+            &asset_path(),
+            ASSET_CSS_BYTES.to_vec(),
+            &[],
+            "/asset.css",
+        );
         assert_eq!(resp.status(), StatusCode::OK);
         // No ETag header when disabled.
-        assert!(resp.headers().get(axum::http::header::ETAG).is_none());
+        assert!(resp.headers().get(ETAG).is_none());
     }
 
     #[test]
     fn no_if_none_match_returns_200() {
         let cfg = cfg_etag(None);
         let h = HeaderMap::new();
-        let resp = build_file_or_304(&cfg, &h, &asset_path(), ASSET_CSS_BYTES.to_vec());
-        assert_eq!(resp.status(), StatusCode::OK);
-        assert_eq!(
-            resp.headers().get(axum::http::header::ETAG).unwrap(),
-            ASSET_CSS_ETAG
+        let resp = build_file_or_304(
+            &cfg,
+            &h,
+            &asset_path(),
+            ASSET_CSS_BYTES.to_vec(),
+            &[],
+            "/asset.css",
         );
+        assert_eq!(resp.status(), StatusCode::OK);
+        assert_eq!(resp.headers().get(ETAG).unwrap(), ASSET_CSS_ETAG);
     }
 
+    /// Codex round 1 P1: a user `serve.json#headers` rule that sets
+    /// `ETag: "custom"` must take effect BEFORE the 304 decision.
+    /// Replay of the custom value must 304; replay of the default
+    /// sha1 must NOT 304 (the merged response no longer advertises
+    /// it). Mirrors `serve-handler/src/index.js:241, 760` ordering.
+    #[test]
+    fn custom_etag_override_drives_304_decision() {
+        let cfg = cfg_etag(None);
+        let rules = compile_etag_override("**/*.css", Some("\"custom\""));
+
+        // (a) replay of the user-override value → 304.
+        let mut h_custom = HeaderMap::new();
+        h_custom.insert(IF_NONE_MATCH, HeaderValue::from_static("\"custom\""));
+        let r_custom = build_file_or_304(
+            &cfg,
+            &h_custom,
+            &asset_path(),
+            ASSET_CSS_BYTES.to_vec(),
+            &rules,
+            "/asset.css",
+        );
+        assert_eq!(r_custom.status(), StatusCode::NOT_MODIFIED);
+
+        // (b) replay of the default sha1 (which the user rule has
+        // overwritten on the wire) → 200, not 304. The merged ETag
+        // is `"custom"`, so the default sha1 no longer matches.
+        let mut h_default = HeaderMap::new();
+        h_default.insert(IF_NONE_MATCH, HeaderValue::from_static(ASSET_CSS_ETAG));
+        let r_default = build_file_or_304(
+            &cfg,
+            &h_default,
+            &asset_path(),
+            ASSET_CSS_BYTES.to_vec(),
+            &rules,
+            "/asset.css",
+        );
+        assert_eq!(r_default.status(), StatusCode::OK);
+        assert_eq!(r_default.headers().get(ETAG).unwrap(), "\"custom\"");
+    }
+
+    /// Codex round 1 P1: when a user rule deletes ETag via
+    /// `value: null` (SRV-HDR-002), the 304 short-circuit must NEVER
+    /// fire — the merged response has no ETag header to compare.
+    #[test]
+    fn custom_etag_delete_disables_304() {
+        let cfg = cfg_etag(None);
+        let rules = compile_etag_override("**/*.css", None);
+
+        let mut h = HeaderMap::new();
+        h.insert(IF_NONE_MATCH, HeaderValue::from_static(ASSET_CSS_ETAG));
+        let resp = build_file_or_304(
+            &cfg,
+            &h,
+            &asset_path(),
+            ASSET_CSS_BYTES.to_vec(),
+            &rules,
+            "/asset.css",
+        );
+        assert_eq!(resp.status(), StatusCode::OK);
+        assert!(resp.headers().get(ETAG).is_none());
+    }
 
     #[test]
     fn extension_basic_paths() {
@@ -795,63 +1002,4 @@ mod tests {
         // Newline (0x0A) is a control character.
         assert_eq!(encode_uri_target("/a\nb"), "/a%0Ab");
     }
-}
-
-fn file_response(path: &Path, bytes: Vec<u8>, etag: Option<HeaderValue>) -> Response<Body> {
-    let mut builder = Response::builder().status(StatusCode::OK);
-    if let Some(mime) = mime_for(path) {
-        builder = builder.header(CONTENT_TYPE, HeaderValue::from_static(mime));
-    }
-    if let Some(etag) = etag {
-        builder = builder.header(ETAG, etag);
-    }
-    builder
-        .body(Body::from(bytes))
-        .expect("file response should always build")
-}
-
-// SRV-CACHE-001 / D-017 / D3 (plan 0015): irserve's CLI default is
-// `etag=true`, matching `vercel/serve/source/main.ts` which sets
-// `config.etag = !args['--no-etag']` before invoking the handler. Only
-// an explicit `"etag": false` in `serve.json` disables emission. Hash
-// formula mirrors `serve-handler/src/index.js:24-36`.
-fn etag_value(serve_config: &ServeConfig, path: &Path, bytes: &[u8]) -> Option<HeaderValue> {
-    if serve_config.etag == Some(false) {
-        return None;
-    }
-    HeaderValue::from_str(&compute_etag(path, bytes)).ok()
-}
-
-// SRV-CACHE-001: build either a 200 file response or a 304 short-
-// circuit, mirroring `serve-handler/src/index.js:760-765`. The 304
-// branch fires iff (a) ETag emission is enabled, (b) the request
-// carries no `Range` header (reference defers Range/304 interaction
-// to the 206/416 path — Stage 7c lands Range parsing, the guard is
-// here now so 7c doesn't have to revisit this site), and (c) the
-// request's `If-None-Match` matches the computed ETag verbatim. The
-// match is exact string equality on the strong-quoted form; no
-// weak/strong distinction, no comma-list, no `*` — mirrors
-// reference's `===`. The 304 response carries no body, no
-// `Content-Type`, and no `ETag` echo, matching the reference's
-// `response.statusCode = 304; response.end()`.
-fn build_file_or_304(
-    serve_config: &ServeConfig,
-    req_headers: &HeaderMap,
-    path: &Path,
-    bytes: Vec<u8>,
-) -> Response<Body> {
-    let etag = etag_value(serve_config, path, &bytes);
-    if let Some(ref etag_value) = etag {
-        if req_headers.get(RANGE).is_none() {
-            if let Some(inm) = req_headers.get(IF_NONE_MATCH) {
-                if inm == etag_value {
-                    return Response::builder()
-                        .status(StatusCode::NOT_MODIFIED)
-                        .body(Body::empty())
-                        .expect("304 response should always build");
-                }
-            }
-        }
-    }
-    file_response(path, bytes, etag)
 }

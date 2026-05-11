@@ -75,6 +75,8 @@ mod tests {
         assert_eq!(etag.len(), 42, "should be 2 quotes + 40 hex chars");
         assert!(etag.starts_with('"') && etag.ends_with('"'));
         let inner = &etag[1..etag.len() - 1];
-        assert!(inner.chars().all(|c| c.is_ascii_hexdigit() && !c.is_ascii_uppercase()));
+        assert!(inner
+            .chars()
+            .all(|c| c.is_ascii_hexdigit() && !c.is_ascii_uppercase()));
     }
 }

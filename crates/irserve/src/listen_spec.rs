@@ -67,9 +67,7 @@ impl ListenSpec {
 
     pub fn resolve(&self) -> std::io::Result<SocketAddr> {
         match self {
-            ListenSpec::Port(p) => {
-                Ok(SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), *p))
-            }
+            ListenSpec::Port(p) => Ok(SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), *p)),
             ListenSpec::Tcp { host, port } => {
                 if let Ok(ip) = host.parse::<IpAddr>() {
                     return Ok(SocketAddr::new(ip, *port));
@@ -79,10 +77,7 @@ impl ListenSpec {
                 // ToSocketAddrs may return ::1 first, which axum's listener can
                 // bind v6-only and reject v4 clients.
                 if host.eq_ignore_ascii_case("localhost") {
-                    return Ok(SocketAddr::new(
-                        IpAddr::V4(Ipv4Addr::LOCALHOST),
-                        *port,
-                    ));
+                    return Ok(SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), *port));
                 }
                 (host.as_str(), *port)
                     .to_socket_addrs()?
