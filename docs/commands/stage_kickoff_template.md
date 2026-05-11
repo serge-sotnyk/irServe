@@ -1,23 +1,25 @@
 # Stage kickoff template
 
-Reusable prompt for starting a new sub-stage (currently 6a–6h, Stage 6).
-Replace the `{6X — short name}` placeholder with the sub-stage being
-planned (e.g. `6a — serve.json loader`); everything else is reusable
-verbatim. Keep the prompt terse — the architectural foundations and
-roadmap details live in the canonical sources cited below; do not
-duplicate them here.
+Reusable prompt for starting a new sub-stage (6a–6h are done; 7a–7e are
+the next group). Replace the `{NX — short name}` placeholder with the
+sub-stage being planned (e.g. `7a — ETag + 304 conditional GET`), and
+swap `{stage6_l1_l2_capabilities.md}` for `{stage7_l3_capabilities.md}`
+when planning 7x. Everything else is reusable verbatim. Keep the prompt
+terse — the architectural foundations and roadmap details live in the
+canonical sources cited below; do not duplicate them here.
 
 ---
 
-Let's plan stage {6X — short name}.
+Let's plan stage {NX — short name}.
 
 ## Canonical sources
 - The document `irServeChat.pdf` contains a preliminary discussion of the project 
   idea — what we are building, how, and why. Some details are already a bit outdated, 
   but it still provides a high-level overview.
-- Stage 6 roadmap: `docs/stage6_l1_l2_capabilities.md` — SRVs,
-  dependencies, what each sub-stage closes. Verify {6X} is "Next" per
-  the README and the roadmap.
+- Stage roadmap: `docs/stage6_l1_l2_capabilities.md` (for 6x) or
+  `docs/stage7_l3_capabilities.md` (for 7x) — SRVs, dependencies, what
+  each sub-stage closes. Verify {NX} is "Next" per the README and the
+  roadmap.
 - Architectural foundations:
   `openspec/changes/001-port-minimal-static-server/design.md`
   (§4 — the 13-phase pipeline, §6 — the oracle harness layer).
@@ -38,8 +40,8 @@ A change package `openspec/changes/00N-<name>/` (proposal + design +
 tasks + spec delta if needed) plus working code that passes the oracle
 harness against the reference for the capability's anchors. The
 implementation plan goes into a separate file
-`docs/features/000N_PLAN_stage6X_<short_name>.md` per the existing
-0001..0006 convention.
+`docs/features/000N_PLAN_stageNX_<short_name>.md` per the existing
+0001..0014 convention.
 
 ## Process
 
@@ -76,7 +78,8 @@ implementation plan goes into a separate file
    and interpretation of methodological signals.
 3. **Review.** The user hands the diff to Codex. Each round of fixes
    lands as a separate commit titled
-   `docs(stage-6X): address Codex review round N (P{priorities} fixes)`.
+   `docs(stage-NX): address Codex review round N (P{priorities} fixes)`
+   (e.g. `docs(stage-6h): ...` or `docs(stage-7a): ...`).
    Push back if you disagree — pushback is expected.
 
 ## Hard stops
@@ -97,5 +100,5 @@ implementation plan goes into a separate file
 
 ## Start
 
-Begin with reconnaissance and confirm {6X} is "Next" per the README
+Begin with reconnaissance and confirm {NX} is "Next" per the README
 and the roadmap.

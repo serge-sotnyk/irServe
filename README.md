@@ -68,11 +68,15 @@ The methodology runs in nine stages. Status is updated when entering or completi
 | 6f | Custom error pages, full L2 security, custom response headers | `openspec/changes/008-error-pages-and-security` | done |
 | 6g | Directory listing (HTML / JSON, `unlisted`, `renderSingle`) | `openspec/changes/009-directory-listing` | done |
 | 6h | CLI fill-in (`tcp://`, `-p`, `--cors` L1, `--debug`, `--no-request-logging`, `--no-port-switching`) | `openspec/changes/010-cli-fill-in` | done |
-| 7 | Polish: terminal output, Windows quirks, edge cases (L3+) | `openspec/changes/011...` | todo |
+| 7a | ETag + 304 conditional GET | `openspec/changes/011-etag-conditional` | todo |
+| 7b | `Last-Modified` + `--no-etag` + `If-Modified-Since` | `openspec/changes/012-last-modified` | todo |
+| 7c | Range requests (`206`/`416`) | `openspec/changes/013-range-requests` | todo |
+| 7d | `Cache-Control` default + `OPTIONS` (CORS preflight) | `openspec/changes/014-cache-headers-and-preflight` | todo |
+| 7e | HTTP compression (`-u`/`--no-compression`) | `openspec/changes/015-compression` | todo |
 
 The first concrete Rust crate appears at Stage 5b, not earlier. Stages 1–5a produce only research notes and OpenSpec specs.
 
-Sub-stages 6a–6h are the canonical decomposition of Stage 6 (L1 + L2). Per-sub-stage SRV mappings, dependency edges, and what each one closes / touches live in [`docs/stage6_l1_l2_capabilities.md`](docs/stage6_l1_l2_capabilities.md). Updates to Stage 6 scope or status land there first, then propagate to the rows above.
+Sub-stages 6a–6h are the canonical decomposition of Stage 6 (L1 + L2). Per-sub-stage SRV mappings, dependency edges, and what each one closes / touches live in [`docs/stage6_l1_l2_capabilities.md`](docs/stage6_l1_l2_capabilities.md). Sub-stages 7a–7e play the same role for Stage 7 (L3 polish) — detail in [`docs/stage7_l3_capabilities.md`](docs/stage7_l3_capabilities.md). Updates to Stage 6 or Stage 7 scope / status land in those files first, then propagate to the rows above. L4 (symlinks, TLS, Windows path quirks) is intentionally out of scope until prioritized later.
 
 ## Anti-hallucination rules
 
