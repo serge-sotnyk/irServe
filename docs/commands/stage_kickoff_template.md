@@ -1,15 +1,3 @@
-# Stage kickoff template
-
-Reusable prompt for starting a new sub-stage (6a–6h are done; 7a–7e are
-the next group). Replace the `{NX — short name}` placeholder with the
-sub-stage being planned (e.g. `7a — ETag + 304 conditional GET`), and
-swap `{stage6_l1_l2_capabilities.md}` for `{stage7_l3_capabilities.md}`
-when planning 7x. Everything else is reusable verbatim. Keep the prompt
-terse — the architectural foundations and roadmap details live in the
-canonical sources cited below; do not duplicate them here.
-
----
-
 Let's plan stage {NX — short name}.
 
 ## Canonical sources
