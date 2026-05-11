@@ -44,7 +44,7 @@ Some(false)`):
   `None` unless `etag == Some(false)`, else (when metadata
   resolves) `Some(httpdate::fmt_http_date(mtime))`.
 
-`build_file_or_304` at `dispatch.rs:763-765` calls both
+`build_file_or_304` at `dispatch.rs:767-769` calls both
 helpers in sequence with the same `serve_config`, so exactly
 one of `(etag, last_modified)` is `Some` per request — the
 mutex.
@@ -139,8 +139,8 @@ ETag/INM 304 shape from Stage 7a. The decision is recorded as
    no-body / no-`Content-Type` / no-validator-echo response
    shape all carry over verbatim. The IMS branch sits as a
    sibling of the INM branch in `build_file_or_304` at
-   `dispatch.rs:776-792` and reuses the new
-   `not_modified_response()` helper at `dispatch.rs:797-802`.
+   `dispatch.rs:780-809` and reuses the new
+   `not_modified_response()` helper at `dispatch.rs:814`.
 4. **User chose the adaptation** in the plan-mode
    AskUserQuestion this session (D1, "Адаптировать: 304 на
    match"). Recorded as the canonical answer; D-018 captures
@@ -167,7 +167,7 @@ whole-second. Malformed IMS or malformed LM short-circuits
 the branch to "no 304" (falls through to the merged 200),
 mirroring RFC 9111 §13.1.3's recipient guidance that
 unparseable IMS SHOULD be ignored. The `Range`-absent guard
-at `dispatch.rs:767` wraps BOTH the INM and IMS branches —
+at `dispatch.rs:771` wraps BOTH the INM and IMS branches —
 when `Range` is present, neither short-circuit fires (Stage
 7c precursor, mirrors `index.js:760`).
 

@@ -70,7 +70,7 @@ required.
   gains a `last_modified: Option<HeaderValue>` parameter and
   writes both headers independently so user `headers` rules
   applied later by `apply_custom_headers` can override or
-  supplement either. `build_file_or_304` at `dispatch.rs:754`
+  supplement either. `build_file_or_304` at `dispatch.rs:758`
   gains a `meta: Option<&Metadata>` parameter; both call sites
   (File/Index arm at `dispatch.rs:346` and renderSingle branch
   at `dispatch.rs:480`) now `tokio::fs::metadata(&p).await.ok()`
@@ -80,11 +80,11 @@ required.
 
 - **IMS 304 short-circuit (slice 3, D-018).** A second
   conditional branch in `build_file_or_304` at
-  `dispatch.rs:776-792`, sibling to the existing ETag/INM
+  `dispatch.rs:780-809`, sibling to the existing ETag/INM
   branch. Parses both `If-Modified-Since` and the MERGED
   `Last-Modified` via `httpdate::parse_http_date`; on
   `ims >= lm` (and `Range`-absent), returns 304 via a new
-  shared `not_modified_response()` helper at `dispatch.rs:797`.
+  shared `not_modified_response()` helper at `dispatch.rs:814`.
   Malformed IMS or malformed LM falls through to 200 (RFC 9111
   §13.1.3). Symmetric with the ETag path: reads the MERGED
   Last-Modified after `apply_custom_headers`, so a user
@@ -113,9 +113,10 @@ required.
   reference-only coverage); `bodyMayDiffer: [ims_on_404]`
   (both sides emit 404 but the synthetic HTML body content is
   not contractual — D-002). Six new ORC rows (ORC-167..ORC-172)
-  record the surface; ORC-167/168/169 are dual-target after
-  slice 3 (clean partition), the remainder are reference-only
-  with cross-linked irserve coverage via `dispatch::tests`.
+  record the surface; ORC-167/170/171/172 are dual-target after
+  slice 3 (clean partition), ORC-168/169 stay reference-only
+  (divergent partition — irserve diverges to 304 per D-018) with
+  cross-linked irserve coverage via `dispatch::tests::ims_*`.
 
 - **Documentation updates (slice 4, this change package +
   main agent).** New change package
@@ -179,7 +180,7 @@ pre-stage out-of-scope list (anti-hallucination rule #10):
 7. **`Range` + IMS interaction beyond the guard.** RFC 7233
    §3.3 says a 304 takes precedence over 206 when the cache
    validator matches; for now the `Range`-absent guard at
-   `dispatch.rs:767` suppresses both the ETag/INM and the
+   `dispatch.rs:771` suppresses both the ETag/INM and the
    Last-Modified/IMS 304 short-circuits — same shape as 7a.
    Stage 7c may revisit when Range parsing lands.
 

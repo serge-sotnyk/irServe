@@ -43,7 +43,7 @@ build. Under default `etag` (or explicit `"etag": true`), the
 response carries `ETag` and no `Last-Modified`. Under
 `"etag": false` (or `--no-etag`), the response carries
 `Last-Modified` and no `ETag`. The mutex is enforced at the
-default-emission seam (`crates/irserve-core/src/dispatch.rs:763-765`,
+default-emission seam (`crates/irserve-core/src/dispatch.rs:767-769`,
 where `etag_value` and `last_modified_value` return opposite-
 gated `Some`), NOT in `file_response`'s body. User
 `serve.json#headers` rules applied later by
@@ -64,7 +64,7 @@ ORC-042 (`cases/etag-roundtrip.json#first_get`), ORC-043
 Implementation: `crates/irserve-core/src/etag.rs::compute_etag`
 mirrors `serve-handler/src/index.js:24-36` byte-for-byte. The
 dispatcher helper `build_file_or_304` at
-`crates/irserve-core/src/dispatch.rs:754` builds a 200 response
+`crates/irserve-core/src/dispatch.rs:758` builds a 200 response
 with the default ETag (when enabled), applies user `headers`
 rules to it via the existing `apply_custom_headers`, and then
 checks the MERGED response's `ETag` against the request's
@@ -126,7 +126,7 @@ contract clients rely on: replaying the response's actual
 
 File responses under `etag: false` SHALL carry a `Last-Modified` header whose value is the file's mtime formatted as RFC 7231 IMF-fixdate (UTC, whole-second resolution, `"Wed, 06 May 2026 23:39:00 GMT"` shape). The `etag: false` mode is selected by either the `--no-etag` CLI flag (SRV-CLI-013) or `"etag": false` in `serve.json`. The `Last-Modified` header is mutually exclusive with
 `ETag` per request — the default-emission seam at
-`crates/irserve-core/src/dispatch.rs:763-765` returns exactly
+`crates/irserve-core/src/dispatch.rs:767-769` returns exactly
 one `Some` from the two value helpers (`etag_value` and
 `last_modified_value`) on the same `serve_config.etag`
 predicate, mirroring the reference's `if (etag) / else`
@@ -191,14 +191,14 @@ Implementation:
 returns `Some(httpdate::fmt_http_date(mtime))` iff
 `serve_config.etag == Some(false)` AND `meta.modified()`
 succeeds. The dispatcher helper `build_file_or_304` at
-`crates/irserve-core/src/dispatch.rs:754` extends the Stage-7a
+`crates/irserve-core/src/dispatch.rs:758` extends the Stage-7a
 ETag/INM 304 path with a sibling IMS branch at
-`dispatch.rs:776-792` and a shared
-`not_modified_response()` helper at `dispatch.rs:797-802`.
+`dispatch.rs:780-809` and a shared
+`not_modified_response()` helper at `dispatch.rs:814`.
 The IMS branch reads the MERGED `Last-Modified` (after
 `apply_custom_headers`), mirroring the merge-before-decide
 ordering Stage 7a established for the ETag path (Codex round
-1 P1). The `Range`-absent guard at `dispatch.rs:767` wraps
+1 P1). The `Range`-absent guard at `dispatch.rs:771` wraps
 both branches.
 
 The `--no-etag` CLI flag is wired at

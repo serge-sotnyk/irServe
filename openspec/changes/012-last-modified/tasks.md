@@ -92,10 +92,10 @@ shipped).
   supplement either — the mutex is upstream in the value
   helpers, not in `file_response`.
 - [x] `dispatch.rs::build_file_or_304` (now at
-  `dispatch.rs:754`) gains a `meta: Option<&Metadata>`
+  `dispatch.rs:758`) gains a `meta: Option<&Metadata>`
   parameter (post-`bytes`, pre-`header_rules`); computes both
   `etag_value` and `last_modified_value` from the same
-  `serve_config.etag` predicate at `dispatch.rs:763-765`, so
+  `serve_config.etag` predicate at `dispatch.rs:767-769`, so
   exactly one of the two ends up `Some` per call. 304 logic
   unchanged in this slice; the IMS branch lands in slice 3.
 - [x] Both call sites (File/Index arm at `dispatch.rs:346`,
@@ -124,12 +124,12 @@ shipped).
 - [x] New IMS branch in
   `dispatch.rs::build_file_or_304:776-792`, sibling to the
   existing INM branch and inside the same `Range`-absent
-  guard at `dispatch.rs:767`. Parses both
+  guard at `dispatch.rs:771`. Parses both
   `If-Modified-Since` and the MERGED `Last-Modified` via
   `httpdate::parse_http_date`; on `ims >= lm`, returns 304
   via the new shared helper.
 - [x] New `not_modified_response()` helper at
-  `dispatch.rs:797-802` extracted from the INM 304 path; both
+  `dispatch.rs:814` extracted from the INM 304 path; both
   branches now call through the helper. Response shape: 304
   status, no body, no `Content-Type`, no validator-echo —
   mirrors `serve-handler/src/index.js:761-764` for the ETag
@@ -145,7 +145,7 @@ shipped).
   override (or suppresses 304 entirely under
   `Last-Modified: null`).
 - [x] **D-018 captured in code comments** at
-  `dispatch.rs:736-748` (full text lands in
+  `dispatch.rs:710-756` (full text lands in
   `docs/reference/serve/decisions.md` in slice 4 — main
   agent's responsibility, NOT this change package).
 - [x] Tests: 7 new in `dispatch::tests` (all green):

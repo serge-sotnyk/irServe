@@ -286,8 +286,9 @@ in `inventory.md`.
 - ~~**SRV-CLI-007** scenario 3~~ — closed in Stage 3 review round 1 by
   ORC-062 (`cli-positional-error.json`). The runner gained a CLI-mode
   branch that snapshots exit code + stdout/stderr.
-- **SRV-CLI-013** (`--no-etag` switches default to `Last-Modified`) —
-  no probe exercises `--no-etag` in this stage. Stays `accepted`.
+- ~~**SRV-CLI-013** (`--no-etag` switches default to `Last-Modified`)~~ —
+  closed in Stage 7b via ORC-167 (`last-modified-roundtrip.json#first_get`,
+  `serveArgs: ["--no-etag"]`). Probe runs the flag end-to-end.
 - **SRV-CLI-014** (`--debug`) — affects logging only; no observable HTTP
   surface. Stays `accepted`.
 - **SRV-CLI-015** (`--no-request-logging`) — same: stdout-only effect.
@@ -307,11 +308,22 @@ in `inventory.md`.
   probe was authored before this stage and exercises cleanUrls 301 rather
   than the null-value removal path. See "Probe-design notes" below.
   Stays `accepted`.
-- **SRV-CACHE-002** (`Last-Modified` under `--no-etag`) — probe gap,
-  same as SRV-CLI-013. Stays `accepted`.
-- **SRV-CACHE-003** (`If-Modified-Since` 304 handling, `unknown` linked
-  to Q-009) — `etag-conditional` does not exercise the `--no-etag` +
-  `If-Modified-Since` path. Q-009 remains `open`. Stays `unknown`.
+- ~~**SRV-CACHE-002** (`Last-Modified` under `--no-etag`)~~ — closed in
+  Stage 7b via ORC-167 (`last-modified-roundtrip.json#first_get`).
+  Mutex with ETag enforced at the default-emission seam; reference
+  snapshot pins the IMF-fixdate shape and the absence of `ETag`.
+- ~~**SRV-CACHE-003** (`If-Modified-Since` 304 handling)~~ — promoted
+  `unknown` → `verified` in Stage 7b slice 0 via the
+  `last-modified-roundtrip.json` probe (6 requests under
+  `serveArgs: ["--no-etag"]` covering exact-match via
+  `$fromResponse`, future, epoch, malformed, and on-404 IMS variants).
+  Q-009 closed in `docs/reference/serve/open-questions.md`: the
+  reference is IMS-inert, every variant returns 200 with full body
+  (or 404 unchanged for the missing-file case). IrServe adapts per
+  D-018 to short-circuit 304 on `IMS ≥ merged Last-Modified` under
+  the `etag: false` gate; ORC-168/169 record the reference path in
+  the `divergent` partition (reference-only), irserve coverage is
+  via `dispatch::tests::ims_*`.
 - **SRV-WIN-001** (Windows path quirks, placeholder, deferred).
 
 ### Cross-platform note
