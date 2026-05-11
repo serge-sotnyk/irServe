@@ -69,18 +69,27 @@ It also lands a methodologically reusable extension:
   every invocation that does not opt out via `serve.json`.
 
 - **304 short-circuit.** A new helper `build_file_or_304(...)`
-  computes the ETag, compares verbatim (strong quoted string
-  equality) against the request's `If-None-Match`, and returns a
-  304 `Response` (no body, no `Content-Type`, no `ETag` echo —
-  matching `serve-handler/src/index.js:761-764`) when (a)
-  ETag emission is enabled, (b) `Range` is absent, and (c) the
-  header matches. Otherwise it falls through to `file_response`
-  with the computed ETag. The Range guard is a 7c precursor —
+  builds the candidate 200 (with the default ETag, when
+  enabled), applies user `headers` rules to it via the existing
+  `apply_custom_headers`, then compares the MERGED response's
+  `ETag` against the request's `If-None-Match`. On a match (and
+  `Range` absent), emits 304 (no body, no `Content-Type`, no
+  `ETag` echo — `serve-handler/src/index.js:761-764`); otherwise
+  returns the merged 200. The Range guard is a 7c precursor —
   Range parsing itself is deferred — and mirrors the
-  reference's `req.headers.range` check at `index.js:760`.
-  Five unit tests in `dispatch::tests` pin: match → 304,
+  reference's `req.headers.range` check at `index.js:760`. The
+  merge-before-decide ordering mirrors the reference's
+  `getHeaders` (`index.js:194-254`) immediately followed by the
+  304 check at `:760` against the merged `headers.ETag`, and was
+  reshaped in Codex review round 1 P1 (the prior implementation
+  compared against the default sha1, breaking the round-trip
+  contract for any deployment overriding `ETag` via `headers`).
+  Seven unit tests in `dispatch::tests` pin: match → 304,
   mismatch → 200, Range present + match → still 200, ETag
-  disabled → never 304, no `If-None-Match` → 200 + ETag.
+  disabled → never 304, no `If-None-Match` → 200 + ETag, custom
+  `ETag: "custom"` override drives the 304 decision (304 only
+  on `"custom"`, 200 on the default sha1), and `ETag: null`
+  delete suppresses 304 (SRV-HDR-002 prune).
 
 - **Probe runner capture-replay.** `tools/probe/run.mjs` and the
   case schema extended so request-header values may be either a

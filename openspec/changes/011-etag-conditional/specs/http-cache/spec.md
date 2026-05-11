@@ -13,10 +13,15 @@ short-circuit to status `304 Not Modified` with no body, no
 `Content-Type`, and no `ETag` echo, provided no `Range` header
 is present on the conditional request.
 
-ETag emission MAY be disabled per-deployment by setting
-`"etag": false` in `serve.json`. When disabled, no `ETag` header
-is emitted and the 304 short-circuit never fires; the server
-always returns 200 with the file body.
+Generation of the DEFAULT `ETag` header MAY be disabled
+per-deployment by setting `"etag": false` in `serve.json`. When
+disabled, irserve does not compute the sha1-based default; the
+304 short-circuit therefore never fires on a default value.
+User `serve.json#headers` rules can still set `ETag` even when
+`"etag": false` — and a 304 still fires when `If-None-Match`
+matches the user-supplied value. This mirrors the reference
+(see Compatibility note below). To suppress ETag entirely, set
+`"etag": false` AND ensure no `headers` rule sets `ETag`.
 
 ETag is NOT applied to directory listings, 3xx redirects, JSON
 error responses, or the synthetic fallback HTML error body. ETag
@@ -30,21 +35,29 @@ ORC-042 (`cases/etag-roundtrip.json#first_get`), ORC-043
 Implementation: `crates/irserve-core/src/etag.rs::compute_etag`
 mirrors `serve-handler/src/index.js:24-36` byte-for-byte. The
 dispatcher helper `build_file_or_304` at
-`crates/irserve-core/src/dispatch.rs:837` decides 200-vs-304
-before constructing the response — mirrors
-`serve-handler/src/index.js:758-765`. The `Range`-absent guard
-on the 304 path mirrors `index.js:760` and is a Stage 7c
-precursor (Range parsing itself is deferred to 7c).
+`crates/irserve-core/src/dispatch.rs:687` builds a 200 response
+with the default ETag (when enabled), applies user `headers`
+rules to it via the existing `apply_custom_headers`, and then
+checks the MERGED response's `ETag` against the request's
+`If-None-Match`. Mirrors `serve-handler/src/index.js:194-254`
+(`getHeaders` builds `defaultHeaders`, then merges user
+`customHeaders` via `Object.assign(defaultHeaders, related)` at
+`:241`) immediately followed by the 304 check at `:760` against
+the merged `headers.ETag`. The dispatcher's File/Index and
+renderSingle call sites therefore return `None` for the
+wrapper's `headers_path` slot — the headers pass is already
+done. The `Range`-absent guard on the 304 path mirrors
+`index.js:760` and is a Stage 7c precursor (Range parsing
+itself is deferred to 7c).
 
-User `serve.json#headers` rules CAN override the default ETag.
-This mirrors the reference's `Object.assign(defaultHeaders,
-related)` at `serve-handler/src/index.js:241`, which writes user
-rule values over the eager `getETag` result on the same
-`defaultHeaders` map. IrServe achieves the same outcome by
-inserting ETag in `file_response` BEFORE the outer
-`apply_custom_headers` pass; user `headers` rules with a
-matching key replace the value, and the `value: null` prune
-still applies.
+User `serve.json#headers` rules CAN override the default ETag,
+and the override DRIVES the 304 decision. Replaying the
+overridden value as `If-None-Match` returns 304; replaying the
+default sha1 (now masked by the override) returns 200. This
+mirrors the reference's `Object.assign`-then-check ordering at
+`serve-handler/src/index.js:241, 760` and is the round-trip
+contract clients rely on: replaying the response's actual
+`ETag` always 304s, whatever its provenance.
 
 #### Scenario: First GET emits ETag
 
@@ -65,6 +78,20 @@ still applies.
 - AND the response has no body
 - AND the response carries no `Content-Type` header
 - AND the response carries no `ETag` header
+
+#### Scenario: User `headers` rule override drives the 304 decision
+
+- GIVEN `serve.json` carries `headers: [{ source: "**/*.css",
+  headers: [{ key: "ETag", value: "\"custom\"" }] }]`
+- WHEN `GET /asset.css`
+- THEN status is 200
+- AND the response carries `ETag: "custom"` (not the default
+  sha1)
+- AND a subsequent `GET /asset.css` with `If-None-Match:
+  "custom"` returns 304
+- AND a subsequent `GET /asset.css` with `If-None-Match: <the
+  default sha1>` returns 200 (the default value is no longer the
+  response's ETag, so it cannot 304)
 
 ## Compatibility notes
 
@@ -115,7 +142,23 @@ still applies.
 
 - **`--no-etag` CLI flag is not yet parsed.** Stage 7b lands the
   flag. The library-level switch (`"etag": false` in
-  `serve.json`) IS honored as of Stage 7a.
+  `serve.json`) IS honored as of Stage 7a — it disables the
+  default-generated ETag.
+
+- **`"etag": false` disables only the default-generated ETag.**
+  Mirrors `serve-handler/src/index.js:227-241`: the reference
+  gates the `defaultHeaders['ETag']` assignment on the `etag`
+  flag, then merges user `customHeaders` via
+  `Object.assign(defaultHeaders, related)` unconditionally — so
+  a user rule keyed by `ETag` lands on the response whether or
+  not the default was suppressed. The subsequent 304 check at
+  `:760` operates on the merged `headers.ETag`. IrServe matches
+  this: with `"etag": false` AND a user rule
+  `headers: [{ source: "**/*.css", headers: [{ key: "ETag",
+  value: "\"custom\"" }] }]`, the response carries
+  `ETag: "custom"` and a 304 fires when `If-None-Match: "custom"`
+  is replayed. To suppress ETag emission entirely, set
+  `"etag": false` AND ensure no `headers` rule sets `ETag`.
 
 - **In-memory mtime-keyed ETag cache is a future optimization,
   not contractual.** The reference's `Map<absPath, [mtime, sha]>`

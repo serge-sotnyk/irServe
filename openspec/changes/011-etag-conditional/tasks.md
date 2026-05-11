@@ -46,23 +46,35 @@ shipped.
 
 ## Slice 3 — 304 short-circuit
 
-- [x] New `build_file_or_304(serve_config, req_headers, path, bytes)
-  -> Response<Body>` helper at `dispatch.rs:837`. Fires 304 iff
-  (a) ETag enabled, (b) no `Range` header (Stage 7c precursor
-  guard, mirrors reference's `req.headers.range` check at
+- [x] New `build_file_or_304(serve_config, req_headers, path,
+  bytes, header_rules, request_path) -> Response<Body>` helper
+  at `dispatch.rs:687`. Builds the candidate 200 (via
+  `file_response`), runs `apply_custom_headers` on it, then
+  fires 304 iff (a) the merged response carries an `ETag` header
+  (i.e. either the default was emitted or a user rule supplied
+  one), (b) no `Range` header (Stage 7c precursor guard, mirrors
+  reference's `req.headers.range` check at
   `serve-handler/src/index.js:760`), (c) `If-None-Match` matches
-  the computed ETag verbatim (strong-quoted string equality).
+  the MERGED `ETag` verbatim. Codex review round 1 P1 reshaped
+  this to match reference's `getHeaders`-then-304-check ordering
+  at `index.js:241, 760`.
 - [x] 304 response: no body, no `Content-Type`, no `ETag` echo.
   Mirrors `serve-handler/src/index.js:761-764`.
 - [x] Both call sites at `dispatch.rs:320` and `:430` switched
-  to `build_file_or_304`.
-- [x] Five unit tests in `dispatch::tests`: match → 304,
-  mismatch → 200, Range present + match → 200, ETag disabled →
-  no 304, no `If-None-Match` → 200 + ETag.
+  to `build_file_or_304` and return `None` for the outer
+  wrapper's `headers_path` slot (custom-headers pass is now
+  inside `build_file_or_304`).
+- [x] Seven unit tests in `dispatch::tests` after round 1
+  (originally five; round 1 added two override tests): match →
+  304, mismatch → 200, Range present + match → 200, ETag
+  disabled → no 304, no `If-None-Match` → 200 + ETag, custom
+  `ETag: "custom"` rule drives the 304 decision (round 1 P1),
+  `ETag: null` delete suppresses 304 (round 1 P1, SRV-HDR-002).
 - [x] Verify: `cargo test -p irserve-core dispatch` green;
   `cargo test --test oracle` still green under both targets.
 - Commit: `feat(stage-7a): slice 3 — 304 short-circuit on If-None-Match match`
-  (7d32663).
+  (7d32663). Round 1 P1 follow-up restructured the ordering;
+  see `4745014`.
 
 ## Slice 4 — Probe runner capture-replay
 

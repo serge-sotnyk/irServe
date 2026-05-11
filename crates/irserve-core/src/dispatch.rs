@@ -650,8 +650,13 @@ fn file_response(path: &Path, bytes: Vec<u8>, etag: Option<HeaderValue>) -> Resp
 // SRV-CACHE-001 / D-017 / D3 (plan 0015): irserve's CLI default is
 // `etag=true`, matching `vercel/serve/source/main.ts` which sets
 // `config.etag = !args['--no-etag']` before invoking the handler. Only
-// an explicit `"etag": false` in `serve.json` disables emission. Hash
-// formula mirrors `serve-handler/src/index.js:24-36`.
+// an explicit `"etag": false` in `serve.json` disables the default-
+// generated ETag — user `headers` rules can still set `ETag` and a 304
+// fires on a match against the user-supplied value, mirroring the
+// reference's gate-then-`Object.assign` flow at
+// `serve-handler/src/index.js:227-241`. To suppress ETag emission
+// entirely, set `"etag": false` AND ensure no `headers` rule sets it.
+// Hash formula mirrors `serve-handler/src/index.js:24-36`.
 fn etag_value(serve_config: &ServeConfig, path: &Path, bytes: &[u8]) -> Option<HeaderValue> {
     if serve_config.etag == Some(false) {
         return None;
@@ -884,6 +889,45 @@ mod tests {
         );
         assert_eq!(r_default.status(), StatusCode::OK);
         assert_eq!(r_default.headers().get(ETAG).unwrap(), "\"custom\"");
+    }
+
+    /// Codex round 2 P3: `"etag": false` in `serve.json` disables only
+    /// the DEFAULT-generated ETag. A user `headers` rule keyed by
+    /// `ETag` still lands on the response and still drives the 304
+    /// decision, mirroring the reference's gate-then-`Object.assign`
+    /// flow at `serve-handler/src/index.js:227-241` + `:760`.
+    #[test]
+    fn etag_false_still_honors_custom_rule_and_304() {
+        let cfg = cfg_etag(Some(false));
+        let rules = compile_etag_override("**/*.css", Some("\"custom\""));
+
+        // (a) first GET: merged response carries the user-supplied
+        //     ETag, NOT the default sha1 (which was suppressed).
+        let h_empty = HeaderMap::new();
+        let r_first = build_file_or_304(
+            &cfg,
+            &h_empty,
+            &asset_path(),
+            ASSET_CSS_BYTES.to_vec(),
+            &rules,
+            "/asset.css",
+        );
+        assert_eq!(r_first.status(), StatusCode::OK);
+        assert_eq!(r_first.headers().get(ETAG).unwrap(), "\"custom\"");
+
+        // (b) replay of the user-supplied ETag still 304s, because the
+        //     304 check runs against the merged response's ETag.
+        let mut h_custom = HeaderMap::new();
+        h_custom.insert(IF_NONE_MATCH, HeaderValue::from_static("\"custom\""));
+        let r_replay = build_file_or_304(
+            &cfg,
+            &h_custom,
+            &asset_path(),
+            ASSET_CSS_BYTES.to_vec(),
+            &rules,
+            "/asset.css",
+        );
+        assert_eq!(r_replay.status(), StatusCode::NOT_MODIFIED);
     }
 
     /// Codex round 1 P1: when a user rule deletes ETag via

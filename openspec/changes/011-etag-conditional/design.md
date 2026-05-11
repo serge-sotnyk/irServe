@@ -13,11 +13,11 @@ the existing file-response slot (phase 12).
 
 ## 1. Where the ETag is computed
 
-The dispatcher reads `If-None-Match` from `req.headers()` and
-computes the ETag from `bytes` once, before constructing the
-response. The decision (200 with ETag vs 304 bare) is taken in
-the new `build_file_or_304` helper at
-`crates/irserve-core/src/dispatch.rs:837`:
+The dispatcher reads the file body, computes the default ETag
+once, builds a candidate 200 response, applies user `headers`
+rules to it, and then decides 200-vs-304 against the MERGED
+response's `ETag`. The whole flow lives in `build_file_or_304`
+at `crates/irserve-core/src/dispatch.rs:687`:
 
 ```rust
 fn build_file_or_304(
@@ -25,45 +25,63 @@ fn build_file_or_304(
     req_headers: &HeaderMap,
     path: &Path,
     bytes: Vec<u8>,
+    header_rules: &[HeaderRuleCompiled],
+    request_path: &str,
 ) -> Response<Body> {
     let etag = etag_value(serve_config, path, &bytes);
-    // (a) ETag must be enabled; (b) no Range header; (c) If-None-Match equals etag verbatim
-    if let Some(ref etag_value) = etag {
-        if req_headers.get(RANGE).is_none() {
-            if let Some(inm) = req_headers.get(IF_NONE_MATCH) {
-                if inm == etag_value {
-                    return Response::builder().status(304).body(Body::empty())...;
-                }
+    let response_200 = file_response(path, bytes, etag);
+    let merged = apply_custom_headers(response_200, request_path, header_rules);
+    if req_headers.get(RANGE).is_none() {
+        if let (Some(inm), Some(effective_etag)) =
+            (req_headers.get(IF_NONE_MATCH), merged.headers().get(ETAG))
+        {
+            if inm == effective_etag {
+                return Response::builder().status(304).body(Body::empty())...;
             }
         }
     }
-    file_response(path, bytes, etag)
+    merged
 }
 ```
 
-This shape matches the reference's logic at
-`serve-handler/src/index.js:758-765`:
+This shape matches the reference's `getHeaders`-then-304-check
+at `serve-handler/src/index.js:194-254` + `:760-765`:
 
 ```js
-if (req.headers['if-none-match'] === stats.etag && !req.headers.range) {
+const headers = Object.assign(defaultHeaders, related);   // :241 — user rules win
+// ...status set / file open elided...
+if (req.headers['if-none-match'] === headers.ETag && !req.headers.range) {  // :760
     response.statusCode = 304;
     response.end();
     return;
 }
 ```
 
-with two structural notes:
+with three structural notes:
 
-1. **Compute-then-decide vs the reference's stash-on-stats.**
+1. **Headers merge runs BEFORE the 304 decision.** Codex review
+   round 1 P1 caught a divergence in the prior implementation:
+   the 304 check compared `If-None-Match` against the
+   default-generated ETag, while the response sent on the wire
+   carried the user-override value. Reference behavior at
+   `index.js:241, 760` merges first, checks second; irserve now
+   does the same. The dispatcher's File/Index and renderSingle
+   call sites accordingly return `None` for the outer
+   `dispatch` wrapper's `headers_path` slot (the headers pass
+   already ran inside `build_file_or_304`).
+
+2. **Compute-then-decide vs the reference's stash-on-stats.**
    The reference computes ETag eagerly during `findRelated` /
    `getETag` (`index.js:227-233`) and stashes it on the `stats`
-   object; the 304 branch then compares `req.headers.if-none-match
-   === stats.etag`. IrServe computes once in `build_file_or_304`
-   and inlines the comparison; the per-request cost is the same
+   object; the 304 branch reads it via `headers.ETag` after the
+   `Object.assign` merge. IrServe computes once in
+   `build_file_or_304`, lets `file_response` insert it as the
+   default header, and reads the merged value back via
+   `merged.headers().get(ETAG)`. The per-request cost is the same
    (one sha1 over file bytes), and we avoid threading an extra
    field through `ResolveOutcome`.
 
-2. **No allocation when 304.** The reference's `response.end()` at
+3. **No allocation when 304.** The reference's `response.end()` at
    `index.js:763` writes status only; no body. IrServe builds a
    fresh `Response<Body>` with `Body::empty()` and 304 status —
    no `Content-Type`, no `ETag` echo. This mirrors the reference
@@ -73,7 +91,7 @@ with two structural notes:
    branch short-circuits before reaching the body-write
    (`index.js:768-772`).
 
-`file_response` itself (`dispatch.rs:800`) now takes
+`file_response` itself (`dispatch.rs:637`) takes
 `etag: Option<HeaderValue>` and inserts the header when `Some`.
 The two call sites are:
 
@@ -85,15 +103,20 @@ The two call sites are:
   (`index.js:330-340` resolves to the same `findRelated` path
   that the regular file branch uses), so irserve does likewise.
 
-`etag_value(serve_config, path, bytes)` at `dispatch.rs:818`
-returns `None` when `serve_config.etag == Some(false)` (the only
-disabling form: explicit `"etag": false` in `serve.json`).
-`None` and `Some(true)` both enable emission, mirroring
+`etag_value(serve_config, path, bytes)` at `dispatch.rs:655`
+returns `None` when `serve_config.etag == Some(false)`.
+`None` and `Some(true)` both enable default generation, mirroring
 `vercel/serve`'s CLI-default-true semantics
 (`third_party/serve/source/main.ts` sets `config.etag =
 !args['--no-etag']` before invoking the handler; the CLI is
 irserve's only entry point, so the default rides on every
-invocation that does not opt out via config).
+invocation that does not opt out via config). `etag: false`
+disables only the DEFAULT — user `headers` rules can still set
+`ETag` even when `etag: false`, exactly mirroring the
+reference's `Object.assign`-after-gate at `index.js:227-241`.
+A unit test pins this combination
+(`dispatch::tests::custom_etag_override_drives_304_decision` and
+the etag-false-with-rule variant).
 
 ## 2. The Range guard (Stage 7c precursor)
 
@@ -161,28 +184,53 @@ the not-304 outcome; 7c will add tests that the response is 206
 
 ## 4. ETag vs user `headers` rules
 
-User `serve.json#headers` rules CAN override the default ETag.
-This is intentional and mirrors reference's
-`Object.assign(defaultHeaders, related)` at
-`serve-handler/src/index.js:241`, which writes the user's rule
-values over `defaultHeaders` (where the reference's eager
-`getETag` had previously stashed the ETag). On the wire: when
-both apply, the user's value wins.
+User `serve.json#headers` rules CAN override or delete the
+default ETag, and the override DRIVES the 304 decision. This
+mirrors reference's `Object.assign(defaultHeaders, related)` at
+`serve-handler/src/index.js:241` followed by the 304 check at
+`:760` reading the merged `headers.ETag`.
 
-IrServe achieves the same outcome WITHOUT modifying
-`apply_custom_headers`: ETag is inserted into the response by
-`file_response` BEFORE the dispatcher's outer wrapper at
-`dispatch.rs:54-70` calls `apply_custom_headers`. Headers carried
-by the response at the point of `apply_custom_headers` are
-overwritten by matching user rules (`apply_custom_headers` does
-HeaderMap insertion, which replaces existing values for a key);
-non-matching rules are added; the `value: null` prune still
-applies. Net effect: ETag is a default; the user can override
-or delete it via a `headers` rule keyed by `ETag` (case
-insensitive), and the rest of the response is unchanged.
+After Codex review round 1 P1, irserve runs the user-header
+overlay BEFORE the 304 decision. `build_file_or_304`:
 
-This was a free outcome of the existing pipeline order — no
-new code needed in `apply_custom_headers`.
+1. Builds the candidate 200 via `file_response`, with the
+   default ETag (when `etag` config is not `Some(false)`).
+2. Calls `apply_custom_headers(response_200, request_path,
+   header_rules)` — same function the wrapper used to call. User
+   rules with `key: "ETag"` replace the default; `value: null`
+   deletes it; non-ETag rules layer onto the response unchanged.
+3. Reads `merged.headers().get(ETAG)` and compares against the
+   request's `If-None-Match`. If they match (and `Range` is
+   absent), emits 304; otherwise returns the merged 200.
+
+Because `build_file_or_304` already runs the headers overlay,
+the dispatcher's File/Index and renderSingle call sites return
+`None` for the outer `dispatch` wrapper's `headers_path` slot.
+The wrapper's `match` accordingly skips the second
+`apply_custom_headers` for these branches — see
+`dispatch.rs:67`. Other branches (the 405 fallback, error
+responses authored by `error_response`, listings) preserve their
+prior behavior unchanged.
+
+Two unit tests in `dispatch::tests` pin the override semantics:
+
+- `custom_etag_override_drives_304_decision` — with a `headers`
+  rule setting `ETag: "custom"`, the 304 check sees `"custom"`
+  and 304s only when the request's `If-None-Match` is `"custom"`
+  (the default sha1 no longer matches because the override
+  masked it).
+
+- `custom_etag_delete_disables_304` — with a `headers` rule
+  setting `ETag: null`, the merged response has no ETag header,
+  so the 304 short-circuit never fires; the response is 200.
+
+The `etag: false` config + user rule combination is covered by
+the requirement's Compatibility note in
+`openspec/specs/http-cache/spec.md` (and mirrored in the delta);
+the wire behavior is identical to `etag: true` + user rule
+because the only thing `etag: false` changes is whether the
+DEFAULT is generated — the merge and 304 check operate on the
+final response either way.
 
 ## 5. Probe runner capture-replay
 
