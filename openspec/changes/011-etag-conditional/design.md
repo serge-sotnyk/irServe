@@ -281,26 +281,40 @@ choice.
 
 ## 7. Verification
 
-`cargo test -p irserve-core etag` runs the `etag.rs` module
-tests (byte-equality of `compute_etag(asset.css,
-b"body{color:red}\n")` against the reference's pinned snapshot,
-plus the deterministic / format / extensionless variants) AND
-the four `dispatch::tests::etag_*` cases (match → 304,
-mismatch → 200, `etag: false` config → no 304, `etag: false`
-config + user rule still honors the rule and 304s).
+There are two useful filters, each with a different scope:
 
-`cargo test -p irserve-core dispatch::tests` additionally
-covers the four cases whose names don't start with `etag_`:
-Range present + match → still 200 (Stage 7c precursor),
-no `If-None-Match` → 200 + ETag, user `ETag: "custom"` rule
-drives the 304 decision (Codex round 1 P1), user `ETag: null`
-rule deletes ETag and suppresses 304 (Codex round 1 P1,
-SRV-HDR-002). Eight dispatch tests in total — note that
-`cargo test ... dispatch::tests::etag` (with the `::etag`
-narrowing) matches only the four `etag_*`-prefixed tests, not
-the full 304-decision surface; use `dispatch::tests` (or just
-`etag`, which catches the four `etag_*` via substring match
-on the test path) when the goal is exhaustive coverage.
+`cargo test -p irserve-core dispatch::tests` — **the exhaustive
+filter for the 304 decision.** Runs all eight 304-related
+dispatch tests, including the two whose names contain no `etag`
+substring (`range_present_skips_304_even_on_match` — Stage 7c
+precursor; `no_if_none_match_returns_200`) plus the
+`encode_*` / `extension_*` siblings that predate this stage
+(21 tests in total). Use this when the goal is to verify the
+full Stage 7a 304-decision surface — see the eight-test
+breakdown in `proposal.md`.
+
+`cargo test -p irserve-core etag` — **the etag-substring
+filter; useful but not exhaustive for the 304 surface.** Runs
+11 tests: the four `etag.rs` module tests (byte-equality of
+`compute_etag(asset.css, b"body{color:red}\n")` against the
+reference's pinned snapshot, plus the deterministic / format /
+extensionless variants); the four `dispatch::tests::etag_*`
+cases (match → 304, mismatch → 200, `etag: false` config →
+no 304, `etag: false` config + user rule still honors the rule
+and 304s); the two `dispatch::tests::custom_etag_*` cases
+(round 1 P1: user `ETag: "custom"` override drives the 304
+decision; user `ETag: null` rule deletes ETag and suppresses
+304); and `config::tests::etag_field_accepted` (serde parse of
+the `etag` field). Two of the eight 304-related dispatch tests
+— `range_present_skips_304_even_on_match` and
+`no_if_none_match_returns_200` — are NOT caught by this
+filter because their names lack an `etag` substring. Use
+`dispatch::tests` (above) when exhaustive 304 coverage matters.
+
+`cargo test -p irserve-core dispatch::tests::etag` — narrowest
+filter; matches only the four `etag_*`-prefixed dispatch
+tests. Listed for completeness so reviewers don't reach for it
+expecting full coverage.
 
 `cargo test -p irserve --test oracle` exercises ORC-042 / ORC-043
 under both targets. The oracle harness moves from `73 passed / 8
