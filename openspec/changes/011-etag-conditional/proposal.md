@@ -84,12 +84,15 @@ It also lands a methodologically reusable extension:
   reshaped in Codex review round 1 P1 (the prior implementation
   compared against the default sha1, breaking the round-trip
   contract for any deployment overriding `ETag` via `headers`).
-  Seven unit tests in `dispatch::tests` pin: match → 304,
-  mismatch → 200, Range present + match → still 200, ETag
-  disabled → never 304, no `If-None-Match` → 200 + ETag, custom
-  `ETag: "custom"` override drives the 304 decision (304 only
-  on `"custom"`, 200 on the default sha1), and `ETag: null`
-  delete suppresses 304 (SRV-HDR-002 prune).
+  Eight unit tests in `dispatch::tests` pin: match → 304,
+  mismatch → 200, Range present + match → still 200 (Stage 7c
+  precursor), ETag default-disabled → no default + no 304, no
+  `If-None-Match` → 200 + ETag, custom `ETag: "custom"` override
+  drives the 304 decision (304 only on `"custom"`, 200 on the
+  default sha1) and `ETag: null` delete suppresses 304
+  (SRV-HDR-002 prune, both Codex round 1 P1), and `etag: false`
+  config still honors a user `ETag` rule and 304s on its replay
+  (Codex round 2 P3).
 
 - **Probe runner capture-replay.** `tools/probe/run.mjs` and the
   case schema extended so request-header values may be either a

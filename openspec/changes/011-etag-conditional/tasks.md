@@ -64,13 +64,20 @@ shipped.
   to `build_file_or_304` and return `None` for the outer
   wrapper's `headers_path` slot (custom-headers pass is now
   inside `build_file_or_304`).
-- [x] Seven unit tests in `dispatch::tests` after round 1
-  (originally five; round 1 added two override tests): match →
-  304, mismatch → 200, Range present + match → 200, ETag
-  disabled → no 304, no `If-None-Match` → 200 + ETag, custom
+- [x] Eight unit tests in `dispatch::tests` after Codex rounds
+  1 and 2 (originally five in slice 3; round 1 added two
+  override tests, round 2 added one for `etag: false` + user
+  rule combination): match → 304, mismatch → 200, Range present
+  + match → 200 (7c precursor), ETag default-disabled → no
+  default + no 304, no `If-None-Match` → 200 + ETag, custom
   `ETag: "custom"` rule drives the 304 decision (round 1 P1),
-  `ETag: null` delete suppresses 304 (round 1 P1, SRV-HDR-002).
-- [x] Verify: `cargo test -p irserve-core dispatch` green;
+  `ETag: null` delete suppresses 304 (round 1 P1, SRV-HDR-002),
+  `etag: false` config + user `ETag` rule still 304s on replay
+  of the user-supplied value (round 2 P3).
+- [x] Verify: `cargo test -p irserve-core dispatch::tests`
+  green (covers all eight; note that `dispatch::tests::etag`
+  with the `::etag` narrowing only matches the four
+  `etag_*`-prefixed tests, not the full surface);
   `cargo test --test oracle` still green under both targets.
 - Commit: `feat(stage-7a): slice 3 — 304 short-circuit on If-None-Match match`
   (7d32663). Round 1 P1 follow-up restructured the ordering;

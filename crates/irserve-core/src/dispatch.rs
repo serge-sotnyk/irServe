@@ -680,15 +680,18 @@ fn etag_value(serve_config: &ServeConfig, path: &Path, bytes: &[u8]) -> Option<H
 // headers pass is already done (by returning `None` for `headers_path`
 // at the call sites).
 //
-// 304 fires iff (a) ETag emission is enabled by config (default true),
-// (b) the request carries no `Range` header (Stage 7c precursor —
-// mirrors the reference's `req.headers.range == null` guard at
-// `index.js:760`; Range parsing itself lands in 7c), and (c) the
-// request's `If-None-Match` matches the merged response's `ETag`
-// verbatim (strong-quoted string equality; no weak/strong distinction,
-// no comma-list, no `*`). The 304 response carries no body, no
-// `Content-Type`, and no `ETag` echo — matches the reference's
-// `response.statusCode = 304; response.end()` (no `writeHead`).
+// 304 fires iff (a) the merged response carries an `ETag` header —
+// either the default sha1 (when `serve_config.etag != Some(false)`) OR
+// one supplied by a user `headers` rule, even when `etag: false`
+// disabled the default (Codex round 2 P3); (b) the request carries no
+// `Range` header (Stage 7c precursor — mirrors the reference's
+// `req.headers.range == null` guard at `index.js:760`; Range parsing
+// itself lands in 7c); and (c) the request's `If-None-Match` matches
+// the merged response's `ETag` verbatim (strong-quoted string equality;
+// no weak/strong distinction, no comma-list, no `*`). The 304 response
+// carries no body, no `Content-Type`, and no `ETag` echo — matches the
+// reference's `response.statusCode = 304; response.end()` (no
+// `writeHead`).
 fn build_file_or_304(
     serve_config: &ServeConfig,
     req_headers: &HeaderMap,
