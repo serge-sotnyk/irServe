@@ -346,6 +346,209 @@
         "status": 206,
         "statusText": "Partial Content"
       }
+    },
+    {
+      "name": "range_plus_sign_in_start",
+      "request": {
+        "method": "GET",
+        "mode": "fetch",
+        "path": "/blob.txt",
+        "headers": {
+          "range": "bytes=+0-3"
+        }
+      },
+      "response": {
+        "body": {
+          "kind": "text",
+          "length": 4,
+          "sha256": "88d4266fd4e6338d13b845fcf289579d209c897823b9217da3e161936f031589",
+          "preview": "abcd"
+        },
+        "headers": {
+          "accept-ranges": "bytes",
+          "content-length": "4",
+          "content-range": "bytes 0-3/11",
+          "content-type": "text/plain; charset=utf-8",
+          "etag": "\"df13ea7b971f3dad54f0deb102c5bc9fa0d052ae\"",
+          "vary": "Accept-Encoding"
+        },
+        "status": 206,
+        "statusText": "Partial Content"
+      }
+    },
+    {
+      "name": "range_plus_sign_in_end",
+      "request": {
+        "method": "GET",
+        "mode": "fetch",
+        "path": "/blob.txt",
+        "headers": {
+          "range": "bytes=0-+3"
+        }
+      },
+      "response": {
+        "body": {
+          "kind": "text",
+          "length": 4,
+          "sha256": "88d4266fd4e6338d13b845fcf289579d209c897823b9217da3e161936f031589",
+          "preview": "abcd"
+        },
+        "headers": {
+          "accept-ranges": "bytes",
+          "content-length": "4",
+          "content-range": "bytes 0-3/11",
+          "content-type": "text/plain; charset=utf-8",
+          "etag": "\"df13ea7b971f3dad54f0deb102c5bc9fa0d052ae\"",
+          "vary": "Accept-Encoding"
+        },
+        "status": 206,
+        "statusText": "Partial Content"
+      }
+    },
+    {
+      "name": "range_plus_sign_in_suffix",
+      "request": {
+        "method": "GET",
+        "mode": "fetch",
+        "path": "/blob.txt",
+        "headers": {
+          "range": "bytes=-+3"
+        }
+      },
+      "response": {
+        "body": {
+          "kind": "text",
+          "length": 3,
+          "sha256": "3119395a634a5ed58d3ea4a609d9e29e3dff5224bf9d870b348c3d4b14f62ad8",
+          "preview": "ij\n"
+        },
+        "headers": {
+          "accept-ranges": "bytes",
+          "content-length": "3",
+          "content-range": "bytes 8-10/11",
+          "content-type": "text/plain; charset=utf-8",
+          "etag": "\"df13ea7b971f3dad54f0deb102c5bc9fa0d052ae\"",
+          "vary": "Accept-Encoding"
+        },
+        "status": 206,
+        "statusText": "Partial Content"
+      }
+    },
+    {
+      "name": "range_overflow_end_clipped",
+      "request": {
+        "method": "GET",
+        "mode": "fetch",
+        "path": "/blob.txt",
+        "headers": {
+          "range": "bytes=0-184467440737095516160"
+        }
+      },
+      "response": {
+        "body": {
+          "kind": "text",
+          "length": 11,
+          "sha256": "c4f6fa010fb86ed9f99900dbf654759acd894604192042d5944f7c935ba41f2c",
+          "preview": "abcdefghij\n"
+        },
+        "headers": {
+          "accept-ranges": "bytes",
+          "content-length": "11",
+          "content-range": "bytes 0-10/11",
+          "content-type": "text/plain; charset=utf-8",
+          "etag": "\"df13ea7b971f3dad54f0deb102c5bc9fa0d052ae\"",
+          "vary": "Accept-Encoding"
+        },
+        "status": 206,
+        "statusText": "Partial Content"
+      }
+    },
+    {
+      "name": "range_double_hyphen_open_end",
+      "request": {
+        "method": "GET",
+        "mode": "fetch",
+        "path": "/blob.txt",
+        "headers": {
+          "range": "bytes=0--3"
+        }
+      },
+      "response": {
+        "body": {
+          "kind": "text",
+          "length": 11,
+          "sha256": "c4f6fa010fb86ed9f99900dbf654759acd894604192042d5944f7c935ba41f2c",
+          "preview": "abcdefghij\n"
+        },
+        "headers": {
+          "accept-ranges": "bytes",
+          "content-length": "11",
+          "content-range": "bytes 0-10/11",
+          "content-type": "text/plain; charset=utf-8",
+          "etag": "\"df13ea7b971f3dad54f0deb102c5bc9fa0d052ae\"",
+          "vary": "Accept-Encoding"
+        },
+        "status": 206,
+        "statusText": "Partial Content"
+      }
+    },
+    {
+      "name": "range_alpha_start_is_suffix",
+      "request": {
+        "method": "GET",
+        "mode": "fetch",
+        "path": "/blob.txt",
+        "headers": {
+          "range": "bytes=abc-3"
+        }
+      },
+      "response": {
+        "body": {
+          "kind": "text",
+          "length": 3,
+          "sha256": "3119395a634a5ed58d3ea4a609d9e29e3dff5224bf9d870b348c3d4b14f62ad8",
+          "preview": "ij\n"
+        },
+        "headers": {
+          "accept-ranges": "bytes",
+          "content-length": "3",
+          "content-range": "bytes 8-10/11",
+          "content-type": "text/plain; charset=utf-8",
+          "etag": "\"df13ea7b971f3dad54f0deb102c5bc9fa0d052ae\"",
+          "vary": "Accept-Encoding"
+        },
+        "status": 206,
+        "statusText": "Partial Content"
+      }
+    },
+    {
+      "name": "range_suffix_larger_than_total_is_416",
+      "request": {
+        "method": "GET",
+        "mode": "fetch",
+        "path": "/blob.txt",
+        "headers": {
+          "range": "bytes=-999"
+        }
+      },
+      "response": {
+        "body": {
+          "kind": "text",
+          "length": 11,
+          "sha256": "c4f6fa010fb86ed9f99900dbf654759acd894604192042d5944f7c935ba41f2c",
+          "preview": "abcdefghij\n"
+        },
+        "headers": {
+          "accept-ranges": "bytes",
+          "content-length": "11",
+          "content-range": "bytes */11",
+          "content-type": "text/plain; charset=utf-8",
+          "etag": "\"df13ea7b971f3dad54f0deb102c5bc9fa0d052ae\"",
+          "vary": "Accept-Encoding"
+        },
+        "status": 416,
+        "statusText": "Range Not Satisfiable"
+      }
     }
   ]
 }

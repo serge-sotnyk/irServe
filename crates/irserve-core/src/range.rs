@@ -23,102 +23,153 @@ pub enum RangeOutcome {
     Unsatisfiable,
 }
 
-/// Parse the leading ASCII-digit prefix of `s` as a `u64`. Mirrors
-/// JS `parseInt(s, 10)` — leading whitespace is skipped (the caller
-/// already trims, but we re-trim defensively), then consecutive
-/// ASCII digits are consumed and the remainder of the string is
-/// silently ignored. Returns `None` only when no leading digit was
-/// found. Used so `Range: bytes=0-3x` parses as `0-3` exactly like
-/// the reference's `range-parser` (npm), which calls
-/// `parseInt(start, 10)` and `parseInt(end, 10)` at
-/// `third_party/serve/node_modules/.../range-parser/index.js:44`.
-/// Codex round 1 P2: previously irserve used `.parse::<u64>()`,
-/// which is stricter than `parseInt` and rejected any trailing
-/// garbage — a wire-observable divergence from the reference.
-fn parse_digit_prefix(s: &str) -> Option<u64> {
+/// Mirror JS `parseInt(s, 10)` closely enough for `range-parser`'s
+/// purposes: leading whitespace is skipped, an optional `+` or `-`
+/// sign is accepted, then consecutive ASCII digits are consumed
+/// and the remainder is ignored. Returns `None` (≡ JS `NaN`) when
+/// no digits are found after the optional sign.
+///
+/// Overflow: JS numbers are f64 with effectively unbounded integer
+/// magnitude for `range-parser`'s clipping path (`end > size - 1`
+/// is always true for large values, so the value is overwritten
+/// before any arithmetic). We saturate at `i64::MAX` / `i64::MIN`
+/// to preserve the comparison outcome — a saturated end > `size - 1`
+/// still clips to `size - 1`; a saturated negative start still
+/// trips the `start < 0` invalidation. See
+/// `parse_range::tests::parse_overflow_end_is_clipped`.
+///
+/// Reference site: `range-parser/index.js:44` calls
+/// `parseInt(range[0], 10)` and `parseInt(range[1], 10)`. Codex
+/// round 2 P2 enumerated five inputs where my prior digit-prefix
+/// helper diverged from JS `parseInt`: `+0-3`, `0-+3`, `-+3`,
+/// `0-184467440737095516160` (overflow), and `0--3` (interacts
+/// with the `split('-')` shape — see `parse_range`).
+fn parse_int_js(s: &str) -> Option<i64> {
     let s = s.trim_start();
     let bytes = s.as_bytes();
-    let mut end = 0;
-    while end < bytes.len() && bytes[end].is_ascii_digit() {
-        end += 1;
+    let mut i = 0usize;
+    let sign: i64 = if i < bytes.len() && (bytes[i] == b'+' || bytes[i] == b'-') {
+        let was_minus = bytes[i] == b'-';
+        i += 1;
+        if was_minus {
+            -1
+        } else {
+            1
+        }
+    } else {
+        1
+    };
+    let digit_start = i;
+    while i < bytes.len() && bytes[i].is_ascii_digit() {
+        i += 1;
     }
-    if end == 0 {
+    if i == digit_start {
         return None;
     }
-    s[..end].parse().ok()
+    // Parse via u128 so we can detect overflow without panicking;
+    // saturate to i64::MAX before applying the sign.
+    let magnitude: u128 = std::str::from_utf8(&bytes[digit_start..i])
+        .expect("ascii digits are utf-8")
+        .parse()
+        .unwrap_or(u128::MAX);
+    let clamped = if magnitude > i64::MAX as u128 {
+        i64::MAX
+    } else {
+        magnitude as i64
+    };
+    Some(sign.saturating_mul(clamped))
 }
 
 /// Parse a `Range` header value against a known representation size.
-/// Any non-`bytes=...` input collapses to `Unsatisfiable` so the
-/// caller can route both malformed and wrong-unit cases through the
-/// same 416 branch — mirroring reference's `range[0].type !== 'bytes'`
-/// and `range-parser`'s `-1` paths both landing at
-/// `index.js:730-732`.
+/// Mirrors `range-parser`'s control flow at
+/// `third_party/serve/node_modules/.../range-parser/index.js:35-76`
+/// over the single-range subset:
+///
+/// 1. `value` must start with `bytes=` (reference's `str.slice(0,
+///    index)` becomes the `ranges.type`; non-`bytes` types are
+///    invalid).
+/// 2. Split the remainder on `,`, take only the first segment
+///    (mirrors caller indexing `range[0]` at `index.js:724`).
+/// 3. Split the segment on **every** `-` (JS `String.split('-')`).
+///    Take `[0]` as `start`, `[1]` as `end`; any further elements
+///    are ignored. **This is why `bytes=0--3` resolves to `bytes
+///    0-10/11`**: `"0--3".split('-')` yields `["0", "", "3"]`, so
+///    `end` is the empty string between the two hyphens, NOT
+///    `"-3"`.
+/// 4. `parseInt` both. If `start` is NaN, switch to suffix form
+///    (`start = size - end; end = size - 1`). If `start` is a
+///    number but `end` is NaN, switch to open-end (`end = size - 1`).
+/// 5. Clip `end` to `size - 1`.
+/// 6. Invalidate (continue / Unsatisfiable) if `start` or `end` is
+///    still NaN after step 4, `start > end`, or `start < 0`.
 pub fn parse_range(value: &str, total: u64) -> RangeOutcome {
     let rest = match value.strip_prefix("bytes=") {
         Some(r) => r,
         None => return RangeOutcome::Unsatisfiable,
     };
-    // Multi-range: take the first segment only. Reference's
-    // `range-parser` returns all but the caller indexes `range[0]`
-    // at `index.js:724` — we collapse here.
     let first = rest.split(',').next().unwrap_or("").trim();
-    let (start_s, end_s) = match first.split_once('-') {
-        Some(pair) => pair,
-        None => return RangeOutcome::Unsatisfiable,
-    };
-    let start_s = start_s.trim();
-    let end_s = end_s.trim();
+    // JS `String.split('-')` splits on every hyphen and we only
+    // consult positions 0 and 1, ignoring any further elements.
+    let mut parts = first.split('-');
+    let raw_start = parts.next().unwrap_or("");
+    let raw_end = parts.next();
 
-    if start_s.is_empty() {
-        // Suffix form: `bytes=-N` → last N bytes.
-        let n: u64 = match parse_digit_prefix(end_s) {
-            Some(n) if n > 0 => n,
-            _ => return RangeOutcome::Unsatisfiable,
-        };
-        if total == 0 {
+    let start_parsed = parse_int_js(raw_start);
+    let end_parsed = raw_end.and_then(parse_int_js);
+
+    let total_i = total as i64;
+    let (start, mut end): (i64, i64) = match (start_parsed, end_parsed) {
+        (None, Some(e)) => {
+            // -nnn (suffix). Reference: `start = size - end; end =
+            // size - 1`. `bytes=-3` on an 11-byte file → start=8,
+            // end=10. `bytes=-999` → start=-988, then start<0 →
+            // Unsatisfiable (NOT "full representation" — earlier
+            // versions of this spec mis-cited RFC 7233 §2.1; the
+            // reference's range-parser does not honor that RFC
+            // suggestion).
+            (total_i.saturating_sub(e), total_i.saturating_sub(1))
+        }
+        (Some(s), None) => {
+            // nnn- (open-end). `bytes=8-` → start=8, end=size-1.
+            (s, total_i.saturating_sub(1))
+        }
+        (Some(s), Some(e)) => (s, e),
+        (None, None) => {
+            // Both NaN. Reference falls into the `isNaN(start)`
+            // branch, computes `start = size - end = NaN`, then
+            // the `isNaN(start) || isNaN(end)` validation catches
+            // it. Same outcome.
             return RangeOutcome::Unsatisfiable;
         }
-        if n >= total {
-            // RFC 7233 §2.1: "If the selected representation is
-            // shorter than the specified suffix-length, the entire
-            // representation is used."
-            return RangeOutcome::InRange {
-                start: 0,
-                end: total - 1,
-            };
-        }
-        return RangeOutcome::InRange {
-            start: total - n,
-            end: total - 1,
-        };
+    };
+
+    // Step 5: clip end to size - 1. Reference: `if (end > size - 1)
+    // { end = size - 1 }`. Done unconditionally — works for the
+    // overflow case (`bytes=0-184467440737095516160` clamps end to
+    // size-1) AND the partial-overlap case (`bytes=8-999` on
+    // 11-byte file → end=10).
+    let total_minus_1 = total_i.saturating_sub(1);
+    if end > total_minus_1 {
+        end = total_minus_1;
     }
 
-    let start: u64 = match parse_digit_prefix(start_s) {
-        Some(n) => n,
-        None => return RangeOutcome::Unsatisfiable,
-    };
-    if total == 0 || start >= total {
+    // Step 6: invalidate. Reference: `start > end || start < 0`.
+    // Empty file (total==0): total_minus_1 = -1, so any non-negative
+    // start fails the start > end check → Unsatisfiable. The
+    // dispatch-level guard in `build_file_or_304` intercepts the
+    // empty-file case before `range::apply` runs, but `parse_range`
+    // staying internally consistent for total==0 keeps the helper
+    // safe to call in isolation. Also covers the negative-zero
+    // suffix corner (`bytes=-0` → start=size, end=size-1 →
+    // start > end → Unsatisfiable).
+    if start > end || start < 0 || end < 0 {
         return RangeOutcome::Unsatisfiable;
     }
-    let end: u64 = if end_s.is_empty() {
-        // `bytes=N-` → through end of representation.
-        total - 1
-    } else {
-        match parse_digit_prefix(end_s) {
-            Some(n) => {
-                if n < start {
-                    return RangeOutcome::Unsatisfiable;
-                }
-                // Partial overlap — empirically pinned by the
-                // `clip_to_end` probe anchor: `bytes=8-999` on an
-                // 11-byte file resolves to `bytes 8-10/11`, NOT 416.
-                n.min(total - 1)
-            }
-            None => return RangeOutcome::Unsatisfiable,
-        }
-    };
-    RangeOutcome::InRange { start, end }
+
+    RangeOutcome::InRange {
+        start: start as u64,
+        end: end as u64,
+    }
 }
 
 /// Mutate the merged 200 response into either 206 (partial body) or
@@ -324,14 +375,16 @@ mod tests {
     }
 
     #[test]
-    fn parse_suffix_larger_than_total_returns_full() {
-        // RFC 7233 §2.1: "If the selected representation is shorter
-        // than the specified suffix-length, the entire representation
-        // is used."
-        assert_eq!(
-            parse_range("bytes=-999", TOTAL),
-            RangeOutcome::InRange { start: 0, end: 10 },
-        );
+    fn parse_suffix_larger_than_total_is_unsatisfiable() {
+        // Codex round 2 P2 reframing: RFC 7233 §2.1 suggests "If the
+        // selected representation is shorter than the specified
+        // suffix-length, the entire representation is used", but the
+        // reference's `range-parser` does NOT honor that — it
+        // computes `start = size - end = 11 - 999 = -988` and the
+        // `start < 0` validation at `range-parser/index.js:62`
+        // rejects it. Reference returns 416 for `bytes=-999` on an
+        // 11-byte file. irserve mirrors.
+        assert_eq!(parse_range("bytes=-999", TOTAL), RangeOutcome::Unsatisfiable);
     }
 
     #[test]
@@ -370,10 +423,83 @@ mod tests {
     }
 
     #[test]
-    fn parse_leading_garbage_is_unsatisfiable() {
-        // No leading digits → parseInt returns NaN → Unsatisfiable.
-        // (`abc-3` and `bytes=abc-3` both fall through the start arm.)
-        assert_eq!(parse_range("bytes=abc-3", TOTAL), RangeOutcome::Unsatisfiable);
+    fn parse_alpha_start_is_treated_as_suffix() {
+        // Codex round 2 P2: when `parseInt(start)` is NaN, the
+        // reference's `if (isNaN(start))` branch at
+        // `range-parser/index.js:48-50` REPURPOSES the parse as a
+        // suffix request: `start = size - end; end = size - 1`. So
+        // `bytes=abc-3` on 11-byte file → start=8, end=10 → 206.
+        // The Round 1 helper rejected this as Unsatisfiable, which
+        // was a wire-observable divergence.
+        assert_eq!(
+            parse_range("bytes=abc-3", TOTAL),
+            RangeOutcome::InRange { start: 8, end: 10 },
+        );
+    }
+
+    #[test]
+    fn parse_sign_prefix_in_start() {
+        // parseInt('+0', 10) = 0. Codex round 2 P2 smoke #1.
+        assert_eq!(
+            parse_range("bytes=+0-3", TOTAL),
+            RangeOutcome::InRange { start: 0, end: 3 },
+        );
+    }
+
+    #[test]
+    fn parse_sign_prefix_in_end() {
+        // parseInt('+3', 10) = 3. Codex round 2 P2 smoke #2.
+        assert_eq!(
+            parse_range("bytes=0-+3", TOTAL),
+            RangeOutcome::InRange { start: 0, end: 3 },
+        );
+    }
+
+    #[test]
+    fn parse_sign_prefix_in_suffix() {
+        // `bytes=-+3`: split('-') = ["", "+3"]. start=NaN, end=3 →
+        // suffix branch: start = 11 - 3 = 8, end = 10. Codex round
+        // 2 P2 smoke #3.
+        assert_eq!(
+            parse_range("bytes=-+3", TOTAL),
+            RangeOutcome::InRange { start: 8, end: 10 },
+        );
+    }
+
+    #[test]
+    fn parse_overflow_end_is_clipped() {
+        // parseInt('184...20', 10) returns a JS Number well beyond
+        // i64::MAX. Our parse_int_js saturates to i64::MAX, then the
+        // `if end > size - 1` clip pulls it back to total - 1. Result:
+        // start=0, end=total-1. Codex round 2 P2 smoke #4.
+        assert_eq!(
+            parse_range("bytes=0-184467440737095516160", TOTAL),
+            RangeOutcome::InRange { start: 0, end: 10 },
+        );
+    }
+
+    #[test]
+    fn parse_double_hyphen_in_middle_is_open_end() {
+        // `bytes=0--3`: JS `"0--3".split('-')` = ["0", "", "3"].
+        // Reference indexes [0]="0" and [1]="" → parseInt("0")=0,
+        // parseInt("")=NaN → open-end branch → start=0, end=size-1.
+        // The `"3"` segment is silently discarded. Codex round 2 P2
+        // smoke #5. THIS IS THE KEY REASON `parse_range` uses
+        // `split('-')` not `split_once`.
+        assert_eq!(
+            parse_range("bytes=0--3", TOTAL),
+            RangeOutcome::InRange { start: 0, end: 10 },
+        );
+    }
+
+    #[test]
+    fn parse_three_hyphens_uses_first_two_segments_only() {
+        // `bytes=0-3-x`: split('-') = ["0", "3", "x"]. Reference
+        // takes [0] and [1]; the trailing "x" is ignored.
+        assert_eq!(
+            parse_range("bytes=0-3-x", TOTAL),
+            RangeOutcome::InRange { start: 0, end: 3 },
+        );
     }
 
     // ---- apply ----

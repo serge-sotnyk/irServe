@@ -50,25 +50,49 @@ user-rule headers) carry over from the merged 200 unchanged.
 **Range parsing grammar** (single-range subset of RFC 7233 §2.1):
 
 - `bytes=<s>-<e>` — explicit pair. Both `<s>` and `<e>` are
-  parsed as the **leading ASCII-digit prefix** of the token
-  (mirrors JS `parseInt(token, 10)` used by the reference's
-  `range-parser` at
-  `third_party/serve/node_modules/.../range-parser/index.js:44`),
-  so `Range: bytes=0-3x` is honored as `0-3` and emits 206.
-  An empty or leading-non-digit token yields `Unsatisfiable`.
-  If `<e>` exceeds `total-1`, it is silently clipped to
-  `total-1` (partial-overlap clipping per `range-parser`
-  semantics, empirically pinned by
+  parsed via a `parseInt(token, 10)`-style helper that mirrors
+  the reference's `range-parser` at
+  `third_party/serve/node_modules/.../range-parser/index.js:44`.
+  The helper accepts a leading `+`/`-` sign, then consumes
+  consecutive ASCII digits and **ignores any trailing
+  non-digit suffix** (so `Range: bytes=0-3x` is honored as
+  `0-3`, `bytes=+0-3` as `0-3`, `bytes=0-+3` as `0-3`).
+  Overflow saturates: JS Number can represent up to ~1.8e308,
+  while u64/i64 max out at ~1.8e19 — the helper clamps to
+  `i64::MAX` and the next clipping step (`end > total - 1`)
+  pulls it back to `total - 1`, so `Range: bytes=0-184467440737095516160`
+  on an 11-byte file → 206 + `bytes 0-10/11`. The segment is
+  split on **every** `-` (not just the first): `String::split('-')`
+  vs `split_once` matters for the corner `bytes=0--3` where the
+  reference's `arr[i].split('-')` yields `["0","","3"]` and
+  only `[0]`/`[1]` are consulted → `end` is the empty middle
+  segment → open-end branch → `bytes 0-10/11`. The trailing
+  `"3"` segment is silently discarded. An empty or
+  leading-non-digit token in the start slot is NOT
+  Unsatisfiable — it triggers the suffix re-parse via the
+  `isNaN(start)` branch below. If `<e>` exceeds `total - 1`,
+  it is silently clipped to `total - 1` (partial-overlap
+  clipping per `range-parser` semantics, empirically pinned by
   `tools/probe/cases/range-request.json#clip_to_end` —
   `bytes=8-999` on an 11-byte file → 206 with `bytes
-  8-10/11`, NOT 416). If `<s> >= total` or `<s> > <e>`, the
-  parser returns `Unsatisfiable` → 416.
+  8-10/11`, NOT 416). If after clipping `<s> > <e>` or
+  `<s> < 0`, the parser returns `Unsatisfiable` → 416.
 - `bytes=<s>-` — open-ended. `<e>` defaults to `total - 1`.
-- `bytes=-<n>` — suffix form: last `n` bytes. If `n >= total`,
-  the entire representation is returned (RFC 7233 §2.1: "If
-  the selected representation is shorter than the specified
-  suffix-length, the entire representation is used"). `n == 0`
-  → `Unsatisfiable` (matches reference's `range-parser`).
+- `bytes=-<n>` — suffix form: last `n` bytes. **If `n > total`,
+  the result is `Unsatisfiable` (NOT "full representation").**
+  Reference's `range-parser` computes `start = size - end` and
+  invalidates via the `start < 0` check at `index.js:62`; RFC
+  7233 §2.1's "If the selected representation is shorter than
+  the specified suffix-length, the entire representation is
+  used" suggestion is NOT honored by the reference, and we
+  mirror that. `n == 0` → `Unsatisfiable` (start = size > end =
+  size - 1 → `start > end` invalidation). If `start` is NaN
+  (e.g. `bytes=abc-3`), the reference's `if (isNaN(start))`
+  branch REPURPOSES the parse as a suffix request: `start =
+  size - end; end = size - 1`. So `bytes=abc-3` on 11-byte file
+  → start=8, end=10 → 206, NOT 416. Pinned by
+  `tools/probe/cases/range-request.json#range_alpha_start_is_suffix`
+  (ORC-186).
 - Multi-range comma list (`bytes=<s1>-<e1>, <s2>-<e2>`) —
   only the first range is honored, subsequent ranges are
   silently ignored (mirrors reference's `range[0]` at
@@ -490,13 +514,21 @@ SRV-CACHE-004's emission contract is what changed.
   could swap to "strict end → 416" if RFC interpretation
   changes; current contract follows reference.
 
-- **Suffix `bytes=-N` where N > total returns the full
-  representation (RFC 7233 §2.1).** "If the selected
-  representation is shorter than the specified suffix-
-  length, the entire representation is used." Pinned by
-  `range::tests::parse_suffix_larger_than_total_returns_full`.
-  `bytes=-0` is `Unsatisfiable` (matches `range-parser`'s
-  `-2`); pinned by
+- **Suffix `bytes=-N` where N > total is `Unsatisfiable`,
+  NOT "full representation".** Codex round 2 P2 reframing:
+  RFC 7233 §2.1 suggests "If the selected representation is
+  shorter than the specified suffix-length, the entire
+  representation is used", but the reference's `range-parser`
+  does NOT honor that. It computes `start = size - end`
+  (e.g. 11 - 999 = -988) and invalidates via the
+  `start < 0` check at `range-parser/index.js:62`. irserve
+  mirrors. Pinned by
+  `range::tests::parse_suffix_larger_than_total_is_unsatisfiable`
+  and by
+  `tools/probe/cases/range-request.json#range_suffix_larger_than_total_is_416`
+  (ORC-187). `bytes=-0` is also `Unsatisfiable` via a similar
+  path (`start = size - 0 = size`, then `start > end =
+  size - 1`); pinned by
   `range::tests::parse_negative_zero_suffix_is_unsatisfiable`.
 
 - **First range only on multi-range comma list.** Mirrors

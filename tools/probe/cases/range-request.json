@@ -34,7 +34,14 @@
         "range_with_inm_match",
         "range_on_empty_file",
         "range_416_user_content_range_override",
-        "range_trailing_garbage_in_end"
+        "range_trailing_garbage_in_end",
+        "range_plus_sign_in_start",
+        "range_plus_sign_in_end",
+        "range_plus_sign_in_suffix",
+        "range_overflow_end_clipped",
+        "range_double_hyphen_open_end",
+        "range_alpha_start_is_suffix",
+        "range_suffix_larger_than_total_is_416"
       ],
       "bodyMayDiffer": ["range_on_missing_file"]
     }
@@ -58,6 +65,13 @@
     },
     { "name": "range_on_empty_file", "method": "GET", "path": "/empty.txt", "headers": { "range": "bytes=0-3" } },
     { "name": "range_416_user_content_range_override", "method": "GET", "path": "/tagged.txt", "headers": { "range": "bytes=999-1000" } },
-    { "name": "range_trailing_garbage_in_end", "method": "GET", "path": "/blob.txt", "headers": { "range": "bytes=0-3x" } }
+    { "name": "range_trailing_garbage_in_end", "method": "GET", "path": "/blob.txt", "headers": { "range": "bytes=0-3x" } },
+    { "name": "range_plus_sign_in_start", "method": "GET", "path": "/blob.txt", "headers": { "range": "bytes=+0-3" } },
+    { "name": "range_plus_sign_in_end", "method": "GET", "path": "/blob.txt", "headers": { "range": "bytes=0-+3" } },
+    { "name": "range_plus_sign_in_suffix", "method": "GET", "path": "/blob.txt", "headers": { "range": "bytes=-+3" } },
+    { "name": "range_overflow_end_clipped", "method": "GET", "path": "/blob.txt", "headers": { "range": "bytes=0-184467440737095516160" } },
+    { "name": "range_double_hyphen_open_end", "method": "GET", "path": "/blob.txt", "headers": { "range": "bytes=0--3" } },
+    { "name": "range_alpha_start_is_suffix", "method": "GET", "path": "/blob.txt", "headers": { "range": "bytes=abc-3" } },
+    { "name": "range_suffix_larger_than_total_is_416", "method": "GET", "path": "/blob.txt", "headers": { "range": "bytes=-999" } }
   ]
 }
