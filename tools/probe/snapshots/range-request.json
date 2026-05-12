@@ -1,7 +1,7 @@
 {
   "$schemaVersion": 1,
   "case": "range-request",
-  "description": "Range / 206 / 416 behavior. Confirms that serve honors `Range: bytes=...` for static files (206 with Content-Range and partial body) and rejects an out-of-range request with 416. Backs SRV-CACHE-004.",
+  "description": "Range / 206 / 416 behavior. Confirms that serve honors `Range: bytes=...` for static files (206 with Content-Range and partial body) and rejects an out-of-range request with 416. Backs SRV-CACHE-004. Stage 7c extended with suffix / single-byte / clip-to-end / 404-interaction / INM-interaction anchors to close anti-hallucination rule #8 zone proactively.",
   "fixture": {
     "files": {
       "blob.txt": "abcdefghij\n"
@@ -98,6 +98,153 @@
         },
         "status": 416,
         "statusText": "Range Not Satisfiable"
+      }
+    },
+    {
+      "name": "suffix_last_3",
+      "request": {
+        "method": "GET",
+        "mode": "fetch",
+        "path": "/blob.txt",
+        "headers": {
+          "range": "bytes=-3"
+        }
+      },
+      "response": {
+        "body": {
+          "kind": "text",
+          "length": 3,
+          "sha256": "3119395a634a5ed58d3ea4a609d9e29e3dff5224bf9d870b348c3d4b14f62ad8",
+          "preview": "ij\n"
+        },
+        "headers": {
+          "accept-ranges": "bytes",
+          "content-length": "3",
+          "content-range": "bytes 8-10/11",
+          "content-type": "text/plain; charset=utf-8",
+          "etag": "\"df13ea7b971f3dad54f0deb102c5bc9fa0d052ae\"",
+          "vary": "Accept-Encoding"
+        },
+        "status": 206,
+        "statusText": "Partial Content"
+      }
+    },
+    {
+      "name": "single_byte",
+      "request": {
+        "method": "GET",
+        "mode": "fetch",
+        "path": "/blob.txt",
+        "headers": {
+          "range": "bytes=0-0"
+        }
+      },
+      "response": {
+        "body": {
+          "kind": "text",
+          "length": 1,
+          "sha256": "ca978112ca1bbdcafac231b39a23dc4da786eff8147c4e72b9807785afee48bb",
+          "preview": "a"
+        },
+        "headers": {
+          "accept-ranges": "bytes",
+          "content-length": "1",
+          "content-range": "bytes 0-0/11",
+          "content-type": "text/plain; charset=utf-8",
+          "etag": "\"df13ea7b971f3dad54f0deb102c5bc9fa0d052ae\"",
+          "vary": "Accept-Encoding"
+        },
+        "status": 206,
+        "statusText": "Partial Content"
+      }
+    },
+    {
+      "name": "clip_to_end",
+      "request": {
+        "method": "GET",
+        "mode": "fetch",
+        "path": "/blob.txt",
+        "headers": {
+          "range": "bytes=8-999"
+        }
+      },
+      "response": {
+        "body": {
+          "kind": "text",
+          "length": 3,
+          "sha256": "3119395a634a5ed58d3ea4a609d9e29e3dff5224bf9d870b348c3d4b14f62ad8",
+          "preview": "ij\n"
+        },
+        "headers": {
+          "accept-ranges": "bytes",
+          "content-length": "3",
+          "content-range": "bytes 8-10/11",
+          "content-type": "text/plain; charset=utf-8",
+          "etag": "\"df13ea7b971f3dad54f0deb102c5bc9fa0d052ae\"",
+          "vary": "Accept-Encoding"
+        },
+        "status": 206,
+        "statusText": "Partial Content"
+      }
+    },
+    {
+      "name": "range_on_missing_file",
+      "request": {
+        "method": "GET",
+        "mode": "fetch",
+        "path": "/does-not-exist.txt",
+        "headers": {
+          "range": "bytes=0-3"
+        }
+      },
+      "response": {
+        "body": {
+          "kind": "text",
+          "length": 1641,
+          "sha256": "8c45c679f40c3f81c111fbf2398d568189c3ab34d8a9704ad225cd8efe1b819f",
+          "preview": "<!DOCTYPE html><head> <meta name=\"viewport\" content=\"width=device-width, initial-scale=1, user-scalable=no\"/> <style> body { margin: 0; font-family: -apple-system, BlinkMacSystemFont, \"Segoe UI\", \"Rob"
+        },
+        "headers": {
+          "content-type": "text/html; charset=utf-8",
+          "vary": "Accept-Encoding"
+        },
+        "status": 404,
+        "statusText": "Not Found"
+      }
+    },
+    {
+      "name": "range_with_inm_match",
+      "request": {
+        "method": "GET",
+        "mode": "fetch",
+        "path": "/blob.txt",
+        "headers": {
+          "if-none-match": {
+            "$fromResponse": {
+              "request": "in_range_first_4",
+              "header": "etag"
+            }
+          },
+          "range": "bytes=0-3"
+        }
+      },
+      "response": {
+        "body": {
+          "kind": "text",
+          "length": 4,
+          "sha256": "88d4266fd4e6338d13b845fcf289579d209c897823b9217da3e161936f031589",
+          "preview": "abcd"
+        },
+        "headers": {
+          "accept-ranges": "bytes",
+          "content-length": "4",
+          "content-range": "bytes 0-3/11",
+          "content-type": "text/plain; charset=utf-8",
+          "etag": "\"df13ea7b971f3dad54f0deb102c5bc9fa0d052ae\"",
+          "vary": "Accept-Encoding"
+        },
+        "status": 206,
+        "statusText": "Partial Content"
       }
     }
   ]
