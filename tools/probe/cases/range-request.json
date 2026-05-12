@@ -43,6 +43,11 @@
         "range_alpha_start_is_suffix",
         "range_suffix_larger_than_total_is_416"
       ],
+      "divergent": [
+        "range_multi_first_invalid",
+        "range_multi_first_unsatisfiable",
+        "range_multi_first_alpha_only"
+      ],
       "bodyMayDiffer": ["range_on_missing_file"]
     }
   },
@@ -72,6 +77,9 @@
     { "name": "range_overflow_end_clipped", "method": "GET", "path": "/blob.txt", "headers": { "range": "bytes=0-184467440737095516160" } },
     { "name": "range_double_hyphen_open_end", "method": "GET", "path": "/blob.txt", "headers": { "range": "bytes=0--3" } },
     { "name": "range_alpha_start_is_suffix", "method": "GET", "path": "/blob.txt", "headers": { "range": "bytes=abc-3" } },
-    { "name": "range_suffix_larger_than_total_is_416", "method": "GET", "path": "/blob.txt", "headers": { "range": "bytes=-999" } }
+    { "name": "range_suffix_larger_than_total_is_416", "method": "GET", "path": "/blob.txt", "headers": { "range": "bytes=-999" } },
+    { "name": "range_multi_first_invalid", "method": "GET", "path": "/blob.txt", "headers": { "range": "bytes=999-1000,0-3" } },
+    { "name": "range_multi_first_unsatisfiable", "method": "GET", "path": "/blob.txt", "headers": { "range": "bytes=10-1,0-3" } },
+    { "name": "range_multi_first_alpha_only", "method": "GET", "path": "/blob.txt", "headers": { "range": "bytes=abc,0-3" } }
   ]
 }

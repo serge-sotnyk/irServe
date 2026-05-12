@@ -94,9 +94,19 @@ user-rule headers) carry over from the merged 200 unchanged.
   `tools/probe/cases/range-request.json#range_alpha_start_is_suffix`
   (ORC-186).
 - Multi-range comma list (`bytes=<s1>-<e1>, <s2>-<e2>`) —
-  only the first range is honored, subsequent ranges are
-  silently ignored (mirrors reference's `range[0]` at
-  `index.js:724`).
+  **only the FIRST comma segment is consulted**, regardless
+  of whether it parses as valid. This is a documented
+  divergence from the reference (D-019, parity scope declared
+  per anti-hallucination rule #9 after three Codex review
+  rounds on the parser surface): reference iterates ALL
+  comma-segments at `range-parser/index.js:42-71`, skips
+  invalid ones via the `continue` at `:63`, then
+  `serve-handler` takes `range[0]` from the resulting list
+  of VALID parsed ranges at `index.js:724`. So
+  `bytes=999-1000,0-3` on an 11-byte file resolves to
+  `bytes 0-3/11` under reference but `416 bytes */11` under
+  irserve. See `docs/reference/serve/decisions.md` D-019 and
+  the `range_multi_first_*` divergent probe anchors.
 - Non-`bytes` unit (`pixels=0-3`), malformed values,
   non-ASCII header values — all collapse to `Unsatisfiable`
   → 416.
@@ -539,21 +549,61 @@ SRV-CACHE-004's emission contract is what changed.
   `multipart/byteranges` response shape. Pinned by
   `range::tests::parse_multi_range_uses_first_only`.
 
-- **`Range`-emitted headers are last-write-wins over user
-  rules.** `apply_custom_headers` merges user
-  `serve.json#headers` rules into the 200 response BEFORE
-  `range::apply` runs; `range::apply` then `inserts`
-  `Content-Range` and `Content-Length` (replacing whatever
-  the user rule supplied). Mirrors reference's
-  post-`getHeaders` injection at
-  `serve-handler/src/index.js:749-752`. Pinned by
-  `range::tests::apply_overwrites_user_content_length_on_206`.
+- **`Range`-emitted headers: 206 last-write-wins, 416
+  first-write-wins.** The two paths take opposite stances on
+  user `serve.json#headers` overrides, mirroring the
+  reference's asymmetric ordering:
+  - **206 path.** `apply_custom_headers` merges user rules
+    into the 200 response BEFORE `range::apply` runs;
+    `range::apply::build_206` then `insert`s `Content-Range`
+    and `Content-Length` (replacing whatever the user rule
+    supplied). Mirrors reference's post-`getHeaders`
+    injection at `serve-handler/src/index.js:749-752`.
+    Pinned by `range::tests::apply_overwrites_user_content_length_on_206`.
+  - **416 path.** The default `Content-Range: bytes */<total>`
+    is `entry().or_insert_with`ed into the merged response,
+    so a user-supplied `Content-Range` rule WINS over the
+    default. Mirrors reference's setHeader-before-getHeaders
+    ordering at `index.js:730-732, 746, 767` (the default is
+    written before the user-rule merge; `writeHead`'s map
+    overrides any prior `setHeader` for the same key).
+    Pinned by ORC-179
+    (`range_416_user_content_range_override`) and
+    `range::tests::apply_416_user_content_range_rule_wins`.
   All OTHER user-rule headers (e.g. an `ETag` override, an
-  `X-Custom` header) survive the range transformation
+  `X-Custom` header) survive both 206 and 416 transformations
   unchanged because `range::apply` only touches the two
   range-specific keys. Pinned by
   `dispatch::tests::range_preserves_user_custom_headers_on_206`
   and `range_416_preserves_etag_and_user_headers`.
+
+- **Multi-range comma list is first-segment-only (D-019,
+  parity scope declared per anti-hallucination rule #9).**
+  Reference's `range-parser` iterates ALL comma-segments and
+  skips invalid ones via the `continue` at
+  `range-parser/index.js:63`; `serve-handler` then takes
+  `range[0]` from the resulting list of VALID ranges at
+  `index.js:724`. So `bytes=999-1000,0-3` on an 11-byte file
+  resolves to `bytes 0-3/11` (first valid range, second
+  segment). irserve takes only the first comma segment and
+  returns 416 if that segment alone is invalid, regardless
+  of whether later segments would have been valid. Three
+  consecutive Codex review rounds on parser-corner cases
+  triggered anti-hallucination rule #9: pause and declare a
+  parity scope. The single-range surface stays byte-
+  identical to the reference under D-NNN-less mirror (rounds
+  1+2 sealed every parseInt / split / clip / suffix-repurpose
+  corner); the multi-range divergence is recorded here +
+  in `docs/reference/serve/decisions.md` D-019 + by the
+  three `range_multi_first_*` probe anchors in
+  `tools/probe/cases/range-request.json`'s
+  `runner.l0.divergent` partition (reference-only;
+  irserve-side outcome unit-tested separately). Closing the
+  divergence later is a contained ~10 LOC change (iterate
+  comma segments, keep the first `InRange` outcome); doing
+  so requires flipping D-019 from `adapted` to `mirrored`
+  and re-classifying the three probes from `divergent` to
+  `clean`.
 
 - **Hash function and Last-Modified format compatibility
   notes inherit from Stage 7a/7b unchanged.** D-017's

@@ -107,6 +107,20 @@ pub fn parse_range(value: &str, total: u64) -> RangeOutcome {
         Some(r) => r,
         None => return RangeOutcome::Unsatisfiable,
     };
+    // **Multi-range divergence — see D-019.** Reference's `range-parser`
+    // iterates ALL comma-segments and skips invalid ones via the
+    // `continue` at `range-parser/index.js:63`; `serve-handler` then
+    // takes `range[0]` from the resulting list of VALID parsed
+    // ranges at `serve-handler/src/index.js:724`. So
+    // `bytes=999-1000,0-3` resolves to `bytes 0-3/11` on an 11-byte
+    // file. irserve only consults the FIRST comma-segment — if it is
+    // invalid, we return 416 even when a later segment would have
+    // been valid. The single-range surface stays byte-identical
+    // (rounds 1+2 mirror); the multi-range comma list is declared
+    // out-of-parity-scope per anti-hallucination rule #9 after three
+    // consecutive Codex review rounds on the parser. See
+    // `docs/reference/serve/decisions.md` D-019 for the full
+    // rationale and the `range_multi_first_*` divergent probe anchors.
     let first = rest.split(',').next().unwrap_or("").trim();
     // JS `String.split('-')` splits on every hyphen and we only
     // consult positions 0 and 1, ignoring any further elements.
@@ -176,9 +190,20 @@ pub fn parse_range(value: &str, total: u64) -> RangeOutcome {
 /// 416 (full body + `Content-Range: bytes */<total>`) per the parsed
 /// `Range` header. Other headers (Content-Type, ETag, Last-Modified,
 /// user-rule custom headers) carry over from `merged` unchanged.
-/// `Content-Range` and `Content-Length` are last-write-wins over any
-/// user rule — mirrors reference's post-`getHeaders` injection at
-/// `serve-handler/src/index.js:749-752`.
+///
+/// Header-ordering asymmetry between 206 and 416 (Codex round 1 P2 +
+/// round 3 P3 doc fix):
+/// - **206 path (`build_206`)**: `Content-Range` and `Content-Length`
+///   are `insert`ed AFTER `apply_custom_headers` has merged user
+///   rules, so range-emitted values **win over** any user-supplied
+///   value for the same keys. Mirrors reference's
+///   post-`getHeaders` injection at
+///   `serve-handler/src/index.js:749-752`.
+/// - **416 path (`build_416`)**: `Content-Range` is `entry().or_insert_with`
+///   into the merged response, so a user-supplied `Content-Range`
+///   rule **wins over** the default `bytes */<total>`. Mirrors
+///   reference's setHeader-before-getHeaders ordering at
+///   `index.js:730-732, 746, 767`.
 pub fn apply(
     merged: Response<Body>,
     range_header: &HeaderValue,
@@ -489,6 +514,46 @@ mod tests {
         assert_eq!(
             parse_range("bytes=0--3", TOTAL),
             RangeOutcome::InRange { start: 0, end: 10 },
+        );
+    }
+
+    // ---- D-019 multi-range divergence ----
+    //
+    // Reference's `range-parser` iterates ALL comma-segments and
+    // `serve-handler` takes the FIRST VALID range; irserve takes the
+    // first segment only and rejects the request if that segment
+    // alone is invalid. These tests pin the irserve-side outcome so
+    // a future "first valid" implementation can flip them in lockstep
+    // with D-019 status moving from `adapted` to `mirrored`.
+
+    #[test]
+    fn parse_multi_first_invalid_returns_unsatisfiable_irserve_side() {
+        // Reference: 206 bytes 0-3/11 (second segment wins).
+        // irserve: Unsatisfiable (D-019).
+        assert_eq!(
+            parse_range("bytes=999-1000,0-3", TOTAL),
+            RangeOutcome::Unsatisfiable,
+        );
+    }
+
+    #[test]
+    fn parse_multi_first_start_after_end_returns_unsatisfiable_irserve_side() {
+        // Reference: 206 bytes 0-3/11. irserve: Unsatisfiable (D-019).
+        assert_eq!(
+            parse_range("bytes=10-1,0-3", TOTAL),
+            RangeOutcome::Unsatisfiable,
+        );
+    }
+
+    #[test]
+    fn parse_multi_first_alpha_only_returns_unsatisfiable_irserve_side() {
+        // First segment `abc` has no hyphen → split('-') yields
+        // ["abc"], raw_end = None → both NaN → Unsatisfiable.
+        // Reference iterates to the `0-3` segment and returns 206
+        // (D-019).
+        assert_eq!(
+            parse_range("bytes=abc,0-3", TOTAL),
+            RangeOutcome::Unsatisfiable,
         );
     }
 
