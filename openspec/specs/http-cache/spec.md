@@ -346,19 +346,32 @@ carry over unchanged. Range emission DOES NOT add
 fall-through to `stream.pipe(response)` with empty `streamOpts`
 at `index.js:730-741`; RFC 7233 §4.4 permits a representation
 on 416). `Content-Range: bytes */<total>` is inserted by the
-range branch. `Content-Length` is NOT explicitly set on 416 —
-axum derives it from the full body length, matching the
-reference's Node-`http`-inferred `Content-Length: <total>`.
+range branch **only when no user-rule value is already present
+on the merged response** — mirrors reference's setHeader-
+before-getHeaders ordering at `index.js:730-732, 746, 767`
+where `response.setHeader('Content-Range', 'bytes */N')` runs
+BEFORE `getHeaders` and the subsequent `writeHead(statusCode,
+headers)` lets the merged user-rule map override prior
+setHeader values. irserve mirrors via `entry().or_insert_with(...)`
+in `range::build_416`. `Content-Length` is NOT explicitly set
+on 416 — axum derives it from the full body length, matching
+the reference's Node-`http`-inferred `Content-Length: <total>`.
 Other headers (`Content-Type`, `ETag`, `Last-Modified`,
 user-rule headers) carry over from the merged 200 unchanged.
 
 **Range parsing grammar** (single-range subset of RFC 7233 §2.1):
 
 - `bytes=<s>-<e>` — explicit pair. Both `<s>` and `<e>` are
-  non-negative decimal integers. If `<e>` exceeds `total-1`,
-  it is silently clipped to `total-1` (partial-overlap
-  clipping per `range-parser` semantics, empirically pinned
-  by `tools/probe/cases/range-request.json#clip_to_end` —
+  parsed as the **leading ASCII-digit prefix** of the token
+  (mirrors JS `parseInt(token, 10)` used by the reference's
+  `range-parser` at
+  `third_party/serve/node_modules/.../range-parser/index.js:44`),
+  so `Range: bytes=0-3x` is honored as `0-3` and emits 206.
+  An empty or leading-non-digit token yields `Unsatisfiable`.
+  If `<e>` exceeds `total-1`, it is silently clipped to
+  `total-1` (partial-overlap clipping per `range-parser`
+  semantics, empirically pinned by
+  `tools/probe/cases/range-request.json#clip_to_end` —
   `bytes=8-999` on an 11-byte file → 206 with `bytes
   8-10/11`, NOT 416). If `<s> >= total` or `<s> > <e>`, the
   parser returns `Unsatisfiable` → 416.
@@ -375,8 +388,16 @@ user-rule headers) carry over from the merged 200 unchanged.
 - Non-`bytes` unit (`pixels=0-3`), malformed values,
   non-ASCII header values — all collapse to `Unsatisfiable`
   → 416.
-- Empty file (`total == 0`) — every Range value is
-  `Unsatisfiable`.
+- Empty file (`total == 0`) — Range processing is **skipped
+  entirely** and the request returns the normal 200 response
+  with an empty body and no `Content-Range` header. Mirrors
+  reference's `if (request.headers.range && stats.size)`
+  guard at `serve-handler/src/index.js:720`. irserve mirrors
+  via a `total == 0 → return merged` guard in
+  `build_file_or_304` right before the `range::apply` call.
+  Pinned by
+  `tools/probe/cases/range-request.json#range_on_empty_file`
+  (ORC-178).
 
 **Range pre-empts the 304 short-circuit.** When a `Range`
 header is present on a conditional GET (with `If-None-Match`

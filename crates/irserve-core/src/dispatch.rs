@@ -828,6 +828,23 @@ fn build_file_or_304(
     // pre-empts the 304 short-circuit per `serve-handler/src/index.js:760`
     // (`request.headers.range == null && ...`); the let-else above
     // ensures we never reach the 304 branches under Range.
+    //
+    // Codex round 1 P1: mirror reference's
+    // `if (request.headers.range && stats.size)` guard at
+    // `serve-handler/src/index.js:720` — when the file is zero bytes,
+    // the reference skips Range parsing entirely and returns the
+    // normal (empty-body) 200 with no `Content-Range`. Previously
+    // irserve always entered `range::apply` and `total == 0` is
+    // pinned as `Unsatisfiable`, so a Range request against a 0-byte
+    // file produced 416 + `Content-Range: bytes */0` — a wire-
+    // observable divergence. Falling through to `merged` here mirrors
+    // the reference's normal 200 path; the 304 short-circuits stay
+    // bypassed for Range-bearing requests as before (we are inside
+    // the `let Some(range_value)` tail, so the let-else `else` arm
+    // never runs).
+    if total == 0 {
+        return merged;
+    }
     let bytes_for_range = bytes_for_range.expect("bytes cloned when range present");
     range::apply(merged, &range_value, &bytes_for_range, total)
 }
@@ -1746,6 +1763,92 @@ mod tests {
         );
         assert_eq!(resp.status(), StatusCode::RANGE_NOT_SATISFIABLE);
         assert_eq!(resp.headers().get(ETAG).unwrap(), "\"custom\"");
+    }
+
+    #[test]
+    fn range_on_empty_file_returns_200_not_416() {
+        // Codex round 1 P1: reference's
+        // `if (request.headers.range && stats.size)` guard at
+        // `serve-handler/src/index.js:720` skips Range processing
+        // when the file is zero bytes, returning the normal 200 with
+        // an empty body and no `Content-Range`. irserve mirrors via
+        // the `total == 0 → return merged` guard in
+        // `build_file_or_304` right before the `range::apply` call.
+        let resp = build_file_or_304(
+            &cfg_etag(None),
+            &range_header("bytes=0-3"),
+            &asset_path(),
+            Vec::new(),
+            None,
+            &[],
+            "/empty.txt",
+        );
+        assert_eq!(resp.status(), StatusCode::OK);
+        assert!(resp
+            .headers()
+            .get(axum::http::header::CONTENT_RANGE)
+            .is_none());
+    }
+
+    #[test]
+    fn range_416_user_content_range_rule_wins() {
+        // Codex round 1 P2: user `Content-Range` override survives
+        // the 416 transformation (mirrors reference's setHeader-
+        // before-getHeaders ordering at `index.js:730-732, 746, 767`).
+        // Threads through `apply_custom_headers` from a
+        // `serve.json#headers` rule with key `Content-Range`.
+        let rules = {
+            use crate::config::{HeaderItem, HeaderRule};
+            use crate::custom_headers::compile_rules;
+            let rules = vec![HeaderRule {
+                source: "**/*.css".to_string(),
+                headers: vec![HeaderItem {
+                    key: "Content-Range".to_string(),
+                    value: Some("custom-value".to_string()),
+                }],
+            }];
+            let (compiled, invalid) = compile_rules(&rules);
+            assert!(invalid.is_empty());
+            compiled
+        };
+        let resp = build_file_or_304(
+            &cfg_etag(None),
+            &range_header("bytes=999-1000"),
+            &asset_path(),
+            ASSET_CSS_BYTES.to_vec(),
+            None,
+            &rules,
+            "/asset.css",
+        );
+        assert_eq!(resp.status(), StatusCode::RANGE_NOT_SATISFIABLE);
+        assert_eq!(
+            resp.headers()
+                .get(axum::http::header::CONTENT_RANGE)
+                .unwrap(),
+            "custom-value",
+        );
+    }
+
+    #[test]
+    fn range_trailing_garbage_value_emits_206() {
+        // Codex round 1 P2: parseInt-style leniency — `bytes=0-3x`
+        // parses as 0-3.
+        let resp = build_file_or_304(
+            &cfg_etag(None),
+            &range_header("bytes=0-3x"),
+            &asset_path(),
+            ASSET_CSS_BYTES.to_vec(),
+            None,
+            &[],
+            "/asset.css",
+        );
+        assert_eq!(resp.status(), StatusCode::PARTIAL_CONTENT);
+        assert_eq!(
+            resp.headers()
+                .get(axum::http::header::CONTENT_RANGE)
+                .unwrap(),
+            "bytes 0-3/16",
+        );
     }
 
     #[test]

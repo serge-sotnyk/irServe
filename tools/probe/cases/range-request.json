@@ -3,7 +3,19 @@
   "description": "Range / 206 / 416 behavior. Confirms that serve honors `Range: bytes=...` for static files (206 with Content-Range and partial body) and rejects an out-of-range request with 416. Backs SRV-CACHE-004. Stage 7c extended with suffix / single-byte / clip-to-end / 404-interaction / INM-interaction anchors to close anti-hallucination rule #8 zone proactively.",
   "fixture": {
     "files": {
-      "blob.txt": "abcdefghij\n"
+      "blob.txt": "abcdefghij\n",
+      "empty.txt": "",
+      "tagged.txt": "abcdefghij\n"
+    },
+    "serveJson": {
+      "headers": [
+        {
+          "source": "tagged.txt",
+          "headers": [
+            { "key": "Content-Range", "value": "custom-value" }
+          ]
+        }
+      ]
     }
   },
   "snapshot": {
@@ -19,7 +31,10 @@
         "single_byte",
         "clip_to_end",
         "range_on_missing_file",
-        "range_with_inm_match"
+        "range_with_inm_match",
+        "range_on_empty_file",
+        "range_416_user_content_range_override",
+        "range_trailing_garbage_in_end"
       ],
       "bodyMayDiffer": ["range_on_missing_file"]
     }
@@ -40,6 +55,9 @@
         "range": "bytes=0-3",
         "if-none-match": { "$fromResponse": { "request": "in_range_first_4", "header": "etag" } }
       }
-    }
+    },
+    { "name": "range_on_empty_file", "method": "GET", "path": "/empty.txt", "headers": { "range": "bytes=0-3" } },
+    { "name": "range_416_user_content_range_override", "method": "GET", "path": "/tagged.txt", "headers": { "range": "bytes=999-1000" } },
+    { "name": "range_trailing_garbage_in_end", "method": "GET", "path": "/blob.txt", "headers": { "range": "bytes=0-3x" } }
   ]
 }

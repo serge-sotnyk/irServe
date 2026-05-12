@@ -23,6 +23,31 @@ pub enum RangeOutcome {
     Unsatisfiable,
 }
 
+/// Parse the leading ASCII-digit prefix of `s` as a `u64`. Mirrors
+/// JS `parseInt(s, 10)` — leading whitespace is skipped (the caller
+/// already trims, but we re-trim defensively), then consecutive
+/// ASCII digits are consumed and the remainder of the string is
+/// silently ignored. Returns `None` only when no leading digit was
+/// found. Used so `Range: bytes=0-3x` parses as `0-3` exactly like
+/// the reference's `range-parser` (npm), which calls
+/// `parseInt(start, 10)` and `parseInt(end, 10)` at
+/// `third_party/serve/node_modules/.../range-parser/index.js:44`.
+/// Codex round 1 P2: previously irserve used `.parse::<u64>()`,
+/// which is stricter than `parseInt` and rejected any trailing
+/// garbage — a wire-observable divergence from the reference.
+fn parse_digit_prefix(s: &str) -> Option<u64> {
+    let s = s.trim_start();
+    let bytes = s.as_bytes();
+    let mut end = 0;
+    while end < bytes.len() && bytes[end].is_ascii_digit() {
+        end += 1;
+    }
+    if end == 0 {
+        return None;
+    }
+    s[..end].parse().ok()
+}
+
 /// Parse a `Range` header value against a known representation size.
 /// Any non-`bytes=...` input collapses to `Unsatisfiable` so the
 /// caller can route both malformed and wrong-unit cases through the
@@ -47,8 +72,8 @@ pub fn parse_range(value: &str, total: u64) -> RangeOutcome {
 
     if start_s.is_empty() {
         // Suffix form: `bytes=-N` → last N bytes.
-        let n: u64 = match end_s.parse() {
-            Ok(n) if n > 0 => n,
+        let n: u64 = match parse_digit_prefix(end_s) {
+            Some(n) if n > 0 => n,
             _ => return RangeOutcome::Unsatisfiable,
         };
         if total == 0 {
@@ -69,9 +94,9 @@ pub fn parse_range(value: &str, total: u64) -> RangeOutcome {
         };
     }
 
-    let start: u64 = match start_s.parse() {
-        Ok(n) => n,
-        Err(_) => return RangeOutcome::Unsatisfiable,
+    let start: u64 = match parse_digit_prefix(start_s) {
+        Some(n) => n,
+        None => return RangeOutcome::Unsatisfiable,
     };
     if total == 0 || start >= total {
         return RangeOutcome::Unsatisfiable;
@@ -80,8 +105,8 @@ pub fn parse_range(value: &str, total: u64) -> RangeOutcome {
         // `bytes=N-` → through end of representation.
         total - 1
     } else {
-        match end_s.parse::<u64>() {
-            Ok(n) => {
+        match parse_digit_prefix(end_s) {
+            Some(n) => {
                 if n < start {
                     return RangeOutcome::Unsatisfiable;
                 }
@@ -90,7 +115,7 @@ pub fn parse_range(value: &str, total: u64) -> RangeOutcome {
                 // 11-byte file resolves to `bytes 8-10/11`, NOT 416.
                 n.min(total - 1)
             }
-            Err(_) => return RangeOutcome::Unsatisfiable,
+            None => return RangeOutcome::Unsatisfiable,
         }
     };
     RangeOutcome::InRange { start, end }
@@ -145,11 +170,25 @@ fn build_206(
 fn build_416(merged: Response<Body>, bytes: &[u8], total: u64) -> Response<Body> {
     let (mut parts, _) = merged.into_parts();
     parts.status = StatusCode::RANGE_NOT_SATISFIABLE;
-    parts.headers.insert(
-        CONTENT_RANGE,
-        HeaderValue::from_str(&format!("bytes */{total}"))
-            .expect("content-range value is ascii"),
-    );
+    // Codex round 1 P2: a user `serve.json#headers` rule that sets
+    // `Content-Range` MUST win over the default `bytes */<total>` —
+    // mirrors reference's ordering at
+    // `serve-handler/src/index.js:730-732, 746, 767`:
+    // `response.setHeader('Content-Range', 'bytes */N')` runs BEFORE
+    // `getHeaders` returns the merged user-rule headers, and the
+    // subsequent `response.writeHead(statusCode, headers)` passes the
+    // merged map which overrides prior `setHeader` values for the
+    // same name. In irserve, `apply_custom_headers` has already merged
+    // the user headers into `merged` by the time we run; we therefore
+    // use `entry().or_insert(...)` so a present user value wins and
+    // the default `bytes */<total>` fills in only when absent.
+    parts
+        .headers
+        .entry(CONTENT_RANGE)
+        .or_insert_with(|| {
+            HeaderValue::from_str(&format!("bytes */{total}"))
+                .expect("content-range value is ascii")
+        });
     // 416 body is the full representation — mirrors reference at
     // `serve-handler/src/index.js:730-741` (statusCode = 416 inline,
     // then falls through to `stream.pipe(response)` with empty
@@ -302,6 +341,41 @@ mod tests {
         assert_eq!(parse_range("bytes=0-", 0), RangeOutcome::Unsatisfiable);
     }
 
+    #[test]
+    fn parse_trailing_garbage_in_end_uses_leading_digits() {
+        // Codex round 1 P2: reference's `range-parser` uses JS
+        // `parseInt` which accepts `"3x"` as 3. Mirror.
+        assert_eq!(
+            parse_range("bytes=0-3x", TOTAL),
+            RangeOutcome::InRange { start: 0, end: 3 },
+        );
+    }
+
+    #[test]
+    fn parse_trailing_garbage_in_start_uses_leading_digits() {
+        // Same lenient parse for the start position.
+        assert_eq!(
+            parse_range("bytes=8abc-", TOTAL),
+            RangeOutcome::InRange { start: 8, end: 10 },
+        );
+    }
+
+    #[test]
+    fn parse_trailing_garbage_in_suffix_uses_leading_digits() {
+        // Suffix form also lenient. `bytes=-3x` → last 3 bytes.
+        assert_eq!(
+            parse_range("bytes=-3x", TOTAL),
+            RangeOutcome::InRange { start: 8, end: 10 },
+        );
+    }
+
+    #[test]
+    fn parse_leading_garbage_is_unsatisfiable() {
+        // No leading digits → parseInt returns NaN → Unsatisfiable.
+        // (`abc-3` and `bytes=abc-3` both fall through the start arm.)
+        assert_eq!(parse_range("bytes=abc-3", TOTAL), RangeOutcome::Unsatisfiable);
+    }
+
     // ---- apply ----
 
     #[tokio::test]
@@ -389,6 +463,38 @@ mod tests {
             TOTAL,
         );
         assert_eq!(resp.headers().get(CONTENT_LENGTH).unwrap(), "4");
+    }
+
+    #[tokio::test]
+    async fn apply_416_user_content_range_rule_wins() {
+        // Codex round 1 P2: reference sets `Content-Range: bytes */N`
+        // via `setHeader` BEFORE `getHeaders` returns; the subsequent
+        // `writeHead(statusCode, headers)` overrides prior setHeader
+        // values for keys present in the merged map. A user
+        // `serve.json#headers` rule for `Content-Range` therefore
+        // wins on 416. irserve mirrors via `entry().or_insert(...)`.
+        let resp = apply(
+            merged_200_for(&[("content-range", "custom-value")]),
+            &HeaderValue::from_static("bytes=999-1000"),
+            FIXTURE,
+            TOTAL,
+        );
+        assert_eq!(resp.status(), StatusCode::RANGE_NOT_SATISFIABLE);
+        assert_eq!(resp.headers().get(CONTENT_RANGE).unwrap(), "custom-value");
+    }
+
+    #[tokio::test]
+    async fn apply_416_default_content_range_when_no_user_rule() {
+        // Regression: without a user rule, the default `bytes */<total>`
+        // is still inserted via `or_insert_with`.
+        let resp = apply(
+            merged_200_for(&[]),
+            &HeaderValue::from_static("bytes=999-1000"),
+            FIXTURE,
+            TOTAL,
+        );
+        assert_eq!(resp.status(), StatusCode::RANGE_NOT_SATISFIABLE);
+        assert_eq!(resp.headers().get(CONTENT_RANGE).unwrap(), "bytes */11");
     }
 
     #[tokio::test]

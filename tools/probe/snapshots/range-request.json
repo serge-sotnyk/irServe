@@ -4,7 +4,22 @@
   "description": "Range / 206 / 416 behavior. Confirms that serve honors `Range: bytes=...` for static files (206 with Content-Range and partial body) and rejects an out-of-range request with 416. Backs SRV-CACHE-004. Stage 7c extended with suffix / single-byte / clip-to-end / 404-interaction / INM-interaction anchors to close anti-hallucination rule #8 zone proactively.",
   "fixture": {
     "files": {
-      "blob.txt": "abcdefghij\n"
+      "blob.txt": "abcdefghij\n",
+      "empty.txt": "",
+      "tagged.txt": "abcdefghij\n"
+    },
+    "serveJson": {
+      "headers": [
+        {
+          "source": "tagged.txt",
+          "headers": [
+            {
+              "key": "Content-Range",
+              "value": "custom-value"
+            }
+          ]
+        }
+      ]
     }
   },
   "serveArgs": [],
@@ -226,6 +241,91 @@
             }
           },
           "range": "bytes=0-3"
+        }
+      },
+      "response": {
+        "body": {
+          "kind": "text",
+          "length": 4,
+          "sha256": "88d4266fd4e6338d13b845fcf289579d209c897823b9217da3e161936f031589",
+          "preview": "abcd"
+        },
+        "headers": {
+          "accept-ranges": "bytes",
+          "content-length": "4",
+          "content-range": "bytes 0-3/11",
+          "content-type": "text/plain; charset=utf-8",
+          "etag": "\"df13ea7b971f3dad54f0deb102c5bc9fa0d052ae\"",
+          "vary": "Accept-Encoding"
+        },
+        "status": 206,
+        "statusText": "Partial Content"
+      }
+    },
+    {
+      "name": "range_on_empty_file",
+      "request": {
+        "method": "GET",
+        "mode": "fetch",
+        "path": "/empty.txt",
+        "headers": {
+          "range": "bytes=0-3"
+        }
+      },
+      "response": {
+        "body": {
+          "kind": "empty",
+          "length": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        "headers": {
+          "accept-ranges": "bytes",
+          "content-length": "0",
+          "content-type": "text/plain; charset=utf-8",
+          "etag": "\"539db148eacf50b886be26d9b46139bcbe2b6268\"",
+          "vary": "Accept-Encoding"
+        },
+        "status": 200,
+        "statusText": "OK"
+      }
+    },
+    {
+      "name": "range_416_user_content_range_override",
+      "request": {
+        "method": "GET",
+        "mode": "fetch",
+        "path": "/tagged.txt",
+        "headers": {
+          "range": "bytes=999-1000"
+        }
+      },
+      "response": {
+        "body": {
+          "kind": "text",
+          "length": 11,
+          "sha256": "c4f6fa010fb86ed9f99900dbf654759acd894604192042d5944f7c935ba41f2c",
+          "preview": "abcdefghij\n"
+        },
+        "headers": {
+          "accept-ranges": "bytes",
+          "content-length": "11",
+          "content-range": "custom-value",
+          "content-type": "text/plain; charset=utf-8",
+          "etag": "\"df13ea7b971f3dad54f0deb102c5bc9fa0d052ae\"",
+          "vary": "Accept-Encoding"
+        },
+        "status": 416,
+        "statusText": "Range Not Satisfiable"
+      }
+    },
+    {
+      "name": "range_trailing_garbage_in_end",
+      "request": {
+        "method": "GET",
+        "mode": "fetch",
+        "path": "/blob.txt",
+        "headers": {
+          "range": "bytes=0-3x"
         }
       },
       "response": {
