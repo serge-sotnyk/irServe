@@ -9,20 +9,6 @@
   "snapshot": {
     "volatileHeaders": ["last-modified"]
   },
-  "runner": {
-    "l0": {
-      "clean": [
-        "in_range_first_4",
-        "in_range_tail",
-        "out_of_range",
-        "suffix_last_3",
-        "single_byte",
-        "clip_to_end",
-        "range_on_missing_file",
-        "range_with_inm_match"
-      ]
-    }
-  },
   "requests": [
     { "name": "in_range_first_4", "method": "GET", "path": "/blob.txt", "headers": { "range": "bytes=0-3" } },
     { "name": "in_range_tail", "method": "GET", "path": "/blob.txt", "headers": { "range": "bytes=8-" } },

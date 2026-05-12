@@ -12,6 +12,7 @@ mod listing;
 mod mime;
 mod normalize;
 mod path_pattern;
+mod range;
 mod redirects;
 mod resolve;
 mod rewrites;
