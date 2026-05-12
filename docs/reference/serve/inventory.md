@@ -1455,14 +1455,18 @@ Reference source:
 - README: absent.
 - serve-handler source: `src/index.js:717-734` and `src/index.js:749-752` (range plumbing).
 - Existing test: `range request`, `range request without size`, `range request not satisfiable` in `test/integration.test.js`.
-- Probe: not run.
-- Oracle test: ORC-044, ORC-045, ORC-046 (snapshots in tools/probe/snapshots/).
+- Probe: `tools/probe/cases/range-request.json` — 8 anchors covering in-range / open-end / out-of-range / suffix / single-byte / partial-overlap-clip / 404-interaction / INM-pre-empts-304. Extended in Stage 7c with the 5 edge-case anchors (`suffix_last_3`, `single_byte`, `clip_to_end`, `range_on_missing_file`, `range_with_inm_match`).
+- Oracle test: ORC-044, ORC-045, ORC-046, ORC-173, ORC-174, ORC-175, ORC-176, ORC-177 (snapshots in tools/probe/snapshots/). All dual-target after Stage 7c slice 2.
 
 Requirement (draft):
-A request with a valid `Range: bytes=...` header for a file of known size returns status 206 with `Content-Range: bytes <start>-<end>/<total>` and `Content-Length: <end-start+1>`. An out-of-range value returns 416 with `Content-Range: bytes */<total>`.
+A request with a valid `Range: bytes=...` header for a file of known size returns status 206 with `Content-Range: bytes <start>-<end>/<total>` and `Content-Length: <end-start+1>`. An out-of-range value returns 416 with `Content-Range: bytes */<total>` and the full file as the response body (mirrors reference fall-through; RFC 7233 §4.4).
 
 Compatibility notes:
-- Multiple ranges are not supported per source ("TODO ? multiple ranges").
+- Multiple ranges are not supported per source ("TODO ? multiple ranges"); irserve mirrors via `rest.split(',').next()` in `parse_range`.
+- `If-Range` is read off the request and ignored (reference TODO).
+- `Accept-Ranges: bytes` is NOT emitted by irserve (in `L0_EXTRA_VOLATILE_HEADERS` mask); not contractual at L0.
+- Partial-overlap (`bytes=8-999` on 11-byte file) clips to `total-1` → 206, NOT 416 (`range-parser` behavior empirically pinned by `range-request.json#clip_to_end`).
+- Range pre-empts BOTH 304 short-circuits (ETag/INM and Last-Modified/IMS) — generalises reference's L760 guard across the irserve-adapted Stage 7b D-018 IMS branch.
 
 Open questions:
 - None.
