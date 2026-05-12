@@ -21,6 +21,7 @@ use crate::listing::{
 };
 use crate::mime::mime_for;
 use crate::normalize::collapse_slashes;
+use crate::range;
 use crate::redirects::{compute_configured_redirects, RedirectRuleCompiled};
 use crate::resolve::{resolve, ResolveOutcome};
 use crate::rewrites::{compute_configured_rewrites, RewriteRuleCompiled};
@@ -764,11 +765,23 @@ fn build_file_or_304(
     header_rules: &[HeaderRuleCompiled],
     request_path: &str,
 ) -> Response<Body> {
+    // SRV-CACHE-004 (Stage 7c): clone the file bytes ONLY when a
+    // Range header is present, so the no-Range path keeps its
+    // single-allocation shape. The clone is needed because
+    // `file_response` takes `bytes: Vec<u8>` by value (moves it
+    // into the body); `range::apply` needs the original bytes
+    // back to slice for 206 or to retransmit for 416.
+    let total = bytes.len() as u64;
+    let range_value = req_headers.get(RANGE).cloned();
+    let bytes_for_range = range_value.as_ref().map(|_| bytes.clone());
+
     let etag = etag_value(serve_config, path, &bytes);
     let last_modified = last_modified_value(serve_config, meta);
     let response_200 = file_response(path, bytes, etag, last_modified);
     let merged = apply_custom_headers(response_200, request_path, header_rules);
-    if req_headers.get(RANGE).is_none() {
+
+    let Some(range_value) = range_value else {
+        // No Range — try 304 short-circuits, else fall through to 200.
         // SRV-CACHE-001: ETag/INM 304 path (Stage 7a).
         if let (Some(inm), Some(effective_etag)) =
             (req_headers.get(IF_NONE_MATCH), merged.headers().get(ETAG))
@@ -807,8 +820,16 @@ fn build_file_or_304(
                 }
             }
         }
-    }
-    merged
+        return merged;
+    };
+
+    // SRV-CACHE-004: Range present → emit 206 (in-range) or 416
+    // (out-of-range, full body retained per the reference). Range
+    // pre-empts the 304 short-circuit per `serve-handler/src/index.js:760`
+    // (`request.headers.range == null && ...`); the let-else above
+    // ensures we never reach the 304 branches under Range.
+    let bytes_for_range = bytes_for_range.expect("bytes cloned when range present");
+    range::apply(merged, &range_value, &bytes_for_range, total)
 }
 
 fn not_modified_response() -> Response<Body> {
@@ -921,10 +942,12 @@ mod tests {
 
     #[test]
     fn range_present_skips_304_even_on_match() {
-        // SRV-CACHE-001 + 7c precursor: reference's
+        // SRV-CACHE-001 + SRV-CACHE-004: reference's
         // `serve-handler/src/index.js:760` guards the 304 check with
-        // `request.headers.range == null`. We do not parse Range yet
-        // (Stage 7c lands 206/416), but the guard goes in now.
+        // `request.headers.range == null`. Stage 7c now emits 206
+        // when the Range is satisfiable — the test pins that the 304
+        // short-circuit is pre-empted and a partial body comes back
+        // instead.
         let cfg = cfg_etag(None);
         let mut h = HeaderMap::new();
         h.insert(IF_NONE_MATCH, HeaderValue::from_static(ASSET_CSS_ETAG));
@@ -938,7 +961,13 @@ mod tests {
             &[],
             "/asset.css",
         );
-        assert_eq!(resp.status(), StatusCode::OK);
+        assert_eq!(resp.status(), StatusCode::PARTIAL_CONTENT);
+        assert_eq!(
+            resp.headers()
+                .get(axum::http::header::CONTENT_RANGE)
+                .unwrap(),
+            "bytes 0-3/16",
+        );
     }
 
     #[test]
@@ -1146,10 +1175,11 @@ mod tests {
         assert_eq!(resp.status(), StatusCode::OK);
     }
 
-    /// Stage 7c precursor: a `Range` request suppresses ALL 304
-    /// short-circuits, ETag/INM and Last-Modified/IMS alike. Mirrors
-    /// `serve-handler/src/index.js:760` (`request.headers.range ==
-    /// null`). Range parsing itself lands in 7c.
+    /// SRV-CACHE-004 + SRV-CACHE-003: a `Range` request suppresses
+    /// ALL 304 short-circuits, ETag/INM and Last-Modified/IMS alike.
+    /// Mirrors `serve-handler/src/index.js:760` (`request.headers.range
+    /// == null`). Stage 7c lands the actual 206 emission — this test
+    /// now pins partial-content output, not a fall-through 200.
     #[test]
     fn range_present_skips_ims_304_even_on_match() {
         let cfg = cfg_etag(Some(false));
@@ -1170,7 +1200,7 @@ mod tests {
             &[],
             "/asset.css",
         );
-        assert_eq!(resp.status(), StatusCode::OK);
+        assert_eq!(resp.status(), StatusCode::PARTIAL_CONTENT);
     }
 
     /// A user `serve.json#headers` rule with `Last-Modified: null`
@@ -1518,5 +1548,224 @@ mod tests {
     fn encode_control_chars() {
         // Newline (0x0A) is a control character.
         assert_eq!(encode_uri_target("/a\nb"), "/a%0Ab");
+    }
+
+    // ---- SRV-CACHE-004 (Stage 7c): Range emission through build_file_or_304 ----
+    //
+    // The Range parser + apply helper is unit-tested in `range::tests`; these
+    // integration tests exercise the dispatch-level seam: the bytes-cloning
+    // guard, the let-else that pre-empts the 304 short-circuits when Range
+    // is present, and the interaction with user `headers` rules and the 7b
+    // IMS branch under `etag: false`.
+
+    fn range_header(value: &'static str) -> HeaderMap {
+        let mut h = HeaderMap::new();
+        h.insert(RANGE, HeaderValue::from_static(value));
+        h
+    }
+
+    #[test]
+    fn range_in_range_returns_206() {
+        let resp = build_file_or_304(
+            &cfg_etag(None),
+            &range_header("bytes=0-3"),
+            &asset_path(),
+            ASSET_CSS_BYTES.to_vec(),
+            None,
+            &[],
+            "/asset.css",
+        );
+        assert_eq!(resp.status(), StatusCode::PARTIAL_CONTENT);
+        assert_eq!(
+            resp.headers()
+                .get(axum::http::header::CONTENT_RANGE)
+                .unwrap(),
+            "bytes 0-3/16",
+        );
+        assert_eq!(
+            resp.headers()
+                .get(axum::http::header::CONTENT_LENGTH)
+                .unwrap(),
+            "4",
+        );
+    }
+
+    #[test]
+    fn range_tail_returns_206() {
+        let resp = build_file_or_304(
+            &cfg_etag(None),
+            &range_header("bytes=8-"),
+            &asset_path(),
+            ASSET_CSS_BYTES.to_vec(),
+            None,
+            &[],
+            "/asset.css",
+        );
+        assert_eq!(resp.status(), StatusCode::PARTIAL_CONTENT);
+        assert_eq!(
+            resp.headers()
+                .get(axum::http::header::CONTENT_RANGE)
+                .unwrap(),
+            "bytes 8-15/16",
+        );
+    }
+
+    #[test]
+    fn range_suffix_returns_206() {
+        let resp = build_file_or_304(
+            &cfg_etag(None),
+            &range_header("bytes=-4"),
+            &asset_path(),
+            ASSET_CSS_BYTES.to_vec(),
+            None,
+            &[],
+            "/asset.css",
+        );
+        assert_eq!(resp.status(), StatusCode::PARTIAL_CONTENT);
+        assert_eq!(
+            resp.headers()
+                .get(axum::http::header::CONTENT_RANGE)
+                .unwrap(),
+            "bytes 12-15/16",
+        );
+    }
+
+    #[test]
+    fn range_out_of_range_returns_416() {
+        let resp = build_file_or_304(
+            &cfg_etag(None),
+            &range_header("bytes=999-1000"),
+            &asset_path(),
+            ASSET_CSS_BYTES.to_vec(),
+            None,
+            &[],
+            "/asset.css",
+        );
+        assert_eq!(resp.status(), StatusCode::RANGE_NOT_SATISFIABLE);
+        assert_eq!(
+            resp.headers()
+                .get(axum::http::header::CONTENT_RANGE)
+                .unwrap(),
+            "bytes */16",
+        );
+    }
+
+    #[test]
+    fn range_with_ims_match_under_no_etag_returns_206_not_304() {
+        // 7b interaction: under `--no-etag`, IMS matching normally
+        // 304s. Range pre-empts that branch (mirrors reference's
+        // L760 guard which we generalised to BOTH 304 paths via the
+        // let-else in build_file_or_304).
+        let cfg = cfg_etag(Some(false));
+        let tmp = tempfile::NamedTempFile::new().expect("tempfile");
+        let meta = tmp.as_file().metadata().expect("metadata");
+
+        // Capture the Last-Modified first.
+        let first = build_file_or_304(
+            &cfg,
+            &HeaderMap::new(),
+            &asset_path(),
+            ASSET_CSS_BYTES.to_vec(),
+            Some(&meta),
+            &[],
+            "/asset.css",
+        );
+        let captured_lm = first
+            .headers()
+            .get(LAST_MODIFIED)
+            .expect("Last-Modified")
+            .clone();
+
+        // Replay with IMS + Range.
+        let mut h = HeaderMap::new();
+        h.insert(IF_MODIFIED_SINCE, captured_lm);
+        h.insert(RANGE, HeaderValue::from_static("bytes=0-3"));
+        let resp = build_file_or_304(
+            &cfg,
+            &h,
+            &asset_path(),
+            ASSET_CSS_BYTES.to_vec(),
+            Some(&meta),
+            &[],
+            "/asset.css",
+        );
+        // Range pre-empts the IMS 304 — partial body comes back.
+        assert_eq!(resp.status(), StatusCode::PARTIAL_CONTENT);
+    }
+
+    #[test]
+    fn range_preserves_etag_on_206() {
+        // ETag rides on 206 — Range parsing runs AFTER
+        // `apply_custom_headers`, so the default ETag set by
+        // `file_response` survives.
+        let resp = build_file_or_304(
+            &cfg_etag(None),
+            &range_header("bytes=0-3"),
+            &asset_path(),
+            ASSET_CSS_BYTES.to_vec(),
+            None,
+            &[],
+            "/asset.css",
+        );
+        assert_eq!(resp.status(), StatusCode::PARTIAL_CONTENT);
+        assert_eq!(resp.headers().get(ETAG).unwrap(), ASSET_CSS_ETAG);
+    }
+
+    #[test]
+    fn range_preserves_user_custom_headers_on_206() {
+        // A user `headers` rule setting an `ETag` override on `.css`
+        // assets must survive the 206 transformation — Range parsing
+        // is downstream of `apply_custom_headers`.
+        let rules = compile_etag_override("**/*.css", Some("\"custom\""));
+        let resp = build_file_or_304(
+            &cfg_etag(None),
+            &range_header("bytes=0-3"),
+            &asset_path(),
+            ASSET_CSS_BYTES.to_vec(),
+            None,
+            &rules,
+            "/asset.css",
+        );
+        assert_eq!(resp.status(), StatusCode::PARTIAL_CONTENT);
+        assert_eq!(resp.headers().get(ETAG).unwrap(), "\"custom\"");
+    }
+
+    #[test]
+    fn range_416_preserves_etag_and_user_headers() {
+        // 416 also rides on the merged response: the full body comes
+        // back, but ETag and user-rule headers survive.
+        let rules = compile_etag_override("**/*.css", Some("\"custom\""));
+        let resp = build_file_or_304(
+            &cfg_etag(None),
+            &range_header("bytes=999-1000"),
+            &asset_path(),
+            ASSET_CSS_BYTES.to_vec(),
+            None,
+            &rules,
+            "/asset.css",
+        );
+        assert_eq!(resp.status(), StatusCode::RANGE_NOT_SATISFIABLE);
+        assert_eq!(resp.headers().get(ETAG).unwrap(), "\"custom\"");
+    }
+
+    #[test]
+    fn range_user_last_modified_delete_under_no_etag_still_emits_206() {
+        // Belt-and-suspenders: even when a user rule deletes the
+        // default `Last-Modified` (so the 7b IMS branch would never
+        // 304 anyway), a Range request still emits 206 — the
+        // let-else in build_file_or_304 doesn't depend on validator
+        // presence.
+        let rules = compile_last_modified_override("**/*.css", None);
+        let resp = build_file_or_304(
+            &cfg_etag(Some(false)),
+            &range_header("bytes=0-3"),
+            &asset_path(),
+            ASSET_CSS_BYTES.to_vec(),
+            None,
+            &rules,
+            "/asset.css",
+        );
+        assert_eq!(resp.status(), StatusCode::PARTIAL_CONTENT);
+        assert!(resp.headers().get(LAST_MODIFIED).is_none());
     }
 }
