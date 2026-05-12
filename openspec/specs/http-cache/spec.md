@@ -324,10 +324,12 @@ satisfiable against the file's representation size) or
 `416 Range Not Satisfiable` (when the value is malformed,
 specifies a non-`bytes` unit, or starts strictly past the end
 of the representation). The mutation runs AFTER user
-`serve.json#headers` rules have been merged into the response —
-range-emitted headers are last-write-wins over user rules,
-mirroring reference's post-`getHeaders` injection at
-`third_party/serve-handler/src/index.js:749-752`.
+`serve.json#headers` rules have been merged into the response;
+the per-path ordering rules for the range-emitted headers
+(`Content-Range`, `Content-Length`) are documented in the 206
+and 416 response-shape paragraphs below — the two paths take
+opposite stances on user-rule overrides for those keys, mirroring
+the reference's asymmetric setHeader / writeHead ordering.
 
 **206 response shape.** Status `206 Partial Content`. Body is
 `bytes[start..=end]` (inclusive end). Headers:
