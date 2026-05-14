@@ -81,6 +81,7 @@
         "options_big_html_gzip",
         "no_transform_big_html_gzip",
         "range_big_html_gzip",
+        "range_big_html_above_threshold",
         "user_ce_identity_above_threshold",
         "user_ce_br_above_threshold"
       ],
@@ -95,6 +96,7 @@
         "vector_svg_gzip_deflate_br",
         "wasm_gzip_deflate_br",
         "options_big_html_gzip",
+        "range_big_html_above_threshold",
         "user_ce_identity_above_threshold"
       ]
     }
@@ -258,6 +260,15 @@
       "headers": {
         "Accept-Encoding": "gzip, deflate, br",
         "Range": "bytes=0-15"
+      }
+    },
+    {
+      "name": "range_big_html_above_threshold",
+      "mode": "raw",
+      "path": "/big.html",
+      "headers": {
+        "Accept-Encoding": "gzip, deflate, br",
+        "Range": "bytes=0-1199"
       }
     },
     {

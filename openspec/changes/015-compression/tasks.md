@@ -406,6 +406,64 @@ is the meta slice (this change package + main agent).
 - Commit:
   `docs(stage-7e): address Codex review round 3 (P2 + P3 fixes)`.
 
+## Codex review round 4 (P2 fix)
+
+- [x] **P2 — Above-threshold 206 Partial Content
+  ranges were not compressed.** Initial slice 2 wiring
+  (and the round 1 P2 / round 3 P2 refinements) all
+  carried an explicit `if status == PARTIAL_CONTENT`
+  short-circuit in `maybe_apply` — a deliberate
+  safety measure based on the slice-0 probe of a
+  16-byte range (which naturally fails the threshold
+  gate anyway). Codex round 4 P2 surfaced empirically
+  that the reference has NO status-based 206 skip:
+  `serve-handler/src/index.js:749` sets
+  `Content-Length` to the range size before
+  `writeHead`, and `compression/index.js:177`
+  evaluates `chunkLength < threshold` uniformly
+  across statuses. A 1200-byte sliced body crosses
+  threshold and gets encoded with `Content-Range`
+  retained verbatim.
+  - Fix: removed the status-based 206 skip from
+    `crates/irserve-core/src/compression.rs`. 206
+    responses now follow the same gate ordering as
+    200s; small ranges naturally fail the threshold
+    gate; large ranges encode normally.
+  - Renamed the existing unit test
+    `maybe_apply_partial_content_keeps_vary_skips_encoding`
+    to
+    `maybe_apply_partial_content_below_threshold_keeps_vary_skips_encoding`
+    (a 16-byte body that fails the threshold gate).
+    Added
+    `maybe_apply_partial_content_above_threshold_compresses`
+    (a 1500-byte body that passes the gate and gets
+    encoded; asserts `Content-Encoding: br` is set
+    and `Content-Range` is retained verbatim).
+  - New raw dual-target probe anchor
+    `range_big_html_above_threshold` (Range:
+    `bytes=0-1199`, 1200-byte slice) in
+    `compression-raw.json`. Added ORC-213.
+    `bodyMayDiffer` per D-020 #4. Reference snapshot
+    re-recorded — the new anchor pins `206 +
+    Content-Range: bytes 0-1199/1494 + Vary +
+    Content-Encoding: br + Transfer-Encoding: chunked`
+    on reference (vs `206 + Content-Encoding: br +
+    Content-Length: <compressed>` on irserve — D-020
+    #1 framing already covers this).
+  - Updated ORC-206's must-match text to clarify that
+    the no-`Content-Encoding` outcome is due to the
+    threshold gate, not a status-based skip. Added a
+    new Scenario in `openspec/specs/http-compression/spec.md`
+    for the above-threshold case. Bumped anchor counts
+    22 → 23 in inventory.md.
+- [x] Verify: `cargo test --workspace --lib` — 362
+  passed (+1 vs round 3); `cargo test --test oracle`
+  — 81 passed / 2 skipped / 0 failed (the new anchor
+  lands inside `compression-raw`); `npx @fission-ai/openspec
+  validate --all --strict` — 26 passed / 0 failed.
+- Commit:
+  `docs(stage-7e): address Codex review round 4 (P2 fix)`.
+
 ## Validation
 
 Latest totals at end of Stage 7e (refreshed after every

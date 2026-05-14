@@ -68,10 +68,13 @@ Async; consumes the response body via
    `Vary: <field>` becomes
    `Vary: <field>, Accept-Encoding`; `Vary: *` is
    left alone; case-insensitive dedup).
-5. `status == 206 Partial Content` — return with
-   `Vary` set, no encode (Range pre-emption — the
-   sliced body's `Content-Range` would be invalidated
-   by re-compression).
+5. (No 206 status-based skip — Codex round 4 P2.) A
+   206 falls through the same gate ordering as a 200;
+   `Content-Length` from `serve-handler` is the sliced
+   range size and the threshold check at step 8
+   evaluates it uniformly across statuses (mirrors
+   `compression/index.js:177` — there is no
+   status-based 206 skip in reference).
 6. `method == HEAD` — return with `Vary` set; the
    HTTP layer strips the body on the wire.
 7. `existing_encoding != None && existing_encoding != Some("identity")` (Codex round 2 P2, refined round 3 P2) —
@@ -287,26 +290,29 @@ covered by ORC-209.
 - AND the response carries `Vary: Accept-Encoding`
 - AND the response does NOT carry `Content-Encoding`
 
-### Requirement: Range requests pre-empt the compression encode step but keep the negotiation hook
+### Requirement: 206 Partial Content responses follow the same threshold gate as 200 responses
 
 A 206 Partial Content response (Range-bearing) SHALL
-NOT be re-encoded by the compression pass: the body
-is already a sliced range whose `Content-Range: bytes
-<s>-<e>/<total>` header addresses the ORIGINAL bytes,
-so compressing the slice would invalidate
-`Content-Range`. The response SHALL still carry
-`Vary: Accept-Encoding` when the content-type is
-compressible (and `Cache-Control: no-transform` is
-not set), because the negotiation hook engaged before
-the Range pre-emption fires.
+NOT receive special status-based treatment from the
+compression pass — it falls through the same gate
+ordering as a 200 (`Vary` append, then the threshold
+check on the sliced body bytes). `Content-Range` is
+retained verbatim regardless of whether the encode
+step fires. Mirrors the reference's `compression@1.8.1`
+middleware: there is NO status-based 206 skip;
+`compression/index.js:177` evaluates `chunkLength <
+threshold` uniformly across statuses.
 
-Concretely, `maybe_apply`'s gate order sets `Vary` in
-step 4 and then short-circuits 206 responses in step
-5 — Vary is visible on 206 anchors; `Content-Encoding`
-is not. Mirrors the reference's
-`compression@1.8.1` middleware: `vary()` runs at
-`compression/index.js:174` BEFORE any threshold /
-status filtering.
+Concrete sub-cases pinned by `compression-raw.json`:
+- **Range below threshold** (e.g. `bytes=0-15` → 16
+  bytes < 1024) — fails the threshold gate; `Vary` set,
+  no `Content-Encoding`, raw body. ORC-206.
+- **Range at or above threshold** (e.g. `bytes=0-1199`
+  → 1200 bytes ≥ 1024) — passes the threshold gate;
+  encode step fires; `Vary` + `Content-Encoding: br` +
+  encoded body. Framing per D-020 #1 (reference
+  chunked, irserve `Content-Length`); body bytes per
+  D-020 #4. ORC-213.
 
 Evidence: SRV-CLI-012, SRV-CACHE-004 (Stage 7c);
 oracle: ORC-206

@@ -104,14 +104,22 @@ threshold. The gate order (mirroring
    deduplication. Mirrors the reference's `vary()`
    utility at `third_party/serve/node_modules/vary/index.js`
    invoked from `compression/index.js:174`.
-5. `status == 206 Partial Content` (Range) — return
-   with `Vary` set. The 206 body is already a sliced
-   range whose `Content-Range` addresses the ORIGINAL
-   bytes; compressing the slice would invalidate the
-   range. The negotiation hook is still visible
-   (`Vary` was set in step 4) — mirrors the reference's
-   `range_big_html_gzip` anchor in
-   `compression-raw.json`.
+5. (No 206 status-based skip — Codex round 4 P2.) A
+   206 Partial Content response falls through to the
+   threshold check below. `serve-handler` sets
+   `Content-Length` to the range size before
+   `writeHead`; the reference's `compression`
+   middleware then evaluates `chunkLength <
+   threshold` at `compression/index.js:177` exactly
+   the same way as for a 200 response. A small range
+   (e.g. `bytes=0-15` → 16 bytes) naturally skips
+   encoding via the threshold gate; a large range
+   (e.g. `bytes=0-1199` → 1200 bytes) crosses
+   threshold and gets encoded with `Content-Range`
+   retained verbatim — addressing the ORIGINAL bytes
+   even though the wire body is the
+   compressed-encoded form (a wire-level RFC 9110
+   §15.3.7 quirk both targets share).
 6. `method == HEAD` — return with `Vary` set; the
    HTTP layer strips the body on the wire.
 7. `existing_encoding = Content-Encoding header; if Some(value) and value != "identity"` (Codex round 2 P2, refined round 3 P2) — return with `Vary` set, no
@@ -329,38 +337,53 @@ ORC-197 (`#tiny_html_gzip`, below-threshold), ORC-207
 - AND the response carries `Vary: Accept-Encoding`
 - AND the response does NOT carry `Content-Encoding`
 
-### Requirement: Range requests pre-empt the compression encode step but keep the negotiation hook
+### Requirement: 206 Partial Content responses follow the same threshold gate as 200 responses
 
 A 206 Partial Content response (Range-bearing) SHALL
-NOT be re-encoded by the compression pass: the body is
-already a sliced range whose `Content-Range: bytes
-<s>-<e>/<total>` header addresses the ORIGINAL bytes,
-so compressing the slice would invalidate
-`Content-Range`. The response SHALL still carry
-`Vary: Accept-Encoding` when the content-type is
-compressible (and `Cache-Control: no-transform` is
-not set), because the negotiation hook engaged before
-the Range pre-emption fires.
+NOT receive special status-based treatment from the
+compression pass — it falls through the same gate
+ordering as a 200 (`Vary` append, then the threshold
+check on the sliced body bytes). The `Content-Range:
+bytes <s>-<e>/<total>` header is retained verbatim on
+the response regardless of whether the encode step
+fires; both targets address the ORIGINAL bytes via
+`Content-Range` even though the wire body, when
+encoded, is the compressed-encoded form (a wire-level
+RFC 9110 §15.3.7 quirk both targets share).
 
-Concretely, `maybe_apply`'s gate order (step 5 in the
-list under "HTTP compression engages on
-compressible-MIME responses above a 1024-byte
-body-size threshold") sets `Vary` in step 4 and then
-short-circuits 206 responses in step 5 — Vary is
-visible on 206 anchors; `Content-Encoding` is not.
-Mirrors the reference's `compression@1.8.1`
-middleware: `vary()` runs at
-`compression/index.js:174` BEFORE any content-length
-/ status filtering; the 206 body's effective
-Content-Length (= range size) usually drops below the
-1024-byte threshold for small ranges anyway, but
-irserve's explicit `StatusCode::PARTIAL_CONTENT`
-short-circuit guarantees no encode regardless of
-range size.
+Concrete sub-cases pinned by `compression-raw.json`:
+- **Range below threshold** (e.g. `bytes=0-15` → 16
+  bytes < 1024) — the sliced body fails the threshold
+  gate (step 8) and the response is returned with
+  `Vary: Accept-Encoding` set but no `Content-Encoding`.
+  Anchor: `#range_big_html_gzip`. ORC-206.
+- **Range at or above threshold** (e.g. `bytes=0-1199`
+  → 1200 bytes ≥ 1024) — the sliced body passes the
+  threshold gate; the encode step fires; the response
+  carries `Vary: Accept-Encoding` + `Content-Encoding:
+  br` + the negotiated encoded body. Anchor:
+  `#range_big_html_above_threshold`. ORC-213. Wire-level
+  framing diverges per D-020 #1: reference removes
+  `Content-Length` and emits `Transfer-Encoding:
+  chunked`; irserve emits `Content-Length: <compressed
+  size>`. Body bytes diverge per D-020 #4.
+
+`Vary: Accept-Encoding` SHALL be set on both sub-cases
+when the content-type is compressible (and
+`Cache-Control: no-transform` is not set). Mirrors the
+reference's `compression@1.8.1` middleware: `vary()`
+runs at `compression/index.js:174` BEFORE any
+content-length / status filtering, and there is NO
+status-based 206 skip — the threshold check at
+`compression/index.js:177` does the work uniformly
+across statuses.
 
 Evidence: SRV-CLI-012, SRV-CACHE-004 (Stage 7c);
 oracle: ORC-206
-(`compression-raw.json#range_big_html_gzip`).
+(`compression-raw.json#range_big_html_gzip`,
+below threshold), ORC-213
+(`compression-raw.json#range_big_html_above_threshold`,
+above threshold).
 
 #### Scenario: Range bypasses compression
 
@@ -371,9 +394,32 @@ oracle: ORC-206
   `Accept-Encoding: gzip, deflate, br`
 - THEN status is 206
 - AND the response carries `Content-Range: bytes 0-15/<total>`
+- AND the response carries `Vary: Accept-Encoding`
 - AND the response does NOT carry `Content-Encoding`
+  (the 16-byte sliced body fails the 1024-byte
+  threshold gate)
 - AND the response body is the first 16 bytes of the
   raw file
+
+#### Scenario: Above-threshold range is compressed
+
+- GIVEN `serve` (defaults) over a directory containing
+  `big.html` (> 1024 bytes)
+- WHEN `GET /big.html` with
+  `Range: bytes=0-1199` and
+  `Accept-Encoding: gzip, deflate, br`
+- THEN status is 206
+- AND the response carries `Content-Range: bytes 0-1199/<total>`
+  (addressing the ORIGINAL bytes verbatim)
+- AND the response carries `Vary: Accept-Encoding`
+- AND the response carries `Content-Encoding: br` (the
+  sliced 1200-byte body passes the threshold gate and
+  the encode step fires)
+- AND the response body is the brotli-encoded form of
+  the sliced bytes (body bytes not contractual across
+  targets — `bodyMayDiffer` per D-020 #4; framing per
+  D-020 #1 — reference uses chunked transfer-encoding,
+  irserve uses `Content-Length: <compressed size>`)
 
 ## Compatibility notes
 

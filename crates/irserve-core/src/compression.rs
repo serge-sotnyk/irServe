@@ -44,7 +44,7 @@ use axum::body::Body;
 use axum::http::header::{
     HeaderMap, HeaderValue, CACHE_CONTROL, CONTENT_ENCODING, CONTENT_LENGTH, CONTENT_TYPE, VARY,
 };
-use axum::http::{Method, Response, StatusCode};
+use axum::http::{Method, Response};
 
 use crate::config::ServeConfig;
 
@@ -292,16 +292,25 @@ pub async fn maybe_apply(
     // for identity).
     append_vary_accept_encoding(&mut parts.headers);
 
-    // SRV-CACHE-004 / Stage 7c composition: Range pre-emption.
-    // `build_file_or_304` already emitted a 206 with a sliced body
-    // and a `Content-Range: bytes <s>-<e>/<total>` header that
-    // addresses the ORIGINAL bytes; compressing the slice now
-    // would invalidate Content-Range. Vary is kept (the negotiation
-    // hook engaged on a compressible MIME, mirroring the reference's
-    // 206 anchor in `compression-raw.json`).
-    if parts.status == StatusCode::PARTIAL_CONTENT {
-        return Response::from_parts(parts, body);
-    }
+    // SRV-CACHE-004 / Stage 7c composition: 206 Partial Content
+    // (Range) responses fall through to the threshold check
+    // below, mirroring the reference's `compression@1.8.1`
+    // middleware which has NO status-based 206 skip (Codex round
+    // 4 P2 — the prior explicit `if status == PARTIAL_CONTENT`
+    // skip was over-aggressive: reference compresses 206 when
+    // the SLICED body is above the 1024-byte threshold).
+    // `serve-handler` sets `Content-Length` to the range size at
+    // `serve-handler/src/index.js:749` before `writeHead`;
+    // `compression/index.js:177` checks `chunkLength < threshold`
+    // using that header value, then proceeds to encode at `:223`.
+    // A small range (e.g. `bytes=0-15` → 16 bytes) is well below
+    // threshold and skips compression; a large range (e.g.
+    // `bytes=0-1199` → 1200 bytes) crosses threshold and gets
+    // encoded with `Content-Range` retained verbatim. Reference's
+    // wire then carries `206 + Content-Encoding + chunked` (no
+    // `Content-Length`); irserve mirrors `206 +
+    // Content-Encoding` but keeps `Content-Length: <compressed
+    // size>` per D-020 #1 (framing).
 
     // HEAD: middleware skips compression but Vary is already set
     // above. The HTTP layer (axum/hyper) strips the body on the wire
@@ -438,7 +447,7 @@ fn encode(bytes: &[u8], encoding: Encoding) -> Vec<u8> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use axum::http::HeaderName;
+    use axum::http::{HeaderName, StatusCode};
 
     fn hv(s: &str) -> HeaderValue {
         HeaderValue::from_str(s).unwrap()
@@ -829,16 +838,14 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn maybe_apply_partial_content_keeps_vary_skips_encoding() {
-        // SRV-CACHE-004 / Stage 7c composition: Range pre-empts
-        // compression. The 206 body is already a sliced range and
-        // `Content-Range` addresses the ORIGINAL bytes — compressing
-        // the slice would invalidate it. But `Vary` is STILL set,
-        // mirroring the reference's `range_big_html_gzip` anchor in
-        // `compression-raw.json`: the negotiation hook engaged on a
-        // compressible MIME, so the response varies by Accept-Encoding
-        // even though no encoder ran.
-        let bytes = vec![b'a'; 4096];
+    async fn maybe_apply_partial_content_below_threshold_keeps_vary_skips_encoding() {
+        // SRV-CACHE-004 / Stage 7c composition: a small range
+        // (sliced body < 1024 bytes) falls through `maybe_apply`'s
+        // threshold gate naturally; `Vary` is set, no encoder runs,
+        // body kept verbatim. Mirrors the reference's
+        // `range_big_html_gzip` anchor in `compression-raw.json`
+        // (range bytes=0-15 → 16-byte slice → below threshold).
+        let bytes = vec![b'a'; 16];
         let len = bytes.len();
         let resp = Response::builder()
             .status(StatusCode::PARTIAL_CONTENT)
@@ -854,5 +861,61 @@ mod tests {
             Some("Accept-Encoding")
         );
         assert!(out.headers().get(CONTENT_ENCODING).is_none());
+    }
+
+    #[tokio::test]
+    async fn maybe_apply_partial_content_above_threshold_compresses() {
+        // Codex round 4 P2: a 206 response whose sliced body is at
+        // or above 1024 bytes IS compressed — the reference's
+        // middleware at `compression/index.js:177-223` has no
+        // status-based 206 skip; it just checks
+        // `chunkLength < threshold` and proceeds to `encode`
+        // otherwise. `Content-Range` is retained on the response
+        // verbatim. Wire-level reference vs irserve differs on
+        // framing (chunked vs `Content-Length: <compressed>`) per
+        // D-020 #1; encoder choice and body-bytes contracts are
+        // covered by the same D-020 entries as 200 responses.
+        let bytes = vec![b'a'; 1500];
+        let len = bytes.len();
+        let resp = Response::builder()
+            .status(StatusCode::PARTIAL_CONTENT)
+            .header(CONTENT_TYPE, "text/html")
+            .header(CONTENT_LENGTH, len.to_string())
+            .header("content-range", "bytes 0-1499/4723")
+            .body(Body::from(bytes))
+            .unwrap();
+        let ae = ae("br");
+        let out = maybe_apply(resp, &Method::GET, Some(&ae), &ServeConfig::default()).await;
+        assert_eq!(out.status(), StatusCode::PARTIAL_CONTENT);
+        assert_eq!(
+            out.headers().get(VARY).and_then(|v| v.to_str().ok()),
+            Some("Accept-Encoding")
+        );
+        assert_eq!(
+            out.headers()
+                .get(CONTENT_ENCODING)
+                .and_then(|v| v.to_str().ok()),
+            Some("br")
+        );
+        // `Content-Range` is retained verbatim — addresses the
+        // ORIGINAL bytes, not the encoded bytes (a wire-level RFC
+        // 9110 §15.3.7 quirk both targets share).
+        assert_eq!(
+            out.headers()
+                .get("content-range")
+                .and_then(|v| v.to_str().ok()),
+            Some("bytes 0-1499/4723")
+        );
+        // Compressed body is much smaller than 1500 raw `a` bytes.
+        let compressed_len = out
+            .headers()
+            .get(CONTENT_LENGTH)
+            .and_then(|v| v.to_str().ok())
+            .and_then(|s| s.parse::<usize>().ok())
+            .unwrap();
+        assert!(
+            compressed_len < 1500,
+            "expected compressed length < 1500, got {compressed_len}"
+        );
     }
 }

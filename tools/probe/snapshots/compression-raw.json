@@ -637,6 +637,37 @@
       }
     },
     {
+      "name": "range_big_html_above_threshold",
+      "request": {
+        "method": "GET",
+        "mode": "raw",
+        "path": "/big.html",
+        "headers": {
+          "Accept-Encoding": "gzip, deflate, br",
+          "Range": "bytes=0-1199"
+        }
+      },
+      "requestLine": "GET /big.html HTTP/1.1",
+      "response": {
+        "body": {
+          "kind": "text",
+          "length": 154,
+          "sha256": "1e8cfe654f8439d9f78e56b5563e413a0cf0c54bf10f81d58b4bd31a75c041b1",
+          "preview": "8f\r\n\u001b�\u0004\u0000ĪS��Z�4�y��-\u0002\u0001���H\u000e�i�h�(�0�\u0016p\fi@\u0010�\r��,%�r�JH��vJ�f�LS�¼t�U ��F�7[���\u0002+�������@zkb���~p��y\u0019�g'�4�+��q�P���w�j��-t��2�\u0000�K�^��P�\u0016K2O\u0004\r\n0\r\n\r\n"
+        },
+        "headers": {
+          "accept-ranges": "bytes",
+          "content-encoding": "br",
+          "content-range": "bytes 0-1199/1494",
+          "content-type": "text/html; charset=utf-8",
+          "etag": "\"eb1be01450a6e59d937d3d092ca1ba404fe322de\"",
+          "vary": "Accept-Encoding"
+        },
+        "status": 206,
+        "statusText": "Partial Content"
+      }
+    },
+    {
       "name": "user_ce_identity_above_threshold",
       "request": {
         "method": "GET",
