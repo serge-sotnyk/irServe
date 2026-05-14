@@ -53,8 +53,9 @@ actually shipped.
     --target=reference --snapshot=verify` green.
   - `node tools/probe/run.mjs cors-preflight
     --target=irserve --snapshot=verify` green (200 + file
-    body + four CORS headers + ETag + Content-Type +
-    Accept-Ranges, identical to a GET on the same path).
+    body + four CORS headers + ETag + Content-Type;
+    `Accept-Ranges: bytes` is masked by the runner as
+    non-contractual, identical to a GET on the same path).
   - `cargo test --test oracle` green: **79 passed, 3
     skipped, 0 failed** out of 82 (the 3 skips are
     pre-existing cases without an L0 partition or with an

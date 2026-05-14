@@ -55,7 +55,11 @@ This change closes:
   an `OPTIONS /asset.css` under `--cors` flows through
   phases 3..13 of the dispatcher and yields `200 OK` with
   the file body + the four CORS headers + ETag +
-  Content-Type + Accept-Ranges. The inventory open
+  Content-Type. (`Accept-Ranges: bytes` appears in the
+  reference snapshot but is not part of the dual-target
+  contract — `tools/probe/run.mjs` masks it via
+  `L0_EXTRA_VOLATILE_HEADERS`; irserve does not emit it.)
+  The inventory open
   question on SRV-CORS-001 ("Whether IrServe should adopt
   or diverge from the no-preflight-short-circuit behavior")
   resolves to **adopt** — no 204 short-circuit, mirror the
