@@ -74,12 +74,16 @@ Async; consumes the response body via
    by re-compression).
 6. `method == HEAD` — return with `Vary` set; the
    HTTP layer strips the body on the wire.
-7. `response.headers().contains_key(CONTENT_ENCODING)`
-   (Codex round 2 P2) — return with `Vary` set, no
-   re-encoding. A user `headers` rule may set
-   `Content-Encoding`; the centralized pass honors it
-   verbatim, mirroring
-   `compression/index.js:183-189`.
+7. `existing_encoding != None && existing_encoding != Some("identity")` (Codex round 2 P2, refined round 3 P2) —
+   return with `Vary` set, no re-encoding. A user
+   `headers` rule may set `Content-Encoding`; the
+   centralized pass honors any non-identity value
+   verbatim, mirroring `compression/index.js:182-188`
+   (`encoding = res.getHeader('Content-Encoding') || 'identity';
+   if (encoding !== 'identity') { ... return }`).
+   `Content-Encoding: identity` falls through to the
+   encode step — the reference treats it as "no
+   encoding applied; compress normally".
 8. `bytes.len() < 1024` — return with `Vary` set.
 9. `negotiate(accept_encoding) == None` — return
    with `Vary` set.
@@ -408,15 +412,18 @@ oracle: ORC-206
 
 - **Already-encoded passthrough.** Stage 7e Codex
   round 2 P2 implemented the
-  `compression/index.js:183-189` skip in
-  `maybe_apply`: when the merged response (post
-  `apply_custom_headers`) already carries a
-  `Content-Encoding` header from a user `headers`
-  rule, `maybe_apply` returns with `Vary` set but
-  does NOT re-encode the body. Any non-empty string
-  value triggers the skip — including `identity` —
-  matching the reference's JS truthy check. Not a
-  D-NNN.
+  `compression/index.js:182-188` skip in
+  `maybe_apply`, refined by round 3 P2: when the
+  merged response carries `Content-Encoding` with a
+  non-identity value, `maybe_apply` returns with
+  `Vary` set but does NOT re-encode the body. The
+  reference computes
+  `encoding = res.getHeader('Content-Encoding') || 'identity'`
+  and skips only when `encoding !== 'identity'`;
+  irserve mirrors. Case-sensitive comparison.
+  Anchors: `#user_ce_identity_above_threshold` and
+  `#user_ce_br_above_threshold` in
+  `compression-raw.json`. Not a D-NNN.
 
 - **Streaming / backpressure.** irserve buffers all
   bytes in memory — the static-file model. The

@@ -310,26 +310,37 @@ pub async fn maybe_apply(
         return Response::from_parts(parts, body);
     }
 
-    // Codex round 2 P2: already-encoded passthrough. Mirrors the
-    // reference's `compression/index.js:183-189`:
+    // Codex round 2 P2 (refined in round 3 P2): already-encoded
+    // passthrough. Mirrors the reference's
+    // `compression/index.js:182-188`:
     //
-    //     if (res.getHeader('Content-Encoding')) {
-    //       nocompress('already encoded')
+    //     var encoding = res.getHeader('Content-Encoding') || 'identity'
+    //     if (encoding !== 'identity') {
+    //       debug('skip already encoded')
     //       return
     //     }
     //
-    // A user `headers` rule (Stage 6f) can set
-    // `Content-Encoding` on the merged response (see
-    // `custom_headers.rs::apply_custom_headers`); the centralized
-    // compression pass must respect it instead of overwriting. Vary
-    // stays set (set above, mirroring reference's `vary()` call at
-    // `compression/index.js:174` which runs BEFORE the
-    // already-encoded check). Any string value triggers the skip,
-    // including `identity` — matching the reference's truthy JS
-    // check (`res.getHeader('Content-Encoding')` returns the string
-    // verbatim; any non-empty string is truthy).
-    if parts.headers.contains_key(CONTENT_ENCODING) {
-        return Response::from_parts(parts, body);
+    // Reference treats `Content-Encoding: identity` as "no encoding
+    // applied; please compress normally"; it does NOT skip on the
+    // mere presence of the header. Round 2 P2's initial fix used a
+    // truthy check (`contains_key`) which incorrectly skipped the
+    // identity case — Codex round 3 P2 surfaced the bug via a raw
+    // smoke. Now the skip fires only when an existing
+    // `Content-Encoding` value is something other than the literal
+    // `identity` (case-sensitive match, mirroring JS strict
+    // equality).
+    //
+    // Vary stays set (the check sits AFTER the Vary append above,
+    // mirroring the reference's `vary()` call order at
+    // `compression/index.js:174`).
+    let existing_encoding = parts
+        .headers
+        .get(CONTENT_ENCODING)
+        .and_then(|v| v.to_str().ok());
+    if let Some(value) = existing_encoding {
+        if value != "identity" {
+            return Response::from_parts(parts, body);
+        }
     }
 
     let bytes = match axum::body::to_bytes(body, usize::MAX).await {
@@ -740,20 +751,20 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn maybe_apply_existing_content_encoding_passthrough() {
-        // Codex round 2 P2: a user `headers` rule that set
-        // `Content-Encoding` upstream of the compression pass MUST
-        // be honored (the reference's `compression@1.8.1` middleware
-        // skips already-encoded responses at
-        // `compression/index.js:183-189`). Vary is still set —
-        // the reference's `vary()` call runs before the
+    async fn maybe_apply_existing_non_identity_content_encoding_passthrough() {
+        // Codex round 2 P2 + round 3 P2: a user `headers` rule that
+        // set `Content-Encoding` to a NON-identity value upstream of
+        // the compression pass MUST be honored — the reference's
+        // `compression@1.8.1` middleware at
+        // `compression/index.js:182-188` reads
+        // `encoding = res.getHeader('Content-Encoding') || 'identity'`
+        // and skips when `encoding !== 'identity'`. Vary is still
+        // set — the reference's `vary()` call runs before the
         // already-encoded check.
         let bytes = vec![b'a'; 4096];
         let mut resp = ok_response("text/html", bytes);
-        resp.headers_mut().insert(
-            CONTENT_ENCODING,
-            HeaderValue::from_static("br"),
-        );
+        resp.headers_mut()
+            .insert(CONTENT_ENCODING, HeaderValue::from_static("br"));
         let ae = ae("gzip, deflate, br");
         let out = maybe_apply(resp, &Method::GET, Some(&ae), &ServeConfig::default()).await;
         assert_eq!(
@@ -774,6 +785,46 @@ mod tests {
                 .get(CONTENT_LENGTH)
                 .and_then(|v| v.to_str().ok()),
             Some("4096")
+        );
+    }
+
+    #[tokio::test]
+    async fn maybe_apply_existing_identity_falls_through_and_compresses() {
+        // Codex round 3 P2: `Content-Encoding: identity` is NOT the
+        // already-encoded sentinel — the reference treats it as "no
+        // encoding applied; compress normally". A user `headers`
+        // rule that set `identity` upstream MUST be ignored by the
+        // passthrough gate and the response MUST be encoded using
+        // the negotiated encoder, with the user's `identity` header
+        // overwritten by the chosen encoding's token.
+        let bytes = vec![b'a'; 4096];
+        let mut resp = ok_response("text/html", bytes);
+        resp.headers_mut()
+            .insert(CONTENT_ENCODING, HeaderValue::from_static("identity"));
+        let ae = ae("gzip, deflate, br");
+        let out = maybe_apply(resp, &Method::GET, Some(&ae), &ServeConfig::default()).await;
+        assert_eq!(
+            out.headers().get(VARY).and_then(|v| v.to_str().ok()),
+            Some("Accept-Encoding")
+        );
+        assert_eq!(
+            out.headers()
+                .get(CONTENT_ENCODING)
+                .and_then(|v| v.to_str().ok()),
+            Some("br")
+        );
+        // Content-Length is overwritten with the compressed-body
+        // length (4096 raw bytes of `a` compresses well — the
+        // compressed size is much smaller).
+        let compressed_len = out
+            .headers()
+            .get(CONTENT_LENGTH)
+            .and_then(|v| v.to_str().ok())
+            .and_then(|s| s.parse::<usize>().ok())
+            .unwrap();
+        assert!(
+            compressed_len < 4096,
+            "expected compressed length < 4096, got {compressed_len}"
         );
     }
 

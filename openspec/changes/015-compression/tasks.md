@@ -317,6 +317,95 @@ is the meta slice (this change package + main agent).
 - Commit:
   `docs(stage-7e): address Codex review round 1 (P1 + P2 fixes)`.
 
+## Codex review round 2 (P2 + P3 fixes)
+
+- [x] **P2 — Existing `Content-Encoding` from user
+  `headers` was not honored.** Initial slice-2
+  implementation overwrote any `Content-Encoding` set
+  upstream by a user `headers` rule. Reference's
+  `compression@1.8.1` middleware at
+  `compression/index.js:182-188` reads `encoding =
+  res.getHeader('Content-Encoding') || 'identity'` and
+  skips when `encoding !== 'identity'`. Added an
+  initial truthy-check skip in `maybe_apply` (Codex
+  round 2 P2 — superseded by round 3 P2 below).
+- [x] **P2 — OpenSpec described pre-round-1
+  architecture.** Rewrote `openspec/specs/http-compression/spec.md`'s
+  Implementation list + Range Requirement + Compatibility
+  notes to reflect the centralized
+  `server::handler` seam (vs the old
+  `build_file_or_304` integration), Vary append (vs
+  set-if-missing), and 206 short-circuit AFTER Vary
+  (vs "never enters maybe_apply"). Same edits in the
+  change-package delta at
+  `openspec/changes/015-compression/specs/http-compression/spec.md`.
+- [x] **P3 — Stale doc references to
+  `bodyMayDiffer` stripping `content-encoding`.**
+  Reworded D-020 #1 and #4 (`docs/reference/serve/decisions.md`),
+  the SRV-CLI-012 inventory entry
+  (`docs/reference/serve/inventory.md`), ORC-191
+  (`docs/reference/serve/oracle-matrix.md`),
+  `openspec/changes/015-compression/proposal.md`, and
+  `openspec/changes/015-compression/design.md` to
+  call out the round-1 P1 overlay-separation
+  (`bodyMayDiffer` strips body bytes + `content-length`
+  only; `content-encoding` is stripped only via the
+  explicit per-anchor `contentEncodingMayDiffer`
+  partition).
+- Commit:
+  `docs(stage-7e): address Codex review round 2 (P2 + P3 fixes)`.
+
+## Codex review round 3 (P2 + P3 fixes)
+
+- [x] **P2 — `Content-Encoding: identity` was
+  incorrectly treated as already-encoded.** Round 2 P2's
+  initial truthy-check skip (`contains_key`) was a
+  divergence from reference, which does
+  `encoding = res.getHeader('Content-Encoding') || 'identity';
+  if (encoding !== 'identity') skip`. With a user
+  `headers` rule setting `Content-Encoding: identity`,
+  reference compresses normally (overwriting `identity`
+  with the chosen encoder); the round-2 irserve skipped
+  and left `identity` on the wire. Refined the gate in
+  `maybe_apply` to compare against the literal
+  `identity` string (case-sensitive, mirroring JS
+  strict equality). New unit test
+  `maybe_apply_existing_identity_falls_through_and_compresses`
+  pins the round-trip. Two new raw dual-target probes
+  in `compression-raw.json`:
+  `user_ce_identity_above_threshold` (user-set
+  `identity` → compressed to br, header overwritten)
+  and `user_ce_br_above_threshold` (user-set `br` →
+  middleware skips, header preserved verbatim, body
+  served raw). Added ORC-211 and ORC-212.
+  Reference snapshots re-recorded (case file now 22
+  anchors, +2; the existing
+  `maybe_apply_existing_content_encoding_passthrough`
+  unit test was renamed
+  `maybe_apply_existing_non_identity_content_encoding_passthrough`
+  for symmetry with the new identity case).
+- [x] **P3 — Stale doc references to old
+  pre-round-1 architecture outside OpenSpec.**
+  Rewrote `docs/stage7_l3_capabilities.md` row 7e to
+  reflect the centralized `server::handler` seam (vs
+  the original `build_file_or_304` slice-2 wiring)
+  plus the Codex round 1/2/3 evolution; updated
+  ORC-206 in `docs/reference/serve/oracle-matrix.md`
+  to say "206 DOES enter `maybe_apply`, gets `Vary`
+  set, then short-circuits on `PARTIAL_CONTENT`" (vs
+  the stale "206 never enters maybe_apply"). Also
+  bumped the "20 anchors" counts in inventory.md to
+  22 for the post-round-3 case file state.
+- [x] Verify: `cargo test --workspace --lib` — 361
+  passed (+1 vs round 2); `cargo test --test oracle`
+  — 81 passed / 2 skipped / 0 failed (unchanged at
+  the case-file level — the 2 new anchors land
+  inside the existing `compression-raw` case);
+  `npx @fission-ai/openspec validate --all --strict`
+  — 26 passed / 0 failed.
+- Commit:
+  `docs(stage-7e): address Codex review round 3 (P2 + P3 fixes)`.
+
 ## Validation
 
 Latest totals at end of Stage 7e (refreshed after every

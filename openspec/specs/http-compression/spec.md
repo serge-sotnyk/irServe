@@ -114,17 +114,19 @@ threshold. The gate order (mirroring
    `compression-raw.json`.
 6. `method == HEAD` — return with `Vary` set; the
    HTTP layer strips the body on the wire.
-7. `response.headers().contains_key(CONTENT_ENCODING)`
-   (Codex round 2 P2) — return with `Vary` set, no
+7. `existing_encoding = Content-Encoding header; if Some(value) and value != "identity"` (Codex round 2 P2, refined round 3 P2) — return with `Vary` set, no
    re-encoding. A user `headers` rule (Stage 6f) can
    set `Content-Encoding` on the merged response via
    `custom_headers.rs::apply_custom_headers`; the
-   centralized compression pass MUST honor it
-   verbatim instead of overwriting. Mirrors the
-   reference's `compression/index.js:183-189`
-   already-encoded skip. Any string value triggers
-   the skip, including `identity` (matching JS
-   truthy semantics).
+   centralized compression pass MUST honor any
+   non-identity value verbatim instead of overwriting.
+   Mirrors the reference's
+   `compression/index.js:182-188`
+   (`encoding = res.getHeader('Content-Encoding') || 'identity';
+   if (encoding !== 'identity') { ... return }`).
+   `Content-Encoding: identity` is treated as no
+   encoding applied and falls through to the encode
+   step; a missing header is the normal case.
 8. `bytes.len() < 1024` — return with `Vary` set.
 9. `negotiate(accept_encoding) == None` — return
    with `Vary` set.
@@ -464,15 +466,25 @@ oracle: ORC-206
 
 - **Already-encoded passthrough.** Stage 7e Codex
   round 2 P2 implemented the
-  `compression/index.js:183-189` skip in
-  `maybe_apply`: when the merged response (post
-  `apply_custom_headers`) already carries a
-  `Content-Encoding` header from a user `headers`
-  rule, `maybe_apply` returns with `Vary` set but
-  does NOT re-encode the body. Any non-empty string
-  value triggers the skip — including `identity` —
-  matching the reference's JS truthy check. Not a
-  D-NNN.
+  `compression/index.js:182-188` skip in
+  `maybe_apply`, refined by round 3 P2: when the
+  merged response (post `apply_custom_headers`)
+  already carries a `Content-Encoding` header from a
+  user `headers` rule AND the value is NOT the
+  literal `identity`, `maybe_apply` returns with
+  `Vary` set but does NOT re-encode the body. The
+  reference reads
+  `encoding = res.getHeader('Content-Encoding') || 'identity'`
+  and skips only when `encoding !== 'identity'`;
+  irserve mirrors. Case-sensitive comparison (any
+  other casing — `IDENTITY`, `Identity` — is treated
+  as a non-identity encoding and triggers the skip,
+  matching JS strict-equality semantics). Not a
+  D-NNN. Pinned dual-target by anchors
+  `#user_ce_identity_above_threshold` (`identity` →
+  middleware compresses) and `#user_ce_br_above_threshold`
+  (`br` → middleware skips, header preserved) in
+  `compression-raw.json`.
 
 - **Streaming / backpressure.** irserve buffers all
   bytes in memory — the static-file model. The

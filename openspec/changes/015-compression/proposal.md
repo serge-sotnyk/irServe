@@ -270,15 +270,19 @@ divergences, already established):
 
 8. **Already-encoded passthrough** for upstream
    `Content-Encoding` (reference's
-   `compression/index.js:183-189` skip). Codex
-   round 2 P2 implemented in `maybe_apply` — when the
-   merged response (post `apply_custom_headers`)
-   already carries a `Content-Encoding` header from a
-   user `headers` rule, the centralized compression
+   `compression/index.js:182-188` skip). Codex
+   round 2 P2 implemented in `maybe_apply`, refined
+   by round 3 P2 — when the merged response (post
+   `apply_custom_headers`) already carries a
+   `Content-Encoding` header AND the value is NOT the
+   literal `identity`, the centralized compression
    pass returns with `Vary` set but does NOT re-encode
-   the body. Any non-empty string value triggers the
-   skip — including `identity` — matching the
-   reference's JS truthy check. No longer a divergence.
+   the body. Reference reads
+   `encoding = res.getHeader('Content-Encoding') || 'identity';
+   if (encoding !== 'identity') skip`; irserve
+   mirrors. `Content-Encoding: identity` is treated as
+   no encoding applied and falls through to the
+   encode step. No longer a divergence.
 
 9. **Per-request encoder enforcement** via
    `compression()`'s `enforceEncoding` option. The
