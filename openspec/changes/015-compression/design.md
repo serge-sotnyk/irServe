@@ -243,12 +243,16 @@ BEFORE `dispatch` consumes the request. `maybe_apply` is
 async — it consumes the response body via
 `axum::body::to_bytes` (small overhead for the
 static-file model; ~zero allocations for empty / sub-
-threshold bodies because the read is short). Range
-pre-emption stays intact via the explicit
-`if parts.status == StatusCode::PARTIAL_CONTENT` check
-INSIDE `maybe_apply` (step 5 in §2), set AFTER Vary so
-the 206 anchor in `compression-raw.json` still carries
-the negotiation hook.
+threshold bodies because the read is short). 206
+Partial Content (Range) responses follow the SAME
+gate ordering as 200s — there is no status-based 206
+skip (Codex round 4 P2 removed the round-1 explicit
+`PARTIAL_CONTENT` short-circuit). The threshold check
+at step 7 below evaluates the sliced body's
+`Content-Length` uniformly across statuses, mirroring
+`compression/index.js:177`: small ranges fail the
+gate (no encode); large ranges pass the gate and get
+encoded with `Content-Range` retained verbatim.
 
 `build_file_or_304` no longer calls compression
 directly; the `req_method` parameter added in initial
@@ -280,13 +284,18 @@ module. Its gate ordering, top-to-bottom:
    reference's `vary()` utility (Codex round 1 P2
    fix). Existing `Vary: <field>` becomes
    `Vary: <field>, Accept-Encoding`; wildcard `*` is
-   left alone; case-insensitive dedup. Codex round 1
-   P1 follow-up: 206 status responses fall through
-   this step (Vary is set) and then short-circuit
-   BEFORE compression — Range pre-empts the encode
-   step but keeps the negotiation hook visible.
-5. `parts.status == PARTIAL_CONTENT` → return with
-   `Vary` set, body untouched.
+   left alone; case-insensitive dedup.
+5. (No status-based 206 skip — Codex round 4 P2.) A
+   206 Partial Content response falls through to the
+   threshold check below. `serve-handler` sets
+   `Content-Length` to the range size at
+   `serve-handler/src/index.js:749`; the reference's
+   `compression/index.js:177` then checks
+   `chunkLength < threshold` the same way as for a
+   200. Small ranges (< 1024 bytes) skip the encode
+   step; large ranges (≥ 1024 bytes) get encoded
+   with `Content-Range` retained verbatim — a
+   RFC 9110 §15.3.7 quirk both targets share.
 6. `method == HEAD` → return with `Vary` set, body
    untouched. Axum / hyper strip the HEAD body on the
    wire.

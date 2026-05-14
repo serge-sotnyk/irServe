@@ -165,8 +165,11 @@ implementation — see "What" below and the canonical
   Requirement set (adds the SRV-CLI-012 Requirement) + an
   ADDED capability spec `http-compression` covering the
   full mechanics (encoder set, threshold, MIME filter,
-  Vary semantics, skip conditions, Range pre-emption) and
-  the D-020 divergences. Appends **D-020** to
+  Vary semantics, skip conditions, and the 206 /
+  threshold-gate composition with Stage 7c — small
+  ranges pass through uncompressed with Vary; large
+  ranges encode like 200s, per the Codex round 4 P2
+  refinement) and the D-020 divergences. Appends **D-020** to
   `docs/reference/serve/decisions.md`. Updates
   `docs/reference/serve/inventory.md` SRV-CLI-012 entry
   (closes Q-002, flips the "MAY ship without
