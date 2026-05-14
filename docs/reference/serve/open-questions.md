@@ -35,7 +35,8 @@ Resolution: closed (2026-05-14) — pinned via `tools/probe/snapshots/compressio
 - Negotiation order: **`br > gzip > deflate`** when Node has brotli support (Node 11+; the vendored bundle does). `q=0` and `*;q=0` exclusions honored.
 - Compressible MIMEs (verified compressed): `text/html`, `text/css`, `application/javascript`, `application/json`, `application/wasm`, `image/svg+xml`.
 - Non-compressible MIMEs (verified passthrough, no `Vary`): `image/png`, `font/woff2`, `video/mp4` (and by extension every MIME that fails both the `mime-db.compressible=true` lookup AND the regex `^text/|\+(?:json|text|xml)$/i`).
-- Skip conditions: HEAD (body empty but `Vary` + original `Content-Length` retained), `Cache-Control: no-transform` (no `Vary`, no compression), `Range` request (pre-empts compression — 206 with raw body slice + `Content-Range`).
+- Skip conditions: HEAD (body empty but `Vary` + original `Content-Length` retained), `Cache-Control: no-transform` (no `Vary`, no compression), below-threshold body (Vary kept, no encode), identity-only / all-q-zero negotiation (Vary kept, no encode), already-encoded non-identity `Content-Encoding` from user `headers` rules (Vary kept, no re-encode).
+- 206 Partial Content (Range) follows the SAME threshold gate as 200 — small ranges pass through uncompressed (Vary kept), large ranges (sliced body ≥ 1024 bytes) get encoded with `Content-Range` retained verbatim. No status-based 206 skip in either target (Codex round 4 P2 finding — `compression/index.js:177` checks `chunkLength < threshold` uniformly across statuses).
 - OPTIONS routes through the GET pipeline (Stage 7d), so OPTIONS responses ARE compressed.
 
 ## Q-003: Schema validation error format and exit codes

@@ -832,9 +832,14 @@ fn build_file_or_304(
         // lives in a centralized post-dispatch pass in
         // `server::handler` (so directory listings and error pages
         // also get compressed, mirroring the reference middleware
-        // that fires on every response). The Range path below still
-        // short-circuits compression because `compression::maybe_apply`
-        // skips `StatusCode::PARTIAL_CONTENT` responses.
+        // that fires on every response). The Range branch below
+        // emits a 206 (sliced body) or 416 (out of range); both flow
+        // through `compression::maybe_apply` at the handler-level
+        // seam, where the threshold gate decides whether to encode
+        // — small ranges naturally pass through uncompressed, large
+        // ranges (sliced body ≥ 1024 bytes) get encoded with
+        // `Content-Range` retained verbatim (Codex round 4 P2 —
+        // no status-based 206 skip).
         return merged;
     };
 

@@ -22,10 +22,16 @@
 //! - Skips: HEAD method (Vary kept, body emptied by axum/hyper),
 //!   `Cache-Control: no-transform` (no Vary, no compression), body
 //!   below threshold (Vary kept, no compression), no acceptable
-//!   encoding (Vary kept, no compression).
-//! - Range requests pre-empt compression entirely (the caller — see
-//!   `dispatch.rs::build_file_or_304` — never enters `maybe_apply`
-//!   when a `Range` header is present).
+//!   encoding (Vary kept, no compression),
+//!   `Content-Encoding != "identity"` already on the merged response
+//!   (Vary kept, no re-encode; Codex round 3 P2).
+//! - 206 Partial Content responses follow the SAME gate ordering as
+//!   200s (Codex round 4 P2 — there is no status-based 206 skip):
+//!   small ranges naturally fail the threshold gate and are returned
+//!   raw with Vary; large ranges (sliced body ≥ 1024 bytes) pass the
+//!   gate and get encoded with `Content-Range` retained verbatim.
+//!   Mirrors reference's `compression/index.js:177` (uniform
+//!   `chunkLength < threshold` check across statuses).
 //!
 //! Divergences from reference are enumerated in D-020:
 //! - Compressed responses send `Content-Length: <compressed-len>` and
@@ -231,9 +237,6 @@ pub fn is_compressible(content_type: &str) -> bool {
 /// response is returned unchanged with no `Vary` added.
 ///
 /// Mutations applied to the response on the compress / Vary path:
-/// - On 206 Partial Content (Range): nothing (pre-emption — body is
-///   already a sliced range and `Content-Range` would lie after
-///   re-compression).
 /// - On non-compressible MIME OR `Cache-Control: no-transform`:
 ///   nothing (response returned as-is).
 /// - On compressible MIME, no `no-transform`: `Accept-Encoding` is

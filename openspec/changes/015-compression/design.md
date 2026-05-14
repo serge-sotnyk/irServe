@@ -102,18 +102,33 @@ raw-socket anchors in slice 0) is:
   above threshold ARE compressed. Verified by the
   `options_big_html_gzip` anchor.
 
-- **Range pre-empts compression entirely**. A 206
-  response carries the raw body slice + `Content-Range`
-  and NO `Content-Encoding`; `Vary: Accept-Encoding`
-  IS set (the negotiation hook engaged before Range
-  short-circuited). Verified by the `range_big_html_gzip`
-  anchor.
+- **206 Partial Content follows the same threshold
+  gate as 200** (Codex round 4 P2 refinement of the
+  initial slice-2 wiring). There is NO status-based
+  206 skip in either target: `serve-handler` sets
+  `Content-Length` to the range size before
+  `writeHead`, and `compression/index.js:177` checks
+  `chunkLength < threshold` uniformly across statuses.
+  - Below-threshold range (sliced body < 1024): Vary
+    set, no `Content-Encoding`, raw body. Verified by
+    `range_big_html_gzip` (16-byte slice).
+  - Above-threshold range (sliced body ≥ 1024): Vary
+    set, `Content-Encoding: br`, encoded body,
+    `Content-Range` retained verbatim addressing the
+    ORIGINAL bytes (a wire-level RFC 9110 §15.3.7
+    quirk both targets share). Verified by
+    `range_big_html_above_threshold` (1200-byte slice).
+    Framing diverges per D-020 #1: reference chunked,
+    irserve `Content-Length: <compressed size>`.
 
 The full empirical anchor list lives at
 `tools/probe/cases/compression-raw.json`'s
-`requests` array (20 anchors). Slice 0's captured
-snapshot is the pinned upstream contract for all four
-encoder paths.
+`requests` array. Slice 0 authored 20 anchors; Codex
+round 3 P2 added 2 (identity / non-identity
+`Content-Encoding` passthrough); Codex round 4 P2
+added 1 (above-threshold-range encode) — 23 total at
+current state. Slice 0's captured snapshot is the
+pinned upstream contract for all four encoder paths.
 
 ## §2. Negotiation algorithm in irserve
 

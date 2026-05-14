@@ -44,7 +44,7 @@ is the meta slice (this change package + main agent).
     composition with 7d),
     `no_transform_big_html_gzip` (user `headers` rule
     setting `Cache-Control: no-transform`),
-    `range_big_html_gzip` (Range pre-empts compression).
+    `range_big_html_gzip` (small range with sliced body below the 1024-byte threshold; codified in Codex round 4 P2 as the below-threshold sub-case of the unified 206 threshold gate).
 - [x] Capture snapshot:
   `node tools/probe/run.mjs compression-raw
   --target=reference --snapshot=update`.

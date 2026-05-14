@@ -241,11 +241,16 @@ async fn handler(State(state): State<SharedState>, req: Request<Body>) -> Respon
     // pass. Mirrors the reference's middleware which sits BETWEEN the
     // CORS-header injection and the `serve-handler` invocation at
     // `third_party/serve/source/utilities/server.ts:65-72` — the
-    // ordering is CORS-then-compression. The pass internally skips
-    // 206 (Range pre-empts compression), non-compressible MIMEs (no
-    // Vary), `Cache-Control: no-transform` (no Vary), HEAD (Vary kept,
-    // no encode), below-threshold bodies (Vary kept, no encode), and
-    // no-acceptable-encoding negotiations.
+    // ordering is CORS-then-compression. The pass internally skips:
+    // non-compressible MIMEs (no Vary), `Cache-Control: no-transform`
+    // (no Vary), HEAD (Vary kept, no encode), already-encoded
+    // non-identity `Content-Encoding` from user headers (Vary kept,
+    // no re-encode — round 3 P2), below-threshold bodies (Vary kept,
+    // no encode), and no-acceptable-encoding negotiations. 206 Partial
+    // Content responses follow the same gate ordering as 200s — small
+    // ranges fail the threshold gate, large ranges encode normally
+    // (round 4 P2 — no status-based 206 skip; the threshold check at
+    // `compression/index.js:177` handles 200s and 206s uniformly).
     let response =
         compression::maybe_apply(response, &req_method, req_accept_encoding.as_ref(), &state.serve_config)
             .await;
