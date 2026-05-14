@@ -17,6 +17,25 @@
       ]
     }
   },
+  "runner": {
+    "l0": {
+      "clean": [
+        "default_file_no_rule",
+        "default_listing_html",
+        "default_listing_json",
+        "default_404_html",
+        "default_404_json",
+        "rule_applies_cache_control"
+      ],
+      "divergent": [],
+      "bodyMayDiffer": [
+        "default_listing_html",
+        "default_listing_json",
+        "default_404_html",
+        "default_404_json"
+      ]
+    }
+  },
   "requests": [
     { "name": "default_file_no_rule", "path": "/asset.css" },
     { "name": "default_listing_html", "path": "/" },
