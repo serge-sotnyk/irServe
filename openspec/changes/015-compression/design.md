@@ -377,9 +377,11 @@ brief for spec-delta cross-reference:
    defaults (Node `zlib` vs `flate2`, Node brotli vs
    `brotli` crate) differ at the bit level. The
    probe runner's per-anchor `bodyMayDiffer` overlay
-   strips `content-encoding` and `content-length`
-   from the L0 contract and masks body bytes on the
-   10 compressed anchors.
+   strips body bytes + `content-length` from the L0
+   contract on the 10 compressed anchors;
+   `content-encoding` stays must-match (Codex round 1
+   P1 — `bodyMayDiffer` no longer implies
+   `contentEncodingMayDiffer`).
 
 All four are documented in:
 

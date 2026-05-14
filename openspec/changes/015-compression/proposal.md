@@ -226,10 +226,15 @@ deliberate ones — every other behavior mirrors reference):
    defaults are nominally the same numbers but
    implementation variations may still differ at the
    bit level. The probe runner's per-anchor
-   `bodyMayDiffer` overlay strips `content-encoding` and
-   `content-length` from the L0 contract and masks the
-   body bytes on the 10 compressed anchors in
-   `compression-raw.json`.
+   `bodyMayDiffer` overlay strips body bytes +
+   `content-length` from the L0 contract on the 10
+   compressed anchors in `compression-raw.json`.
+   `content-encoding` is NOT stripped by
+   `bodyMayDiffer` — only by the explicit per-anchor
+   `contentEncodingMayDiffer` partition, which the 10
+   compressed anchors do NOT opt into (Codex round 1
+   P1 separated the overlays: encoder CHOICE is
+   contractual, encoder OUTPUT is not).
 
 Additionally — explicitly out of scope for 7e (not new
 divergences, already established):
@@ -265,10 +270,15 @@ divergences, already established):
 
 8. **Already-encoded passthrough** for upstream
    `Content-Encoding` (reference's
-   `compression/index.js:183-189` skip). irserve never
-   sets `Content-Encoding` upstream of compression. If a
-   future user `headers` rule sets `Content-Encoding`,
-   the behavior is undefined-MAY-be-D-NNN.
+   `compression/index.js:183-189` skip). Codex
+   round 2 P2 implemented in `maybe_apply` — when the
+   merged response (post `apply_custom_headers`)
+   already carries a `Content-Encoding` header from a
+   user `headers` rule, the centralized compression
+   pass returns with `Vary` set but does NOT re-encode
+   the body. Any non-empty string value triggers the
+   skip — including `identity` — matching the
+   reference's JS truthy check. No longer a divergence.
 
 9. **Per-request encoder enforcement** via
    `compression()`'s `enforceEncoding` option. The
@@ -294,13 +304,16 @@ divergences, already established):
   notes.
 
 - **Body-bytes drift.** The probe runner's per-anchor
-  `bodyMayDiffer` overlay strips `content-encoding` and
+  `bodyMayDiffer` overlay strips body bytes +
   `content-length` from the L0 contract on the 10
-  compressed anchors. If a future encoder upgrade
-  changes the byte output (e.g. `flate2` major version
-  bump), the L0 contract stays green and the
-  divergence stays scoped; only an empirical re-record
-  is needed.
+  compressed anchors; `content-encoding` stays
+  must-match. If a future encoder upgrade changes the
+  byte output (e.g. `flate2` major version bump), the
+  L0 contract stays green and the divergence stays
+  scoped; only an empirical re-record is needed. If
+  the same encoder upgrade somehow changed the chosen
+  encoder name (extremely unlikely), the
+  `content-encoding` must-match would surface that.
 
 - **Stage 7d composition.** OPTIONS now compresses (the
   `options_big_html_gzip` anchor in `compression-raw.json`

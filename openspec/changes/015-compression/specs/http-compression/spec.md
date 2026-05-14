@@ -49,23 +49,42 @@ Closes Q-002 (resolution dated 2026-05-14 in
 
 Implementation:
 `crates/irserve-core/src/compression.rs::maybe_apply`
-is the dispatcher seam called from
-`build_file_or_304` after `apply_custom_headers`. The
-gate order (mirroring `compression/index.js`):
+is the centralized post-dispatch pass invoked from
+`crates/irserve-core/src/server.rs::handler` (between
+`apply_cors` and the request log — mirroring the
+reference's middleware order at
+`third_party/serve/source/utilities/server.ts:65-72`).
+Async; consumes the response body via
+`axum::body::to_bytes`. The gate order (mirroring
+`compression/index.js`):
 1. `serve_config.compression == Some(false)` — return
    unchanged (no `Vary`).
 2. `!is_compressible(content_type)` — return unchanged
    (no `Vary`).
 3. `Cache-Control: no-transform` — return unchanged
    (no `Vary`).
-4. **Set `Vary: Accept-Encoding`** if missing.
-5. `method == HEAD` — return with `Vary` set; the
+4. **Append `Accept-Encoding` to `Vary`** via
+   `append_vary_accept_encoding` (existing
+   `Vary: <field>` becomes
+   `Vary: <field>, Accept-Encoding`; `Vary: *` is
+   left alone; case-insensitive dedup).
+5. `status == 206 Partial Content` — return with
+   `Vary` set, no encode (Range pre-emption — the
+   sliced body's `Content-Range` would be invalidated
+   by re-compression).
+6. `method == HEAD` — return with `Vary` set; the
    HTTP layer strips the body on the wire.
-6. `bytes.len() < 1024` — return with `Vary` set.
-7. `negotiate(accept_encoding) == None` — return
+7. `response.headers().contains_key(CONTENT_ENCODING)`
+   (Codex round 2 P2) — return with `Vary` set, no
+   re-encoding. A user `headers` rule may set
+   `Content-Encoding`; the centralized pass honors it
+   verbatim, mirroring
+   `compression/index.js:183-189`.
+8. `bytes.len() < 1024` — return with `Vary` set.
+9. `negotiate(accept_encoding) == None` — return
    with `Vary` set.
-8. Encode + set `Content-Encoding` + overwrite
-   `Content-Length` + replace body.
+10. Encode + set `Content-Encoding` + overwrite
+    `Content-Length` + replace body.
 
 #### Scenario: Compressible MIME above threshold compresses
 
@@ -264,20 +283,26 @@ covered by ORC-209.
 - AND the response carries `Vary: Accept-Encoding`
 - AND the response does NOT carry `Content-Encoding`
 
-### Requirement: Range requests pre-empt compression
+### Requirement: Range requests pre-empt the compression encode step but keep the negotiation hook
 
-A request carrying a `Range` header SHALL pre-empt
-compression entirely: the dispatcher's
-`build_file_or_304` runs Range handling BEFORE the
-compression seam, so a 206 (or 416) response NEVER
-enters `maybe_apply`. The 206 response carries the raw
-body slice + `Content-Range` + no `Content-Encoding`;
-`Vary: Accept-Encoding` MAY be present if a user
-`headers` rule set it, but irserve does NOT set it
-from the compression path. Mirrors the reference's
-ordering: `compression` middleware skips on Range
-because the response is already partial when the
-middleware sees it.
+A 206 Partial Content response (Range-bearing) SHALL
+NOT be re-encoded by the compression pass: the body
+is already a sliced range whose `Content-Range: bytes
+<s>-<e>/<total>` header addresses the ORIGINAL bytes,
+so compressing the slice would invalidate
+`Content-Range`. The response SHALL still carry
+`Vary: Accept-Encoding` when the content-type is
+compressible (and `Cache-Control: no-transform` is
+not set), because the negotiation hook engaged before
+the Range pre-emption fires.
+
+Concretely, `maybe_apply`'s gate order sets `Vary` in
+step 4 and then short-circuits 206 responses in step
+5 — Vary is visible on 206 anchors; `Content-Encoding`
+is not. Mirrors the reference's
+`compression@1.8.1` middleware: `vary()` runs at
+`compression/index.js:174` BEFORE any threshold /
+status filtering.
 
 Evidence: SRV-CLI-012, SRV-CACHE-004 (Stage 7c);
 oracle: ORC-206
@@ -355,11 +380,14 @@ oracle: ORC-206
   defaults nominally match but implementation
   variations may still differ at the bit level). The
   probe runner's per-anchor `bodyMayDiffer` overlay
-  strips `content-encoding` and `content-length` from
-  the L0 contract and masks body bytes on the 10
-  compressed anchors in `compression-raw.json`. This
-  is the canonical example of an irserve "body bytes
-  not contractual" partition.
+  strips body bytes and `content-length` from the L0
+  contract on the 10 compressed anchors in
+  `compression-raw.json`; `content-encoding` is
+  separately must-match (Codex round 1 P1 pinned this
+  distinction — `bodyMayDiffer` does NOT imply
+  `contentEncodingMayDiffer`). This is the canonical
+  example of an irserve "body bytes not contractual"
+  partition.
 
 - **`Vary: Accept-Encoding` is appended to any existing
   `Vary` header, mirroring reference.** Stage 7e
@@ -378,12 +406,17 @@ oracle: ORC-206
   `maybe_apply`, has `Vary` set, and short-circuits
   before encode per `compression/index.js:192-195`.
 
-- **Already-encoded passthrough.** irserve never sets
-  `Content-Encoding` upstream of `compression::maybe_apply`,
-  so the `compression/index.js:183-189` skip is
-  vacuously satisfied. If a future user `headers`
-  rule ever sets `Content-Encoding`, the behavior is
-  undefined-MAY-be-D-NNN.
+- **Already-encoded passthrough.** Stage 7e Codex
+  round 2 P2 implemented the
+  `compression/index.js:183-189` skip in
+  `maybe_apply`: when the merged response (post
+  `apply_custom_headers`) already carries a
+  `Content-Encoding` header from a user `headers`
+  rule, `maybe_apply` returns with `Vary` set but
+  does NOT re-encode the body. Any non-empty string
+  value triggers the skip — including `identity` —
+  matching the reference's JS truthy check. Not a
+  D-NNN.
 
 - **Streaming / backpressure.** irserve buffers all
   bytes in memory — the static-file model. The
