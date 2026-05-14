@@ -7,12 +7,30 @@
     },
     "serveJson": {
       "redirects": [
-        { "source": "/dir/*", "destination": "/elsewhere" },
-        { "source": "/face/**", "destination": "/double-star-hit" },
-        { "source": "/a/*/b/*", "destination": "/multi-hit" },
-        { "source": "/dot/.*/b/*", "destination": "/dot-hit" },
-        { "source": "/bracket/*/b/[.]y", "destination": "/bracket-hit" },
-        { "source": "/gs/**/b/*", "destination": "/gs-hit" }
+        {
+          "source": "/dir/*",
+          "destination": "/elsewhere"
+        },
+        {
+          "source": "/face/**",
+          "destination": "/double-star-hit"
+        },
+        {
+          "source": "/a/*/b/*",
+          "destination": "/multi-hit"
+        },
+        {
+          "source": "/dot/.*/b/*",
+          "destination": "/dot-hit"
+        },
+        {
+          "source": "/bracket/*/b/[.]y",
+          "destination": "/bracket-hit"
+        },
+        {
+          "source": "/gs/**/b/*",
+          "destination": "/gs-hit"
+        }
       ]
     }
   },
@@ -56,22 +74,83 @@
         "multi_star_rejects_leading_dot_second",
         "bracket_pattern_segment_rejects_leading_dot",
         "doublestar_rejects_dot_in_expansion"
+      ],
+      "contentEncodingMayDiffer": [
+        "multi_star_no_overmatch_two_trailing",
+        "multi_star_no_overmatch_zero_trailing",
+        "multi_star_no_overmatch_extra_middle",
+        "multi_star_rejects_leading_dot_first",
+        "multi_star_rejects_leading_dot_second",
+        "bracket_pattern_segment_rejects_leading_dot",
+        "doublestar_rejects_dot_in_expansion"
       ]
     }
   },
   "requests": [
-    { "name": "star_matches_single_segment", "method": "GET", "path": "/dir/page" },
-    { "name": "star_matches_multi_segment", "method": "GET", "path": "/dir/sub/page" },
-    { "name": "double_star_matches_single", "method": "GET", "path": "/face/me" },
-    { "name": "double_star_matches_multi", "method": "GET", "path": "/face/sub/page" },
-    { "name": "multi_star_matches_single_trailing", "method": "GET", "path": "/a/x/b/y" },
-    { "name": "multi_star_no_overmatch_two_trailing", "method": "GET", "path": "/a/x/b/y/z" },
-    { "name": "multi_star_no_overmatch_zero_trailing", "method": "GET", "path": "/a/x/b" },
-    { "name": "multi_star_no_overmatch_extra_middle", "method": "GET", "path": "/a/x/y/b/z" },
-    { "name": "multi_star_rejects_leading_dot_first", "method": "GET", "path": "/a/.x/b/y" },
-    { "name": "multi_star_rejects_leading_dot_second", "method": "GET", "path": "/a/x/b/.y" },
-    { "name": "dot_pattern_segment_admits_leading_dot", "method": "GET", "path": "/dot/.x/b/y" },
-    { "name": "bracket_pattern_segment_rejects_leading_dot", "method": "GET", "path": "/bracket/x/b/.y" },
-    { "name": "doublestar_rejects_dot_in_expansion", "method": "GET", "path": "/gs/.x/b/y" }
+    {
+      "name": "star_matches_single_segment",
+      "method": "GET",
+      "path": "/dir/page"
+    },
+    {
+      "name": "star_matches_multi_segment",
+      "method": "GET",
+      "path": "/dir/sub/page"
+    },
+    {
+      "name": "double_star_matches_single",
+      "method": "GET",
+      "path": "/face/me"
+    },
+    {
+      "name": "double_star_matches_multi",
+      "method": "GET",
+      "path": "/face/sub/page"
+    },
+    {
+      "name": "multi_star_matches_single_trailing",
+      "method": "GET",
+      "path": "/a/x/b/y"
+    },
+    {
+      "name": "multi_star_no_overmatch_two_trailing",
+      "method": "GET",
+      "path": "/a/x/b/y/z"
+    },
+    {
+      "name": "multi_star_no_overmatch_zero_trailing",
+      "method": "GET",
+      "path": "/a/x/b"
+    },
+    {
+      "name": "multi_star_no_overmatch_extra_middle",
+      "method": "GET",
+      "path": "/a/x/y/b/z"
+    },
+    {
+      "name": "multi_star_rejects_leading_dot_first",
+      "method": "GET",
+      "path": "/a/.x/b/y"
+    },
+    {
+      "name": "multi_star_rejects_leading_dot_second",
+      "method": "GET",
+      "path": "/a/x/b/.y"
+    },
+    {
+      "name": "dot_pattern_segment_admits_leading_dot",
+      "method": "GET",
+      "path": "/dot/.x/b/y"
+    },
+    {
+      "name": "bracket_pattern_segment_rejects_leading_dot",
+      "method": "GET",
+      "path": "/bracket/x/b/.y"
+    },
+    {
+      "name": "doublestar_rejects_dot_in_expansion",
+      "method": "GET",
+      "path": "/gs/.x/b/y"
+    }
   ]
 }

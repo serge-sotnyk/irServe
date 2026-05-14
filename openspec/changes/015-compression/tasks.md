@@ -128,11 +128,6 @@ is the meta slice (this change package + main agent).
 - [x] Drop the slice-0 temporary `content-encoding`
   mask from `L0_EXTRA_VOLATILE_HEADERS` in
   `tools/probe/run.mjs`.
-- [x] Extend the runner's `bodyMayDiffer` overlay to
-  also strip `content-encoding` (the compression
-  decision is a function of body length, so a
-  body-may-differ anchor implies an
-  encoding-may-differ one).
 - [x] Add `runner.l0.clean: ["with_accept_encoding"]`
   to the legacy `tools/probe/cases/compression-default.json`
   (single-anchor Vary-only check; identical
@@ -240,6 +235,87 @@ is the meta slice (this change package + main agent).
     end of every Codex review round).
   - [x] Commit:
     `docs(stage-7e): 015-compression change package + capability + meta`.
+
+## Codex review round 1 (P1 + P2 fixes)
+
+- [x] **P3 — OpenSpec validation.** First Requirement
+  in `http-compression/spec.md` had a `When ...,` lead-in
+  before `SHALL`; the validator parsed only the leading
+  clause and reported "must contain SHALL or MUST".
+  Reshape to `The server SHALL ... when ...`. Same edit
+  in the change-package delta. `npx -y
+  @fission-ai/openspec@latest validate --all` now: 26
+  passed / 0 failed.
+- [x] **P2 — Vary append semantics.** Reference's
+  `vary()` utility appends `Accept-Encoding` to any
+  existing `Vary` header; the initial slice 2
+  implementation only inserted when missing, which is
+  cache-incorrect when a user `headers` rule already
+  set e.g. `Vary: Cookie` (downstream caches would key
+  only on `Cookie` and serve a brotli body to identity
+  clients). Implemented `append_vary_accept_encoding`
+  in `crates/irserve-core/src/compression.rs`: appends
+  to existing `Vary`, deduplicates `Accept-Encoding`
+  case-insensitively, leaves `Vary: *` (wildcard)
+  alone. New unit tests
+  `maybe_apply_appends_to_existing_vary`,
+  `maybe_apply_existing_vary_with_accept_encoding_is_not_duplicated`,
+  `maybe_apply_existing_vary_star_is_left_alone`. The
+  old `maybe_apply_existing_vary_preserved` test was
+  retired — its assertion locked in the wrong
+  behavior.
+- [x] **P2 — Compression seam widened to listings and
+  errors.** The initial slice 2 call to
+  `compression::maybe_apply` lived inside
+  `build_file_or_304`, so directory-listing and error
+  branches bypassed compression. The reference's
+  middleware fires on every response. Moved
+  `maybe_apply` to a centralized post-dispatch pass
+  in `crates/irserve-core/src/server.rs::handler`
+  between `apply_cors` and the request log. The pass
+  is async (consumes the response body via
+  `axum::body::to_bytes`); Range pre-emption stays
+  intact via an explicit `StatusCode::PARTIAL_CONTENT`
+  short-circuit AFTER Vary is set, so 206 responses
+  carry the negotiation hook (`Vary: Accept-Encoding`)
+  without re-encoding the sliced body. Reverted the
+  `req_method` parameter previously threaded through
+  `build_file_or_304` and its 36 test callsites —
+  back to the pre-7e shape.
+- [x] **P1 — Oracle assertions tightened.** Slice 2
+  had: (a) `'vary'` masked in `L0_EXTRA_VOLATILE_HEADERS`
+  hiding the Vary contract from every L0 probe, (b)
+  the `bodyMayDiffer` overlay also stripping
+  `content-encoding`. The two together let the new
+  compression-raw ORCs pass even if irserve emitted no
+  `Content-Encoding` at all. Fixes:
+  - Dropped `'vary'` from `L0_EXTRA_VOLATILE_HEADERS`
+    (the centralized seam fix above makes irserve
+    emit `Vary` everywhere the reference does, so the
+    global mask is no longer needed).
+  - Reverted the `bodyMayDiffer` overlay's
+    `content-encoding` strip — `bodyMayDiffer` is
+    body-only again.
+  - Added a new `contentEncodingMayDiffer` partition
+    to the runner + the case schema (per-anchor opt-in
+    for "body content is implementation-defined per
+    D-002 / D-003 so the compression decision is too";
+    the 20 legacy 4xx-error / listing anchors that
+    rely on a may-differ HTML body got
+    `contentEncodingMayDiffer` mirroring their
+    `bodyMayDiffer`).
+  - Restored compression-raw's 10 compressed anchors
+    to `bodyMayDiffer`-only (the body bytes differ at
+    the bit level per D-020 #4) — `content-encoding`
+    is now a must-match contract there.
+- [x] Verify: 359 unit tests pass; oracle 81 passed /
+  2 skipped / 0 failed; OpenSpec validate 26 / 26.
+- [x] Updated `docs/reference/serve/decisions.md`
+  D-020's #5 stub (Vary set-if-missing) to call out
+  the round-1 append fix; kept the four numbered
+  divergences (#1..#4) unchanged.
+- Commit:
+  `docs(stage-7e): address Codex review round 1 (P1 + P2 fixes)`.
 
 ## Validation
 

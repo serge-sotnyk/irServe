@@ -7,7 +7,9 @@
       "blog/post.html": "<p>post</p>\n"
     },
     "serveJson": {
-      "cleanUrls": ["/docs/**"]
+      "cleanUrls": [
+        "/docs/**"
+      ]
     }
   },
   "runner": {
@@ -19,14 +21,37 @@
         "out_of_scope_extensionless_miss"
       ],
       "divergent": [],
-      "bodyMayDiffer": ["out_of_scope_extensionless_miss"],
-      "contentLengthMayDiffer": ["in_scope_redirect"]
+      "bodyMayDiffer": [
+        "out_of_scope_extensionless_miss"
+      ],
+      "contentLengthMayDiffer": [
+        "in_scope_redirect"
+      ],
+      "contentEncodingMayDiffer": [
+        "out_of_scope_extensionless_miss"
+      ]
     }
   },
   "requests": [
-    { "name": "in_scope_redirect", "method": "GET", "path": "/docs/guide.html" },
-    { "name": "in_scope_extensionless", "method": "GET", "path": "/docs/guide" },
-    { "name": "out_of_scope_html_direct", "method": "GET", "path": "/blog/post.html" },
-    { "name": "out_of_scope_extensionless_miss", "method": "GET", "path": "/blog/post" }
+    {
+      "name": "in_scope_redirect",
+      "method": "GET",
+      "path": "/docs/guide.html"
+    },
+    {
+      "name": "in_scope_extensionless",
+      "method": "GET",
+      "path": "/docs/guide"
+    },
+    {
+      "name": "out_of_scope_html_direct",
+      "method": "GET",
+      "path": "/blog/post.html"
+    },
+    {
+      "name": "out_of_scope_extensionless_miss",
+      "method": "GET",
+      "path": "/blog/post"
+    }
   ]
 }

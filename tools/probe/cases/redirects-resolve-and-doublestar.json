@@ -7,10 +7,22 @@
     },
     "serveJson": {
       "redirects": [
-        { "source": "/a/*", "destination": "/star-hit" },
-        { "source": "/p/:id/*", "destination": "/p-hit/:id" },
-        { "source": "/d/:id/**", "destination": "/d-hit/:id" },
-        { "source": "/m/:id/**/z", "destination": "/m-hit/:id" }
+        {
+          "source": "/a/*",
+          "destination": "/star-hit"
+        },
+        {
+          "source": "/p/:id/*",
+          "destination": "/p-hit/:id"
+        },
+        {
+          "source": "/d/:id/**",
+          "destination": "/d-hit/:id"
+        },
+        {
+          "source": "/m/:id/**/z",
+          "destination": "/m-hit/:id"
+        }
       ]
     }
   },
@@ -33,14 +45,38 @@
       "bodyMayDiffer": [
         "star_rejects_trailing_slash_only",
         "star_with_param_rejects_trailing_slash_only"
+      ],
+      "contentEncodingMayDiffer": [
+        "star_rejects_trailing_slash_only",
+        "star_with_param_rejects_trailing_slash_only"
       ]
     }
   },
   "requests": [
-    { "name": "star_rejects_trailing_slash_only", "method": "GET", "path": "/a/" },
-    { "name": "star_with_param_rejects_trailing_slash_only", "method": "GET", "path": "/p/foo/" },
-    { "name": "doublestar_after_param_admits_zero_trailing", "method": "GET", "path": "/d/foo" },
-    { "name": "doublestar_after_param_admits_multi_trailing", "method": "GET", "path": "/d/foo/x/y" },
-    { "name": "doublestar_in_middle_admits_zero", "method": "GET", "path": "/m/foo/z" }
+    {
+      "name": "star_rejects_trailing_slash_only",
+      "method": "GET",
+      "path": "/a/"
+    },
+    {
+      "name": "star_with_param_rejects_trailing_slash_only",
+      "method": "GET",
+      "path": "/p/foo/"
+    },
+    {
+      "name": "doublestar_after_param_admits_zero_trailing",
+      "method": "GET",
+      "path": "/d/foo"
+    },
+    {
+      "name": "doublestar_after_param_admits_multi_trailing",
+      "method": "GET",
+      "path": "/d/foo/x/y"
+    },
+    {
+      "name": "doublestar_in_middle_admits_zero",
+      "method": "GET",
+      "path": "/m/foo/z"
+    }
   ]
 }

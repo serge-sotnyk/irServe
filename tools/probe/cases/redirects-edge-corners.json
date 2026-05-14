@@ -7,9 +7,18 @@
     },
     "serveJson": {
       "redirects": [
-        { "source": "/a/\\**", "destination": "/escaped-doublestar-hit" },
-        { "source": "/x/{.x,*}", "destination": "/brace-mix-hit" },
-        { "source": "/u/\\[", "destination": "/lbracket-hit" }
+        {
+          "source": "/a/\\**",
+          "destination": "/escaped-doublestar-hit"
+        },
+        {
+          "source": "/x/{.x,*}",
+          "destination": "/brace-mix-hit"
+        },
+        {
+          "source": "/u/\\[",
+          "destination": "/lbracket-hit"
+        }
       ]
     }
   },
@@ -29,14 +38,39 @@
         "brace_mix_rejects_other_dotfile",
         "literal_lbracket_via_fallback"
       ],
-      "bodyMayDiffer": ["brace_mix_rejects_other_dotfile"]
+      "bodyMayDiffer": [
+        "brace_mix_rejects_other_dotfile"
+      ],
+      "contentEncodingMayDiffer": [
+        "brace_mix_rejects_other_dotfile"
+      ]
     }
   },
   "requests": [
-    { "name": "escaped_doublestar_matches_multi", "method": "GET", "path": "/a/x/y" },
-    { "name": "brace_mix_matches_dot_alt", "method": "GET", "path": "/x/.x" },
-    { "name": "brace_mix_matches_star_alt", "method": "GET", "path": "/x/abc" },
-    { "name": "brace_mix_rejects_other_dotfile", "method": "GET", "path": "/x/.y" },
-    { "name": "literal_lbracket_via_fallback", "method": "GET", "path": "/u/[" }
+    {
+      "name": "escaped_doublestar_matches_multi",
+      "method": "GET",
+      "path": "/a/x/y"
+    },
+    {
+      "name": "brace_mix_matches_dot_alt",
+      "method": "GET",
+      "path": "/x/.x"
+    },
+    {
+      "name": "brace_mix_matches_star_alt",
+      "method": "GET",
+      "path": "/x/abc"
+    },
+    {
+      "name": "brace_mix_rejects_other_dotfile",
+      "method": "GET",
+      "path": "/x/.y"
+    },
+    {
+      "name": "literal_lbracket_via_fallback",
+      "method": "GET",
+      "path": "/u/["
+    }
   ]
 }

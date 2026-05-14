@@ -8,12 +8,23 @@
   },
   "runner": {
     "l0": {
-      "clean": ["has_extension_directory_listing"],
+      "clean": [
+        "has_extension_directory_listing"
+      ],
       "divergent": [],
-      "bodyMayDiffer": ["has_extension_directory_listing"]
+      "bodyMayDiffer": [
+        "has_extension_directory_listing"
+      ],
+      "contentEncodingMayDiffer": [
+        "has_extension_directory_listing"
+      ]
     }
   },
   "requests": [
-    { "name": "has_extension_directory_listing", "method": "GET", "path": "/foo.txt/" }
+    {
+      "name": "has_extension_directory_listing",
+      "method": "GET",
+      "path": "/foo.txt/"
+    }
   ]
 }

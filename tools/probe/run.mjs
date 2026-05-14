@@ -39,15 +39,13 @@ const DEFAULT_VOLATILE_HEADERS = ['last-modified'];
 // (or differs on them) by deliberate L0 design (D-008/D-003 etc.). They are
 // masked from BOTH sides of the diff so the comparison stays meaningful.
 //
-// `content-encoding` was masked during Stage 7e slice 0 while irserve was
-// still pre-compression; slice 2 (this commit) lands the compression
-// module so the mask is dropped — `content-encoding` becomes a
-// dual-target must-match. The compressed-body BYTES still differ between
-// reference (Node zlib / brotli at their default params) and irserve
-// (Rust `flate2` / `brotli` crates at their defaults) — per D-020 — so
-// the per-case `bodyMayDiffer` overlay on compressed anchors handles
-// that side of the divergence.
-const L0_EXTRA_VOLATILE_HEADERS = ['etag', 'vary', 'accept-ranges'];
+// Stage 7e Codex round 1 P1: `vary` was masked here pre-7e because irserve
+// did not emit it; post-7e the centralized compression pass mirrors the
+// reference's `vary()` semantics (set / append `Accept-Encoding` on every
+// response whose content-type is compressible). Removing the mask lets
+// the compression-raw probe and the legacy 4xx probes assert the Vary
+// invariant must-match.
+const L0_EXTRA_VOLATILE_HEADERS = ['etag', 'accept-ranges'];
 
 // Flags deferred from the strict L0 implementation (D-008). If a case asks
 // for one of these via `serveArgs`, the runner refuses to run it against
@@ -712,6 +710,7 @@ function applyL0Filter(snap, l0) {
   const divergent = new Set(l0.divergent ?? []);
   const bodyMayDiffer = new Set(l0.bodyMayDiffer ?? []);
   const contentLengthMayDiffer = new Set(l0.contentLengthMayDiffer ?? []);
+  const contentEncodingMayDiffer = new Set(l0.contentEncodingMayDiffer ?? []);
   const exitCodeMayDiffer = new Set(l0.exitCodeMayDiffer ?? []);
   // The L0 partition is a strict allow-list: only `clean` anchors are
   // compared. `divergent` is informational. Anchors absent from both lists
@@ -751,19 +750,23 @@ function applyL0Filter(snap, l0) {
         if (r.response.headers && 'content-length' in r.response.headers) {
           delete r.response.headers['content-length'];
         }
-        // Stage 7e: `content-encoding` is a function of body length vs the
-        // 1024-byte compression threshold AND the MIME-compressibility
-        // decision. When the body itself is may-differ (e.g. a custom error
-        // page whose HTML is implementation-defined per D-002 / D-003), the
-        // compression outcome is necessarily may-differ too — reference's
-        // 1.6 KiB fallback gets compressed, irserve's 23-byte `<h1>` line
-        // does not.
-        if (r.response.headers && 'content-encoding' in r.response.headers) {
-          delete r.response.headers['content-encoding'];
-        }
       }
       if (contentLengthMayDiffer.has(r.name) && r.response?.headers) {
         delete r.response.headers['content-length'];
+      }
+      if (contentEncodingMayDiffer.has(r.name) && r.response?.headers) {
+        // Stage 7e Codex round 1 P1: separate from `bodyMayDiffer`. Used
+        // on anchors whose body content is implementation-defined per
+        // D-002 / D-003 (custom error pages: reference emits a 1.6 KiB
+        // HTML body that gets compressed; irserve emits a 23-byte `<h1>`
+        // line that stays below threshold). The compression DECISION
+        // differs even though both sides are running the same middleware
+        // — so `content-encoding` may differ without it being a contract
+        // violation. NOT applied implicitly via `bodyMayDiffer` because
+        // when the body bytes are merely byte-different (same length,
+        // same MIME, both ≥ threshold), the compression decision IS
+        // contractual.
+        delete r.response.headers['content-encoding'];
       }
     }
   }

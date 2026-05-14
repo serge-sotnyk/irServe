@@ -7,10 +7,22 @@
     },
     "serveJson": {
       "redirects": [
-        { "source": "/Case", "destination": "/literal-case" },
-        { "source": "/P/:id", "destination": "/param/:id" },
-        { "source": "/S/*", "destination": "/star" },
-        { "source": "/G/?", "destination": "/g" }
+        {
+          "source": "/Case",
+          "destination": "/literal-case"
+        },
+        {
+          "source": "/P/:id",
+          "destination": "/param/:id"
+        },
+        {
+          "source": "/S/*",
+          "destination": "/star"
+        },
+        {
+          "source": "/G/?",
+          "destination": "/g"
+        }
       ]
     }
   },
@@ -30,14 +42,39 @@
         "pattern_star_case_insensitive",
         "glob_only_remains_case_sensitive"
       ],
-      "bodyMayDiffer": ["glob_only_remains_case_sensitive"]
+      "bodyMayDiffer": [
+        "glob_only_remains_case_sensitive"
+      ],
+      "contentEncodingMayDiffer": [
+        "glob_only_remains_case_sensitive"
+      ]
     }
   },
   "requests": [
-    { "name": "literal_case_matches_lowercase", "method": "GET", "path": "/case" },
-    { "name": "literal_case_matches_same_case", "method": "GET", "path": "/Case" },
-    { "name": "pattern_param_case_insensitive", "method": "GET", "path": "/p/Foo" },
-    { "name": "pattern_star_case_insensitive", "method": "GET", "path": "/s/x" },
-    { "name": "glob_only_remains_case_sensitive", "method": "GET", "path": "/g/a" }
+    {
+      "name": "literal_case_matches_lowercase",
+      "method": "GET",
+      "path": "/case"
+    },
+    {
+      "name": "literal_case_matches_same_case",
+      "method": "GET",
+      "path": "/Case"
+    },
+    {
+      "name": "pattern_param_case_insensitive",
+      "method": "GET",
+      "path": "/p/Foo"
+    },
+    {
+      "name": "pattern_star_case_insensitive",
+      "method": "GET",
+      "path": "/s/x"
+    },
+    {
+      "name": "glob_only_remains_case_sensitive",
+      "method": "GET",
+      "path": "/g/a"
+    }
   ]
 }

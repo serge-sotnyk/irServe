@@ -8,14 +8,35 @@
   },
   "runner": {
     "l0": {
-      "clean": ["missing_html", "missing_html_with_accept"],
+      "clean": [
+        "missing_html",
+        "missing_html_with_accept"
+      ],
       "divergent": [],
-      "bodyMayDiffer": ["missing_html"],
-      "contentLengthMayDiffer": ["missing_html_with_accept"]
+      "bodyMayDiffer": [
+        "missing_html"
+      ],
+      "contentLengthMayDiffer": [
+        "missing_html_with_accept"
+      ],
+      "contentEncodingMayDiffer": [
+        "missing_html"
+      ]
     }
   },
   "requests": [
-    { "name": "missing_html", "method": "GET", "path": "/does-not-exist" },
-    { "name": "missing_html_with_accept", "method": "GET", "path": "/does-not-exist", "headers": { "accept": "application/json" } }
+    {
+      "name": "missing_html",
+      "method": "GET",
+      "path": "/does-not-exist"
+    },
+    {
+      "name": "missing_html_with_accept",
+      "method": "GET",
+      "path": "/does-not-exist",
+      "headers": {
+        "accept": "application/json"
+      }
+    }
   ]
 }

@@ -7,18 +7,32 @@
     },
     "serveJson": {
       "rewrites": [
-        { "source": "/old", "destination": "/docs" }
+        {
+          "source": "/old",
+          "destination": "/docs"
+        }
       ]
     }
   },
   "runner": {
     "l0": {
-      "clean": ["rewrite_target_directory_listing"],
+      "clean": [
+        "rewrite_target_directory_listing"
+      ],
       "divergent": [],
-      "bodyMayDiffer": ["rewrite_target_directory_listing"]
+      "bodyMayDiffer": [
+        "rewrite_target_directory_listing"
+      ],
+      "contentEncodingMayDiffer": [
+        "rewrite_target_directory_listing"
+      ]
     }
   },
   "requests": [
-    { "name": "rewrite_target_directory_listing", "method": "GET", "path": "/old" }
+    {
+      "name": "rewrite_target_directory_listing",
+      "method": "GET",
+      "path": "/old"
+    }
   ]
 }

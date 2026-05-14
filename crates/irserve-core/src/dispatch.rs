@@ -11,7 +11,6 @@ use axum::http::{HeaderMap, Method, Request, Response, StatusCode};
 use percent_encoding::{percent_decode_str, utf8_percent_encode, AsciiSet, CONTROLS};
 
 use crate::clean_urls::{compute_clean_urls_redirect, try_clean_urls_resolve, CleanUrlsView};
-use crate::compression;
 use crate::config::ServeConfig;
 use crate::custom_headers::{apply_custom_headers, HeaderRuleCompiled};
 use crate::error::error_response;
@@ -356,7 +355,6 @@ async fn dispatch_inner(
                     build_file_or_304(
                         serve_config,
                         req.headers(),
-                        req.method(),
                         &p,
                         bytes,
                         meta.as_ref(),
@@ -491,7 +489,6 @@ async fn dispatch_inner(
                         build_file_or_304(
                             serve_config,
                             req.headers(),
-                            req.method(),
                             &path,
                             bytes,
                             meta.as_ref(),
@@ -770,7 +767,6 @@ fn etag_value(serve_config: &ServeConfig, path: &Path, bytes: &[u8]) -> Option<H
 fn build_file_or_304(
     serve_config: &ServeConfig,
     req_headers: &HeaderMap,
-    req_method: &Method,
     path: &Path,
     bytes: Vec<u8>,
     meta: Option<&Metadata>,
@@ -789,11 +785,6 @@ fn build_file_or_304(
 
     let etag = etag_value(serve_config, path, &bytes);
     let last_modified = last_modified_value(serve_config, meta);
-    // Snapshot the pre-compression bytes for `compression::maybe_apply`
-    // below. We can't recover them from the `Body` after `file_response`
-    // moves them in, and the Range branch already takes its own clone
-    // above (`bytes_for_range`).
-    let bytes_for_compression = bytes.clone();
     let response_200 = file_response(path, bytes, etag, last_modified);
     let merged = apply_custom_headers(response_200, request_path, header_rules);
 
@@ -837,22 +828,14 @@ fn build_file_or_304(
                 }
             }
         }
-        // SRV-CLI-012 (Stage 7e): compression negotiation. Slots in
-        // AFTER the 304 short-circuits (no point compressing a body
-        // we won't send) and AFTER `apply_custom_headers` so the
-        // final merged Content-Type / Cache-Control drive the
-        // compressible / no-transform decisions. Range pre-empts
-        // compression — the `let Some(range_value)` tail below
-        // bypasses this call when a Range header is present, mirroring
-        // the reference's middleware ordering (compression sees the
-        // 206 body framing as opaque and skips).
-        return compression::maybe_apply(
-            merged,
-            &bytes_for_compression,
-            req_headers,
-            req_method,
-            serve_config,
-        );
+        // SRV-CLI-012 (Stage 7e Codex round 1 P2): compression now
+        // lives in a centralized post-dispatch pass in
+        // `server::handler` (so directory listings and error pages
+        // also get compressed, mirroring the reference middleware
+        // that fires on every response). The Range path below still
+        // short-circuits compression because `compression::maybe_apply`
+        // skips `StatusCode::PARTIAL_CONTENT` responses.
+        return merged;
     };
 
     // SRV-CACHE-004: Range present → emit 206 (in-range) or 416
@@ -890,7 +873,7 @@ fn not_modified_response() -> Response<Body> {
 
 #[cfg(test)]
 mod tests {
-    use super::{build_file_or_304, encode_uri_target, url_path_has_extension, Method};
+    use super::{build_file_or_304, encode_uri_target, url_path_has_extension};
     use crate::config::{HeaderItem, HeaderRule, ServeConfig};
     use crate::custom_headers::{compile_rules, HeaderRuleCompiled};
     use axum::http::header::{
@@ -953,7 +936,6 @@ mod tests {
         let resp = build_file_or_304(
             &cfg,
             &h,
-            &Method::GET,
             &asset_path(),
             ASSET_CSS_BYTES.to_vec(),
             None,
@@ -980,7 +962,6 @@ mod tests {
         let resp = build_file_or_304(
             &cfg,
             &h,
-            &Method::GET,
             &asset_path(),
             ASSET_CSS_BYTES.to_vec(),
             None,
@@ -1006,7 +987,6 @@ mod tests {
         let resp = build_file_or_304(
             &cfg,
             &h,
-            &Method::GET,
             &asset_path(),
             ASSET_CSS_BYTES.to_vec(),
             None,
@@ -1030,7 +1010,6 @@ mod tests {
         let resp = build_file_or_304(
             &cfg,
             &h,
-            &Method::GET,
             &asset_path(),
             ASSET_CSS_BYTES.to_vec(),
             None,
@@ -1056,7 +1035,6 @@ mod tests {
         let resp = build_file_or_304(
             &cfg,
             &h,
-            &Method::GET,
             &asset_path(),
             ASSET_CSS_BYTES.to_vec(),
             Some(&meta),
@@ -1091,7 +1069,6 @@ mod tests {
         let resp = build_file_or_304(
             &cfg,
             &h,
-            &Method::GET,
             &asset_path(),
             ASSET_CSS_BYTES.to_vec(),
             Some(&meta),
@@ -1127,7 +1104,6 @@ mod tests {
         let first = build_file_or_304(
             &cfg,
             &HeaderMap::new(),
-            &Method::GET,
             &asset_path(),
             ASSET_CSS_BYTES.to_vec(),
             Some(&meta),
@@ -1145,7 +1121,6 @@ mod tests {
         let resp = build_file_or_304(
             &cfg,
             &h,
-            &Method::GET,
             &asset_path(),
             ASSET_CSS_BYTES.to_vec(),
             Some(&meta),
@@ -1176,7 +1151,6 @@ mod tests {
         let resp = build_file_or_304(
             &cfg,
             &h,
-            &Method::GET,
             &asset_path(),
             ASSET_CSS_BYTES.to_vec(),
             Some(&meta),
@@ -1201,7 +1175,6 @@ mod tests {
         let resp = build_file_or_304(
             &cfg,
             &h,
-            &Method::GET,
             &asset_path(),
             ASSET_CSS_BYTES.to_vec(),
             Some(&meta),
@@ -1225,7 +1198,6 @@ mod tests {
         let resp = build_file_or_304(
             &cfg,
             &h,
-            &Method::GET,
             &asset_path(),
             ASSET_CSS_BYTES.to_vec(),
             Some(&meta),
@@ -1254,7 +1226,6 @@ mod tests {
         let resp = build_file_or_304(
             &cfg,
             &h,
-            &Method::GET,
             &asset_path(),
             ASSET_CSS_BYTES.to_vec(),
             Some(&meta),
@@ -1283,7 +1254,6 @@ mod tests {
         let resp = build_file_or_304(
             &cfg,
             &h,
-            &Method::GET,
             &asset_path(),
             ASSET_CSS_BYTES.to_vec(),
             Some(&meta),
@@ -1318,7 +1288,6 @@ mod tests {
         let resp = build_file_or_304(
             &cfg,
             &h,
-            &Method::GET,
             &asset_path(),
             ASSET_CSS_BYTES.to_vec(),
             Some(&meta),
@@ -1361,7 +1330,6 @@ mod tests {
         let r_match = build_file_or_304(
             &cfg,
             &h_match,
-            &Method::GET,
             &asset_path(),
             ASSET_CSS_BYTES.to_vec(),
             Some(&meta),
@@ -1379,7 +1347,6 @@ mod tests {
         let r_old = build_file_or_304(
             &cfg,
             &h_old,
-            &Method::GET,
             &asset_path(),
             ASSET_CSS_BYTES.to_vec(),
             Some(&meta),
@@ -1404,7 +1371,6 @@ mod tests {
         let resp = build_file_or_304(
             &cfg,
             &h,
-            &Method::GET,
             &asset_path(),
             ASSET_CSS_BYTES.to_vec(),
             None,
@@ -1431,7 +1397,6 @@ mod tests {
         let r_custom = build_file_or_304(
             &cfg,
             &h_custom,
-            &Method::GET,
             &asset_path(),
             ASSET_CSS_BYTES.to_vec(),
             None,
@@ -1448,7 +1413,6 @@ mod tests {
         let r_default = build_file_or_304(
             &cfg,
             &h_default,
-            &Method::GET,
             &asset_path(),
             ASSET_CSS_BYTES.to_vec(),
             None,
@@ -1475,7 +1439,6 @@ mod tests {
         let r_first = build_file_or_304(
             &cfg,
             &h_empty,
-            &Method::GET,
             &asset_path(),
             ASSET_CSS_BYTES.to_vec(),
             None,
@@ -1492,7 +1455,6 @@ mod tests {
         let r_replay = build_file_or_304(
             &cfg,
             &h_custom,
-            &Method::GET,
             &asset_path(),
             ASSET_CSS_BYTES.to_vec(),
             None,
@@ -1515,7 +1477,6 @@ mod tests {
         let resp = build_file_or_304(
             &cfg,
             &h,
-            &Method::GET,
             &asset_path(),
             ASSET_CSS_BYTES.to_vec(),
             None,
@@ -1640,7 +1601,6 @@ mod tests {
         let resp = build_file_or_304(
             &cfg_etag(None),
             &range_header("bytes=0-3"),
-            &Method::GET,
             &asset_path(),
             ASSET_CSS_BYTES.to_vec(),
             None,
@@ -1667,7 +1627,6 @@ mod tests {
         let resp = build_file_or_304(
             &cfg_etag(None),
             &range_header("bytes=8-"),
-            &Method::GET,
             &asset_path(),
             ASSET_CSS_BYTES.to_vec(),
             None,
@@ -1688,7 +1647,6 @@ mod tests {
         let resp = build_file_or_304(
             &cfg_etag(None),
             &range_header("bytes=-4"),
-            &Method::GET,
             &asset_path(),
             ASSET_CSS_BYTES.to_vec(),
             None,
@@ -1709,7 +1667,6 @@ mod tests {
         let resp = build_file_or_304(
             &cfg_etag(None),
             &range_header("bytes=999-1000"),
-            &Method::GET,
             &asset_path(),
             ASSET_CSS_BYTES.to_vec(),
             None,
@@ -1739,7 +1696,6 @@ mod tests {
         let first = build_file_or_304(
             &cfg,
             &HeaderMap::new(),
-            &Method::GET,
             &asset_path(),
             ASSET_CSS_BYTES.to_vec(),
             Some(&meta),
@@ -1759,7 +1715,6 @@ mod tests {
         let resp = build_file_or_304(
             &cfg,
             &h,
-            &Method::GET,
             &asset_path(),
             ASSET_CSS_BYTES.to_vec(),
             Some(&meta),
@@ -1778,7 +1733,6 @@ mod tests {
         let resp = build_file_or_304(
             &cfg_etag(None),
             &range_header("bytes=0-3"),
-            &Method::GET,
             &asset_path(),
             ASSET_CSS_BYTES.to_vec(),
             None,
@@ -1798,7 +1752,6 @@ mod tests {
         let resp = build_file_or_304(
             &cfg_etag(None),
             &range_header("bytes=0-3"),
-            &Method::GET,
             &asset_path(),
             ASSET_CSS_BYTES.to_vec(),
             None,
@@ -1817,7 +1770,6 @@ mod tests {
         let resp = build_file_or_304(
             &cfg_etag(None),
             &range_header("bytes=999-1000"),
-            &Method::GET,
             &asset_path(),
             ASSET_CSS_BYTES.to_vec(),
             None,
@@ -1840,7 +1792,6 @@ mod tests {
         let resp = build_file_or_304(
             &cfg_etag(None),
             &range_header("bytes=0-3"),
-            &Method::GET,
             &asset_path(),
             Vec::new(),
             None,
@@ -1878,7 +1829,6 @@ mod tests {
         let resp = build_file_or_304(
             &cfg_etag(None),
             &range_header("bytes=999-1000"),
-            &Method::GET,
             &asset_path(),
             ASSET_CSS_BYTES.to_vec(),
             None,
@@ -1901,7 +1851,6 @@ mod tests {
         let resp = build_file_or_304(
             &cfg_etag(None),
             &range_header("bytes=0-3x"),
-            &Method::GET,
             &asset_path(),
             ASSET_CSS_BYTES.to_vec(),
             None,
@@ -1928,7 +1877,6 @@ mod tests {
         let resp = build_file_or_304(
             &cfg_etag(Some(false)),
             &range_header("bytes=0-3"),
-            &Method::GET,
             &asset_path(),
             ASSET_CSS_BYTES.to_vec(),
             None,

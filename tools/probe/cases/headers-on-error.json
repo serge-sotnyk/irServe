@@ -10,23 +10,39 @@
         {
           "source": "**",
           "headers": [
-            { "key": "X-Test", "value": "yes" }
+            {
+              "key": "X-Test",
+              "value": "yes"
+            }
           ]
         }
       ]
     }
   },
   "snapshot": {
-    "extraTrackedHeaders": ["x-test"]
+    "extraTrackedHeaders": [
+      "x-test"
+    ]
   },
   "runner": {
     "l0": {
-      "clean": ["not_found_carries_x_test"],
+      "clean": [
+        "not_found_carries_x_test"
+      ],
       "divergent": [],
-      "bodyMayDiffer": ["not_found_carries_x_test"]
+      "bodyMayDiffer": [
+        "not_found_carries_x_test"
+      ],
+      "contentEncodingMayDiffer": [
+        "not_found_carries_x_test"
+      ]
     }
   },
   "requests": [
-    { "name": "not_found_carries_x_test", "method": "GET", "path": "/no-such" }
+    {
+      "name": "not_found_carries_x_test",
+      "method": "GET",
+      "path": "/no-such"
+    }
   ]
 }

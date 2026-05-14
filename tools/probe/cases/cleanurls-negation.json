@@ -8,7 +8,9 @@
       "index.html": "<p>home</p>\n"
     },
     "serveJson": {
-      "cleanUrls": ["!/secret/**"]
+      "cleanUrls": [
+        "!/secret/**"
+      ]
     }
   },
   "runner": {
@@ -20,14 +22,37 @@
         "secret_extensionless_miss"
       ],
       "divergent": [],
-      "bodyMayDiffer": ["secret_extensionless_miss"],
-      "contentLengthMayDiffer": ["public_html_redirect"]
+      "bodyMayDiffer": [
+        "secret_extensionless_miss"
+      ],
+      "contentLengthMayDiffer": [
+        "public_html_redirect"
+      ],
+      "contentEncodingMayDiffer": [
+        "secret_extensionless_miss"
+      ]
     }
   },
   "requests": [
-    { "name": "public_html_redirect", "method": "GET", "path": "/public/page.html" },
-    { "name": "public_extensionless_resolves", "method": "GET", "path": "/public/page" },
-    { "name": "secret_html_direct", "method": "GET", "path": "/secret/page.html" },
-    { "name": "secret_extensionless_miss", "method": "GET", "path": "/secret/page" }
+    {
+      "name": "public_html_redirect",
+      "method": "GET",
+      "path": "/public/page.html"
+    },
+    {
+      "name": "public_extensionless_resolves",
+      "method": "GET",
+      "path": "/public/page"
+    },
+    {
+      "name": "secret_html_direct",
+      "method": "GET",
+      "path": "/secret/page.html"
+    },
+    {
+      "name": "secret_extensionless_miss",
+      "method": "GET",
+      "path": "/secret/page"
+    }
   ]
 }

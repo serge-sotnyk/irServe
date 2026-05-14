@@ -7,18 +7,40 @@
       "asset.css": "body{}\n"
     }
   },
-  "serveArgs": ["--cors"],
+  "serveArgs": [
+    "--cors"
+  ],
   "runner": {
     "l0": {
-      "clean": ["file_200", "cleanurls_301", "missing_404"],
+      "clean": [
+        "file_200",
+        "cleanurls_301",
+        "missing_404"
+      ],
       "divergent": [],
-      "bodyMayDiffer": ["missing_404"],
-      "contentLengthMayDiffer": ["cleanurls_301"]
+      "bodyMayDiffer": [
+        "missing_404"
+      ],
+      "contentLengthMayDiffer": [
+        "cleanurls_301"
+      ],
+      "contentEncodingMayDiffer": [
+        "missing_404"
+      ]
     }
   },
   "requests": [
-    { "name": "file_200", "path": "/asset.css" },
-    { "name": "cleanurls_301", "path": "/index.html" },
-    { "name": "missing_404", "path": "/nope" }
+    {
+      "name": "file_200",
+      "path": "/asset.css"
+    },
+    {
+      "name": "cleanurls_301",
+      "path": "/index.html"
+    },
+    {
+      "name": "missing_404",
+      "path": "/nope"
+    }
   ]
 }

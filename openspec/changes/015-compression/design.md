@@ -193,43 +193,61 @@ off the response's headers (after
 overrides the content-type drives the compressibility
 decision.
 
-## §4. Dispatcher seam
+## §4. Centralized handler seam (Codex round 1 P2 fix)
 
-`crates/irserve-core/src/dispatch.rs::build_file_or_304`
-is the integration point. The seam slots
-`compression::maybe_apply` AFTER `apply_custom_headers`
-(so the merged final `Content-Type` and
-`Cache-Control` are visible to the negotiator) and
-BEFORE Range pre-emption — concretely, the Range branch
-runs INSIDE `build_file_or_304` ahead of the
-compression call, so a `Range`-bearing request never
-enters `maybe_apply`. The call site reads (mirroring
-the comment at `dispatch.rs::build_file_or_304`):
+`crates/irserve-core/src/server.rs::handler` is the
+integration point. Initial slice 2 wired compression
+inside `dispatch.rs::build_file_or_304` so it had the
+raw bytes in hand — but Codex round 1 P2 surfaced that
+this narrow seam SKIPPED directory listings and error
+responses (which the reference's middleware DOES
+compress, since it fires on every response). The
+centralized fix moves `maybe_apply` to a post-dispatch
+pass between `apply_cors` and the request log, mirroring
+the reference's middleware order at
+`third_party/serve/source/utilities/server.ts:65-72`.
+The call site reads:
 
 ```rust
-// SRV-CLI-012 (Stage 7e): compression negotiation. Slots in
-// AFTER the 304 short-circuits (no point compressing a body
-// we won't send) and AFTER apply_custom_headers so the merged
-// final Content-Type / Cache-Control drive the decision.
-// Range pre-empts compression upstream (matches the reference's
-// middleware ordering: compression sees the 206 body framing
-// as opaque and skips).
-return compression::maybe_apply(
-    merged,
-    &bytes_for_compression,
-    req_headers,
-    method,
-    serve_config,
-);
+let req_method = req.method().clone();
+let req_accept_encoding = req.headers().get(ACCEPT_ENCODING).cloned();
+
+let response = dispatch(...).await;
+let response = if state.cors { apply_cors(response) } else { response };
+let response = compression::maybe_apply(
+    response,
+    &req_method,
+    req_accept_encoding.as_ref(),
+    &state.serve_config,
+)
+.await;
 ```
 
-The bytes that feed `maybe_apply` are snapshotted before
-the `Body` move into `file_response` (the comment at the
-snapshot site enumerates the constraint:
-"`compression::maybe_apply` below. We can't recover them
-from the `Body` after `file_response` moves them in, and
-the Range branch already takes its own clone"). Range's
-own clone is unaffected.
+The request method and `Accept-Encoding` are captured
+BEFORE `dispatch` consumes the request. `maybe_apply` is
+async — it consumes the response body via
+`axum::body::to_bytes` (small overhead for the
+static-file model; ~zero allocations for empty / sub-
+threshold bodies because the read is short). Range
+pre-emption stays intact via the explicit
+`if parts.status == StatusCode::PARTIAL_CONTENT` check
+INSIDE `maybe_apply` (step 5 in §2), set AFTER Vary so
+the 206 anchor in `compression-raw.json` still carries
+the negotiation hook.
+
+`build_file_or_304` no longer calls compression
+directly; the `req_method` parameter added in initial
+slice 2 is reverted along with the call. Future stages
+that need to skip / customize compression per response
+shape (e.g. websockets — if 7f ever lands) get a single
+seam to hook.
+
+Historical: the initial slice 2 design snapshotted the
+file bytes inside `build_file_or_304` because the
+in-dispatcher seam needed them in hand. The centralized
+fix in Codex round 1 P2 reads them back from the
+response body via `axum::body::to_bytes`, so the
+snapshot dance is gone.)
 
 `maybe_apply` itself is the only mutating call in the
 module. Its gate ordering, top-to-bottom:
@@ -242,18 +260,27 @@ module. Its gate ordering, top-to-bottom:
    non-compressible types).
 3. `Cache-Control: no-transform` present on the
    merged response → return unchanged. No `Vary`.
-4. **Vary set if missing** (set-only-if-missing
-   semantics — see Compatibility note #5 in the
-   capability spec).
-5. `method == HEAD` → return with `Vary` set, body
+4. **Vary appended** to any existing `Vary` header
+   via `append_vary_accept_encoding`, mirroring the
+   reference's `vary()` utility (Codex round 1 P2
+   fix). Existing `Vary: <field>` becomes
+   `Vary: <field>, Accept-Encoding`; wildcard `*` is
+   left alone; case-insensitive dedup. Codex round 1
+   P1 follow-up: 206 status responses fall through
+   this step (Vary is set) and then short-circuit
+   BEFORE compression — Range pre-empts the encode
+   step but keeps the negotiation hook visible.
+5. `parts.status == PARTIAL_CONTENT` → return with
+   `Vary` set, body untouched.
+6. `method == HEAD` → return with `Vary` set, body
    untouched. Axum / hyper strip the HEAD body on the
    wire.
-6. `bytes.len() < DEFAULT_THRESHOLD` (1024) → return
+7. `bytes.len() < DEFAULT_THRESHOLD` (1024) → return
    with `Vary` set, body untouched.
-7. `negotiate(accept_encoding) == None` → return with
+8. `negotiate(accept_encoding) == None` → return with
    `Vary` set, body untouched (identity-only or
    all-q-zero).
-8. Otherwise: encode `bytes` via the chosen encoder,
+9. Otherwise: encode `bytes` via the chosen encoder,
    set `Content-Encoding: <token>`, set
    `Content-Length: <compressed-len>`, replace body.
    `Vary` was set in step 4.
@@ -396,7 +423,9 @@ interaction — slice 0's `range_big_html_gzip` anchor
 confirmed the reference's Range pre-empts
 compression (option (a) in the plan-mode risk list:
 the reference DOES NOT compress 206 responses). The
-irserve implementation mirrors via the dispatcher
-ordering: `range::apply` runs inside
-`build_file_or_304` ahead of the
-`compression::maybe_apply` call.
+irserve implementation mirrors via the explicit
+`StatusCode::PARTIAL_CONTENT` check in `maybe_apply`
+(post-7e Codex round 1 P1: the check sits AFTER the
+Vary set so the negotiation hook is still visible on
+206 responses, mirroring the reference's `vary()`
+ordering relative to threshold / status filtering).

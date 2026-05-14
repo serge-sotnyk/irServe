@@ -11,12 +11,23 @@
   },
   "runner": {
     "l0": {
-      "clean": ["root_no_listing"],
+      "clean": [
+        "root_no_listing"
+      ],
       "divergent": [],
-      "bodyMayDiffer": ["root_no_listing"]
+      "bodyMayDiffer": [
+        "root_no_listing"
+      ],
+      "contentEncodingMayDiffer": [
+        "root_no_listing"
+      ]
     }
   },
   "requests": [
-    { "name": "root_no_listing", "method": "GET", "path": "/" }
+    {
+      "name": "root_no_listing",
+      "method": "GET",
+      "path": "/"
+    }
   ]
 }

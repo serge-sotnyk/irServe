@@ -7,10 +7,22 @@
     },
     "serveJson": {
       "redirects": [
-        { "source": "/g/[.]y", "destination": "/bracket-hit" },
-        { "source": "/a/*/b/{.x,y}", "destination": "/brace-dot-hit" },
-        { "source": "/c/*/d/{x,y}", "destination": "/brace-no-dot-hit" },
-        { "source": "/q/:id/?", "destination": "/qmark-hit" }
+        {
+          "source": "/g/[.]y",
+          "destination": "/bracket-hit"
+        },
+        {
+          "source": "/a/*/b/{.x,y}",
+          "destination": "/brace-dot-hit"
+        },
+        {
+          "source": "/c/*/d/{x,y}",
+          "destination": "/brace-no-dot-hit"
+        },
+        {
+          "source": "/q/:id/?",
+          "destination": "/qmark-hit"
+        }
       ]
     }
   },
@@ -31,13 +43,33 @@
       "bodyMayDiffer": [
         "bracket_glob_rejects_dot",
         "brace_no_dot_alternative_rejects_dot"
+      ],
+      "contentEncodingMayDiffer": [
+        "bracket_glob_rejects_dot",
+        "brace_no_dot_alternative_rejects_dot"
       ]
     }
   },
   "requests": [
-    { "name": "bracket_glob_rejects_dot", "method": "GET", "path": "/g/.y" },
-    { "name": "brace_dot_alternative_admits_dot", "method": "GET", "path": "/a/q/b/.x" },
-    { "name": "brace_no_dot_alternative_rejects_dot", "method": "GET", "path": "/c/q/d/.x" },
-    { "name": "param_plus_question_mark_via_minimatch", "method": "GET", "path": "/q/:id/x" }
+    {
+      "name": "bracket_glob_rejects_dot",
+      "method": "GET",
+      "path": "/g/.y"
+    },
+    {
+      "name": "brace_dot_alternative_admits_dot",
+      "method": "GET",
+      "path": "/a/q/b/.x"
+    },
+    {
+      "name": "brace_no_dot_alternative_rejects_dot",
+      "method": "GET",
+      "path": "/c/q/d/.x"
+    },
+    {
+      "name": "param_plus_question_mark_via_minimatch",
+      "method": "GET",
+      "path": "/q/:id/x"
+    }
   ]
 }

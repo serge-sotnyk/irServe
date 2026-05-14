@@ -7,9 +7,18 @@
     },
     "serveJson": {
       "redirects": [
-        { "source": "/u/foo\\", "destination": "/literal-trailing-bs" },
-        { "source": "/u/\\f", "destination": "/inner-escape-hit" },
-        { "source": "/v/*\\", "destination": "/glob-trailing-bs" }
+        {
+          "source": "/u/foo\\",
+          "destination": "/literal-trailing-bs"
+        },
+        {
+          "source": "/u/\\f",
+          "destination": "/inner-escape-hit"
+        },
+        {
+          "source": "/v/*\\",
+          "destination": "/glob-trailing-bs"
+        }
       ]
     }
   },
@@ -34,15 +43,43 @@
       "bodyMayDiffer": [
         "literal_trailing_bs_no_match_without_bs",
         "glob_trailing_bs_no_match_without_bs"
+      ],
+      "contentEncodingMayDiffer": [
+        "literal_trailing_bs_no_match_without_bs",
+        "glob_trailing_bs_no_match_without_bs"
       ]
     }
   },
   "requests": [
-    { "name": "literal_trailing_bs_no_match_without_bs", "method": "GET", "path": "/u/foo" },
-    { "name": "literal_trailing_bs_matches_with_bs", "method": "GET", "path": "/u/foo%5C" },
-    { "name": "inner_escape_matches_de_escaped_form", "method": "GET", "path": "/u/f" },
-    { "name": "inner_escape_matches_raw_form", "method": "GET", "path": "/u/%5Cf" },
-    { "name": "glob_trailing_bs_no_match_without_bs", "method": "GET", "path": "/v/x" },
-    { "name": "glob_trailing_bs_matches_with_bs", "method": "GET", "path": "/v/x%5C" }
+    {
+      "name": "literal_trailing_bs_no_match_without_bs",
+      "method": "GET",
+      "path": "/u/foo"
+    },
+    {
+      "name": "literal_trailing_bs_matches_with_bs",
+      "method": "GET",
+      "path": "/u/foo%5C"
+    },
+    {
+      "name": "inner_escape_matches_de_escaped_form",
+      "method": "GET",
+      "path": "/u/f"
+    },
+    {
+      "name": "inner_escape_matches_raw_form",
+      "method": "GET",
+      "path": "/u/%5Cf"
+    },
+    {
+      "name": "glob_trailing_bs_no_match_without_bs",
+      "method": "GET",
+      "path": "/v/x"
+    },
+    {
+      "name": "glob_trailing_bs_matches_with_bs",
+      "method": "GET",
+      "path": "/v/x%5C"
+    }
   ]
 }

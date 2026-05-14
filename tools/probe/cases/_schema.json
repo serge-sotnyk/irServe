@@ -91,6 +91,11 @@
               "items": { "type": "string" },
               "description": "Anchor names whose `content-length` header is may-differ but whose body bytes are must-match (e.g. JSON 404 envelope where serve uses chunked transfer-encoding)."
             },
+            "contentEncodingMayDiffer": {
+              "type": "array",
+              "items": { "type": "string" },
+              "description": "Anchor names whose `content-encoding` header is may-differ. Used for custom error pages and other anchors where body content is implementation-defined (D-002 / D-003) AND therefore the compression decision (= function of body length vs threshold) is implementation-defined too. NOT implied by `bodyMayDiffer`: byte-different bodies of the same size and MIME still keep `content-encoding` as a must-match contract (Stage 7e Codex round 1 P1)."
+            },
             "exitCodeMayDiffer": {
               "type": "array",
               "items": { "type": "string" },

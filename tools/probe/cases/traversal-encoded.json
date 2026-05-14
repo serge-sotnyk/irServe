@@ -20,13 +20,34 @@
         "encoded_dotdot",
         "double_slash_passwd",
         "raw_dotdot"
+      ],
+      "contentEncodingMayDiffer": [
+        "encoded_dotdot",
+        "double_slash_passwd",
+        "raw_dotdot"
       ]
     }
   },
   "requests": [
-    { "name": "encoded_dotdot", "method": "GET", "path": "/%2e%2e/etc/passwd" },
-    { "name": "double_slash_passwd", "method": "GET", "path": "//etc/passwd" },
-    { "name": "raw_dotdot", "method": "GET", "path": "/../../etc/passwd" },
-    { "name": "encoded_in_subpath", "method": "GET", "path": "/sub/%2e%2e/secret.txt" }
+    {
+      "name": "encoded_dotdot",
+      "method": "GET",
+      "path": "/%2e%2e/etc/passwd"
+    },
+    {
+      "name": "double_slash_passwd",
+      "method": "GET",
+      "path": "//etc/passwd"
+    },
+    {
+      "name": "raw_dotdot",
+      "method": "GET",
+      "path": "/../../etc/passwd"
+    },
+    {
+      "name": "encoded_in_subpath",
+      "method": "GET",
+      "path": "/sub/%2e%2e/secret.txt"
+    }
   ]
 }

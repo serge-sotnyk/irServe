@@ -42,10 +42,9 @@ use std::io::Write;
 
 use axum::body::Body;
 use axum::http::header::{
-    HeaderMap, HeaderValue, ACCEPT_ENCODING, CACHE_CONTROL, CONTENT_ENCODING, CONTENT_LENGTH,
-    CONTENT_TYPE, VARY,
+    HeaderMap, HeaderValue, CACHE_CONTROL, CONTENT_ENCODING, CONTENT_LENGTH, CONTENT_TYPE, VARY,
 };
-use axum::http::{Method, Response};
+use axum::http::{Method, Response, StatusCode};
 
 use crate::config::ServeConfig;
 
@@ -215,31 +214,39 @@ pub fn is_compressible(content_type: &str) -> bool {
 
 /// Apply HTTP compression to a response if the gate passes.
 ///
-/// `bytes` is the raw response body before compression — the caller
-/// retains ownership (we read it to compute the compressed body).
+/// Centralized post-dispatch pass (Stage 7e Codex round 1 P2 — moved
+/// here from the per-branch `build_file_or_304` site so listings and
+/// error pages get compression too, mirroring the reference's
+/// `compression` middleware which fires on every response). Consumes
+/// the body asynchronously to inspect its bytes against the
+/// 1024-byte threshold.
 ///
 /// `method` controls HEAD skipping (mirroring
 /// `compression/index.js:192-195`).
 ///
-/// `req_headers` provides `Accept-Encoding` for negotiation.
+/// `accept_encoding` provides the negotiation source.
 ///
 /// `serve_config.compression` gates the entire feature — when
 /// `Some(false)` (the `-u`/`--no-compression` flag was set), the
 /// response is returned unchanged with no `Vary` added.
 ///
 /// Mutations applied to the response on the compress / Vary path:
+/// - On 206 Partial Content (Range): nothing (pre-emption — body is
+///   already a sliced range and `Content-Range` would lie after
+///   re-compression).
 /// - On non-compressible MIME OR `Cache-Control: no-transform`:
 ///   nothing (response returned as-is).
-/// - On compressible MIME, no `no-transform`: `Vary: Accept-Encoding`
-///   header is set IF NOT ALREADY PRESENT (user `headers` rules win).
+/// - On compressible MIME, no `no-transform`: `Accept-Encoding` is
+///   APPENDED to any existing `Vary` header (case-insensitive,
+///   deduplicated), mirroring the reference's `vary()` utility at
+///   `third_party/serve/node_modules/compression/index.js:174`.
 /// - On the actual compress path: `Content-Encoding` set to the
 ///   chosen encoder's token, `Content-Length` overwritten with the
 ///   compressed body length, body replaced.
-pub fn maybe_apply(
+pub async fn maybe_apply(
     response: Response<Body>,
-    bytes: &[u8],
-    req_headers: &HeaderMap,
     method: &Method,
+    accept_encoding: Option<&HeaderValue>,
     serve_config: &ServeConfig,
 ) -> Response<Body> {
     if serve_config.compression == Some(false) {
@@ -250,10 +257,11 @@ pub fn maybe_apply(
         .headers()
         .get(CONTENT_TYPE)
         .and_then(|v| v.to_str().ok())
-        .unwrap_or("");
+        .unwrap_or("")
+        .to_string();
 
     // Non-compressible MIME → middleware never sets Vary; mirror.
-    if !is_compressible(content_type) {
+    if !is_compressible(&content_type) {
         return response;
     }
 
@@ -261,24 +269,38 @@ pub fn maybe_apply(
         .headers()
         .get(CACHE_CONTROL)
         .and_then(|v| v.to_str().ok())
-        .unwrap_or("");
+        .unwrap_or("")
+        .to_string();
 
     // `Cache-Control: no-transform` short-circuits BEFORE vary(),
     // per the empirical capture in `compression-raw.json` for the
     // `no_transform_big_html_gzip` anchor.
-    if cache_control_contains_no_transform(cache_control) {
+    if cache_control_contains_no_transform(&cache_control) {
         return response;
     }
 
     let (mut parts, body) = response.into_parts();
 
-    // Vary set unconditionally past the compressible / no-transform
-    // gates — even when the actual compress step is later skipped
-    // (HEAD, below threshold, identity-only, all-q-zero).
-    if !parts.headers.contains_key(VARY) {
-        parts
-            .headers
-            .insert(VARY, HeaderValue::from_static("Accept-Encoding"));
+    // Vary append. Codex round 1 P2 — mirror the reference's
+    // `vary()` utility (at `third_party/serve/node_modules/vary/index.js`,
+    // invoked from `compression/index.js:174`) which appends
+    // `Accept-Encoding` to any existing `Vary` instead of skipping.
+    // Without append, a user `headers` rule setting `Vary: Cookie`
+    // would emit `Vary: Cookie` + `Content-Encoding: br` — a
+    // cache-incorrect surface (downstream caches would key on
+    // Cookie only and serve the brotli body to clients that asked
+    // for identity).
+    append_vary_accept_encoding(&mut parts.headers);
+
+    // SRV-CACHE-004 / Stage 7c composition: Range pre-emption.
+    // `build_file_or_304` already emitted a 206 with a sliced body
+    // and a `Content-Range: bytes <s>-<e>/<total>` header that
+    // addresses the ORIGINAL bytes; compressing the slice now
+    // would invalidate Content-Range. Vary is kept (the negotiation
+    // hook engaged on a compressible MIME, mirroring the reference's
+    // 206 anchor in `compression-raw.json`).
+    if parts.status == StatusCode::PARTIAL_CONTENT {
+        return Response::from_parts(parts, body);
     }
 
     // HEAD: middleware skips compression but Vary is already set
@@ -288,15 +310,25 @@ pub fn maybe_apply(
         return Response::from_parts(parts, body);
     }
 
-    if bytes.len() < DEFAULT_THRESHOLD {
-        return Response::from_parts(parts, body);
-    }
-
-    let Some(encoding) = negotiate(req_headers.get(ACCEPT_ENCODING)) else {
-        return Response::from_parts(parts, body);
+    let bytes = match axum::body::to_bytes(body, usize::MAX).await {
+        Ok(b) => b,
+        Err(_) => {
+            // Body read failed (e.g. stream error). Surface an empty
+            // body — the response headers remain meaningful for
+            // logging / proxying.
+            return Response::from_parts(parts, Body::empty());
+        }
     };
 
-    let compressed = encode(bytes, encoding);
+    if bytes.len() < DEFAULT_THRESHOLD {
+        return Response::from_parts(parts, Body::from(bytes));
+    }
+
+    let Some(encoding) = negotiate(accept_encoding) else {
+        return Response::from_parts(parts, Body::from(bytes));
+    };
+
+    let compressed = encode(&bytes, encoding);
     parts
         .headers
         .insert(CONTENT_ENCODING, HeaderValue::from_static(encoding.as_str()));
@@ -304,6 +336,38 @@ pub fn maybe_apply(
         parts.headers.insert(CONTENT_LENGTH, len);
     }
     Response::from_parts(parts, Body::from(compressed))
+}
+
+/// Append `Accept-Encoding` to the response's `Vary` header,
+/// mirroring `vary()` at `third_party/serve/node_modules/vary/index.js`
+/// (invoked from `compression/index.js:174`). Semantics:
+/// - No existing `Vary`: insert `Accept-Encoding`.
+/// - Existing `Vary: *` (wildcard): leave alone — `*` already
+///   covers everything.
+/// - Existing `Vary` listing other field names: append
+///   `, Accept-Encoding` IF `Accept-Encoding` is not already
+///   present (case-insensitive, comma-separated).
+fn append_vary_accept_encoding(headers: &mut HeaderMap) {
+    let existing = headers.get(VARY).and_then(|v| v.to_str().ok());
+    let next = match existing {
+        None => "Accept-Encoding".to_string(),
+        Some(value) => {
+            // RFC 7231 §7.1.4: Vary `*` is a wildcard.
+            if value.split(',').any(|t| t.trim() == "*") {
+                return;
+            }
+            if value
+                .split(',')
+                .any(|t| t.trim().eq_ignore_ascii_case("Accept-Encoding"))
+            {
+                return;
+            }
+            format!("{value}, Accept-Encoding")
+        }
+    };
+    if let Ok(v) = HeaderValue::from_str(&next) {
+        headers.insert(VARY, v);
+    }
 }
 
 fn cache_control_contains_no_transform(value: &str) -> bool {
@@ -466,57 +530,40 @@ mod tests {
             .unwrap()
     }
 
-    fn req_with_accept_encoding(value: &str) -> HeaderMap {
-        let mut m = HeaderMap::new();
-        m.insert(ACCEPT_ENCODING, hv(value));
-        m
+    fn ae(value: &str) -> HeaderValue {
+        hv(value)
     }
 
-    #[test]
-    fn maybe_apply_disabled_via_flag_returns_unchanged() {
+    #[tokio::test]
+    async fn maybe_apply_disabled_via_flag_returns_unchanged() {
         let bytes = vec![b'a'; 4096];
-        let resp = ok_response("text/html", bytes.clone());
+        let resp = ok_response("text/html", bytes);
         let cfg = ServeConfig {
             compression: Some(false),
             ..Default::default()
         };
-        let out = maybe_apply(
-            resp,
-            &bytes,
-            &req_with_accept_encoding("br"),
-            &Method::GET,
-            &cfg,
-        );
+        let ae = ae("br");
+        let out = maybe_apply(resp, &Method::GET, Some(&ae), &cfg).await;
         assert!(out.headers().get(VARY).is_none());
         assert!(out.headers().get(CONTENT_ENCODING).is_none());
     }
 
-    #[test]
-    fn maybe_apply_non_compressible_mime_skips_vary() {
+    #[tokio::test]
+    async fn maybe_apply_non_compressible_mime_skips_vary() {
         let bytes = vec![b'a'; 4096];
-        let resp = ok_response("image/png", bytes.clone());
-        let out = maybe_apply(
-            resp,
-            &bytes,
-            &req_with_accept_encoding("br, gzip, deflate"),
-            &Method::GET,
-            &ServeConfig::default(),
-        );
+        let resp = ok_response("image/png", bytes);
+        let ae = ae("br, gzip, deflate");
+        let out = maybe_apply(resp, &Method::GET, Some(&ae), &ServeConfig::default()).await;
         assert!(out.headers().get(VARY).is_none());
         assert!(out.headers().get(CONTENT_ENCODING).is_none());
     }
 
-    #[test]
-    fn maybe_apply_below_threshold_sets_vary_only() {
+    #[tokio::test]
+    async fn maybe_apply_below_threshold_sets_vary_only() {
         let bytes = vec![b'a'; 100];
-        let resp = ok_response("text/html", bytes.clone());
-        let out = maybe_apply(
-            resp,
-            &bytes,
-            &req_with_accept_encoding("br, gzip"),
-            &Method::GET,
-            &ServeConfig::default(),
-        );
+        let resp = ok_response("text/html", bytes);
+        let ae = ae("br, gzip");
+        let out = maybe_apply(resp, &Method::GET, Some(&ae), &ServeConfig::default()).await;
         assert_eq!(
             out.headers().get(VARY).and_then(|v| v.to_str().ok()),
             Some("Accept-Encoding")
@@ -524,44 +571,36 @@ mod tests {
         assert!(out.headers().get(CONTENT_ENCODING).is_none());
     }
 
-    #[test]
-    fn maybe_apply_no_transform_skips_vary() {
+    #[tokio::test]
+    async fn maybe_apply_no_transform_skips_vary() {
         let bytes = vec![b'a'; 4096];
+        let len = bytes.len();
         let resp = Response::builder()
             .status(200)
             .header(CONTENT_TYPE, "text/html")
             .header(CACHE_CONTROL, "no-transform")
-            .header(CONTENT_LENGTH, bytes.len().to_string())
-            .body(Body::from(bytes.clone()))
+            .header(CONTENT_LENGTH, len.to_string())
+            .body(Body::from(bytes))
             .unwrap();
-        let out = maybe_apply(
-            resp,
-            &bytes,
-            &req_with_accept_encoding("br"),
-            &Method::GET,
-            &ServeConfig::default(),
-        );
+        let ae = ae("br");
+        let out = maybe_apply(resp, &Method::GET, Some(&ae), &ServeConfig::default()).await;
         assert!(out.headers().get(VARY).is_none());
         assert!(out.headers().get(CONTENT_ENCODING).is_none());
     }
 
-    #[test]
-    fn maybe_apply_head_keeps_vary_skips_encoding() {
+    #[tokio::test]
+    async fn maybe_apply_head_keeps_vary_skips_encoding() {
         let bytes = vec![b'a'; 4096];
-        let resp = ok_response("text/html", bytes.clone());
-        let out = maybe_apply(
-            resp,
-            &bytes,
-            &req_with_accept_encoding("br"),
-            &Method::HEAD,
-            &ServeConfig::default(),
-        );
+        let resp = ok_response("text/html", bytes);
+        let ae = ae("br");
+        let out = maybe_apply(resp, &Method::HEAD, Some(&ae), &ServeConfig::default()).await;
         assert_eq!(
             out.headers().get(VARY).and_then(|v| v.to_str().ok()),
             Some("Accept-Encoding")
         );
         assert!(out.headers().get(CONTENT_ENCODING).is_none());
-        // Content-Length stays at original body size.
+        // Content-Length stays at original body size — middleware did not
+        // consume the body on the HEAD path.
         assert_eq!(
             out.headers()
                 .get(CONTENT_LENGTH)
@@ -570,17 +609,12 @@ mod tests {
         );
     }
 
-    #[test]
-    fn maybe_apply_compresses_brotli_when_offered() {
+    #[tokio::test]
+    async fn maybe_apply_compresses_brotli_when_offered() {
         let bytes = vec![b'a'; 4096];
-        let resp = ok_response("text/html", bytes.clone());
-        let out = maybe_apply(
-            resp,
-            &bytes,
-            &req_with_accept_encoding("gzip, deflate, br"),
-            &Method::GET,
-            &ServeConfig::default(),
-        );
+        let resp = ok_response("text/html", bytes);
+        let ae = ae("gzip, deflate, br");
+        let out = maybe_apply(resp, &Method::GET, Some(&ae), &ServeConfig::default()).await;
         assert_eq!(
             out.headers().get(VARY).and_then(|v| v.to_str().ok()),
             Some("Accept-Encoding")
@@ -593,17 +627,12 @@ mod tests {
         );
     }
 
-    #[test]
-    fn maybe_apply_falls_back_to_gzip_when_brotli_q0() {
+    #[tokio::test]
+    async fn maybe_apply_falls_back_to_gzip_when_brotli_q0() {
         let bytes = vec![b'a'; 4096];
-        let resp = ok_response("text/html", bytes.clone());
-        let out = maybe_apply(
-            resp,
-            &bytes,
-            &req_with_accept_encoding("br;q=0, gzip"),
-            &Method::GET,
-            &ServeConfig::default(),
-        );
+        let resp = ok_response("text/html", bytes);
+        let ae = ae("br;q=0, gzip");
+        let out = maybe_apply(resp, &Method::GET, Some(&ae), &ServeConfig::default()).await;
         assert_eq!(
             out.headers()
                 .get(CONTENT_ENCODING)
@@ -612,17 +641,12 @@ mod tests {
         );
     }
 
-    #[test]
-    fn maybe_apply_identity_only_skips_compression_keeps_vary() {
+    #[tokio::test]
+    async fn maybe_apply_identity_only_skips_compression_keeps_vary() {
         let bytes = vec![b'a'; 4096];
-        let resp = ok_response("text/html", bytes.clone());
-        let out = maybe_apply(
-            resp,
-            &bytes,
-            &req_with_accept_encoding("identity"),
-            &Method::GET,
-            &ServeConfig::default(),
-        );
+        let resp = ok_response("text/html", bytes);
+        let ae = ae("identity");
+        let out = maybe_apply(resp, &Method::GET, Some(&ae), &ServeConfig::default()).await;
         assert_eq!(
             out.headers().get(VARY).and_then(|v| v.to_str().ok()),
             Some("Accept-Encoding")
@@ -630,31 +654,94 @@ mod tests {
         assert!(out.headers().get(CONTENT_ENCODING).is_none());
     }
 
-    #[test]
-    fn maybe_apply_existing_vary_preserved() {
-        // If user `headers` rule already set Vary (e.g. `Vary: Cookie`),
-        // we leave it alone — the merge is "insert if missing".
+    #[tokio::test]
+    async fn maybe_apply_appends_to_existing_vary() {
+        // Codex round 1 P2: when a user `headers` rule (or any prior
+        // pass) already set Vary, the compression pass MUST append
+        // `Accept-Encoding`, not overwrite, not skip. A response with
+        // `Vary: Cookie` + `Content-Encoding: br` and no
+        // `Accept-Encoding` in the Vary list is cache-incorrect —
+        // downstream caches would key only on Cookie and serve the
+        // brotli body to clients that didn't accept brotli.
         let bytes = vec![b'a'; 4096];
-        let mut resp = ok_response("text/html", bytes.clone());
+        let mut resp = ok_response("text/html", bytes);
         resp.headers_mut().insert(
             HeaderName::from_static("vary"),
             HeaderValue::from_static("Cookie"),
         );
-        let out = maybe_apply(
-            resp,
-            &bytes,
-            &req_with_accept_encoding("br"),
-            &Method::GET,
-            &ServeConfig::default(),
-        );
-        // We don't overwrite user's Vary. (Reference's `vary()` utility
-        // APPENDS Accept-Encoding to existing Vary, but per D-020 we
-        // do NOT mirror the append — we mirror the simpler "set if
-        // missing" since 7d's verification proved no user-rule
-        // touched Vary in any current probe.)
+        let ae = ae("br");
+        let out = maybe_apply(resp, &Method::GET, Some(&ae), &ServeConfig::default()).await;
         assert_eq!(
             out.headers().get(VARY).and_then(|v| v.to_str().ok()),
-            Some("Cookie")
+            Some("Cookie, Accept-Encoding")
         );
+        assert_eq!(
+            out.headers()
+                .get(CONTENT_ENCODING)
+                .and_then(|v| v.to_str().ok()),
+            Some("br")
+        );
+    }
+
+    #[tokio::test]
+    async fn maybe_apply_existing_vary_with_accept_encoding_is_not_duplicated() {
+        let bytes = vec![b'a'; 4096];
+        let mut resp = ok_response("text/html", bytes);
+        resp.headers_mut().insert(
+            HeaderName::from_static("vary"),
+            HeaderValue::from_static("accept-encoding, cookie"),
+        );
+        let ae = ae("br");
+        let out = maybe_apply(resp, &Method::GET, Some(&ae), &ServeConfig::default()).await;
+        // No second `Accept-Encoding` appended (case-insensitive dedup).
+        assert_eq!(
+            out.headers().get(VARY).and_then(|v| v.to_str().ok()),
+            Some("accept-encoding, cookie")
+        );
+    }
+
+    #[tokio::test]
+    async fn maybe_apply_existing_vary_star_is_left_alone() {
+        // Vary: * is a wildcard that already covers everything.
+        let bytes = vec![b'a'; 4096];
+        let mut resp = ok_response("text/html", bytes);
+        resp.headers_mut().insert(
+            HeaderName::from_static("vary"),
+            HeaderValue::from_static("*"),
+        );
+        let ae = ae("br");
+        let out = maybe_apply(resp, &Method::GET, Some(&ae), &ServeConfig::default()).await;
+        assert_eq!(
+            out.headers().get(VARY).and_then(|v| v.to_str().ok()),
+            Some("*")
+        );
+    }
+
+    #[tokio::test]
+    async fn maybe_apply_partial_content_keeps_vary_skips_encoding() {
+        // SRV-CACHE-004 / Stage 7c composition: Range pre-empts
+        // compression. The 206 body is already a sliced range and
+        // `Content-Range` addresses the ORIGINAL bytes — compressing
+        // the slice would invalidate it. But `Vary` is STILL set,
+        // mirroring the reference's `range_big_html_gzip` anchor in
+        // `compression-raw.json`: the negotiation hook engaged on a
+        // compressible MIME, so the response varies by Accept-Encoding
+        // even though no encoder ran.
+        let bytes = vec![b'a'; 4096];
+        let len = bytes.len();
+        let resp = Response::builder()
+            .status(StatusCode::PARTIAL_CONTENT)
+            .header(CONTENT_TYPE, "text/html")
+            .header(CONTENT_LENGTH, len.to_string())
+            .header("content-range", "bytes 0-15/4096")
+            .body(Body::from(bytes))
+            .unwrap();
+        let ae = ae("br");
+        let out = maybe_apply(resp, &Method::GET, Some(&ae), &ServeConfig::default()).await;
+        assert_eq!(
+            out.headers().get(VARY).and_then(|v| v.to_str().ok()),
+            Some("Accept-Encoding")
+        );
+        assert!(out.headers().get(CONTENT_ENCODING).is_none());
     }
 }

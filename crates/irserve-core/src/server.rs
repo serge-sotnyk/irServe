@@ -4,11 +4,13 @@ use std::sync::Arc;
 
 use axum::body::Body;
 use axum::extract::State;
+use axum::http::header::ACCEPT_ENCODING;
 use axum::http::{Request, Response};
 use axum::Router;
 use tokio::net::TcpListener;
 
 use crate::clean_urls::CleanUrlsView;
+use crate::compression;
 use crate::config::ServeConfig;
 use crate::cors::apply_cors;
 use crate::custom_headers::{compile_rules as compile_header_rules, HeaderRuleCompiled};
@@ -205,6 +207,13 @@ async fn handler(State(state): State<SharedState>, req: Request<Body>) -> Respon
         (!state.no_request_logging).then(|| (req.method().clone(), req.uri().path().to_string()));
     let start = state.debug.then(std::time::Instant::now);
 
+    // SRV-CLI-012 (Stage 7e Codex round 1 P2): capture the request
+    // method and `Accept-Encoding` BEFORE `dispatch` consumes the
+    // request so the centralized compression pass downstream can
+    // negotiate without re-reading the request.
+    let req_method = req.method().clone();
+    let req_accept_encoding = req.headers().get(ACCEPT_ENCODING).cloned();
+
     let response = dispatch(
         req,
         state.root.as_path(),
@@ -227,6 +236,19 @@ async fn handler(State(state): State<SharedState>, req: Request<Body>) -> Respon
     } else {
         response
     };
+
+    // SRV-CLI-012 (Stage 7e Codex round 1 P2): centralized compression
+    // pass. Mirrors the reference's middleware which sits BETWEEN the
+    // CORS-header injection and the `serve-handler` invocation at
+    // `third_party/serve/source/utilities/server.ts:65-72` — the
+    // ordering is CORS-then-compression. The pass internally skips
+    // 206 (Range pre-empts compression), non-compressible MIMEs (no
+    // Vary), `Cache-Control: no-transform` (no Vary), HEAD (Vary kept,
+    // no encode), below-threshold bodies (Vary kept, no encode), and
+    // no-acceptable-encoding negotiations.
+    let response =
+        compression::maybe_apply(response, &req_method, req_accept_encoding.as_ref(), &state.serve_config)
+            .await;
 
     if let Some((method, path)) = log_meta {
         let status = response.status().as_u16();

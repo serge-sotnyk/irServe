@@ -7,7 +7,10 @@
     },
     "serveJson": {
       "redirects": [
-        { "source": "!/a/**", "destination": "/hit" }
+        {
+          "source": "!/a/**",
+          "destination": "/hit"
+        }
       ]
     }
   },
@@ -25,13 +28,34 @@
         "negated_doublestar_at_end_rejects_a_x",
         "negated_doublestar_at_end_admits_b"
       ],
-      "bodyMayDiffer": ["negated_doublestar_at_end_rejects_a_x"]
+      "bodyMayDiffer": [
+        "negated_doublestar_at_end_rejects_a_x"
+      ],
+      "contentEncodingMayDiffer": [
+        "negated_doublestar_at_end_rejects_a_x"
+      ]
     }
   },
   "requests": [
-    { "name": "negated_doublestar_at_end_admits_a", "method": "GET", "path": "/a" },
-    { "name": "negated_doublestar_at_end_admits_a_slash", "method": "GET", "path": "/a/" },
-    { "name": "negated_doublestar_at_end_rejects_a_x", "method": "GET", "path": "/a/x" },
-    { "name": "negated_doublestar_at_end_admits_b", "method": "GET", "path": "/b" }
+    {
+      "name": "negated_doublestar_at_end_admits_a",
+      "method": "GET",
+      "path": "/a"
+    },
+    {
+      "name": "negated_doublestar_at_end_admits_a_slash",
+      "method": "GET",
+      "path": "/a/"
+    },
+    {
+      "name": "negated_doublestar_at_end_rejects_a_x",
+      "method": "GET",
+      "path": "/a/x"
+    },
+    {
+      "name": "negated_doublestar_at_end_admits_b",
+      "method": "GET",
+      "path": "/b"
+    }
   ]
 }

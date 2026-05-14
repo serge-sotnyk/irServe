@@ -234,16 +234,18 @@ deliberate ones — every other behavior mirrors reference):
 Additionally — explicitly out of scope for 7e (not new
 divergences, already established):
 
-5. **`Vary: Accept-Encoding` is "set if missing", not
-   "append".** The reference's `vary()` utility appends
-   `Accept-Encoding` to any existing `Vary` header;
-   irserve only inserts when no `Vary` header is
-   present on the merged response. No current probe
-   exercises a user `headers` rule that sets `Vary` on
-   a compressible asset, so this corner is undocumented
-   in production and lands as a Compatibility-notes
-   item under the http-compression capability rather
-   than as a `D-020` numbered divergence.
+5. **`Vary: Accept-Encoding` IS appended (Codex round 1
+   P2 fix).** Initial Stage 7e implementation only set
+   `Vary` when no `Vary` header was present, which is
+   cache-incorrect when a user `headers` rule already
+   set e.g. `Vary: Cookie` (downstream caches would
+   key only on Cookie and serve a brotli body to
+   identity clients). Round 1 P2 implements full
+   append semantics in `append_vary_accept_encoding`:
+   existing `Vary: <field>` becomes
+   `Vary: <field>, Accept-Encoding`; wildcard `*` is
+   left alone; case-insensitive deduplication. No
+   longer a divergence.
 
 6. **`HEAD` body suppression.** Neither side suppresses
    the HEAD body at the dispatcher; the HTTP layer

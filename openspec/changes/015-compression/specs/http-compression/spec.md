@@ -4,12 +4,12 @@
 
 ### Requirement: HTTP compression engages on compressible-MIME responses above a 1024-byte body-size threshold
 
-When the server is run without `-u` / `--no-compression`,
-a response whose final merged content-type is
-**compressible** (per the MIME filter below) and whose
-body is **strictly at or above 1024 bytes** SHALL be
-encoded using the highest-preference encoder the client's
-`Accept-Encoding` admits. The supported encoders, in
+The server SHALL encode response bodies whose final merged
+content-type is **compressible** (per the MIME filter
+below) and whose body is **strictly at or above 1024
+bytes**, using the highest-preference encoder the client's
+`Accept-Encoding` admits, when the server is run without
+`-u` / `--no-compression`. The supported encoders, in
 preference order, SHALL be `br` (brotli), `gzip`, and
 `deflate`. Identity is the implicit fallback. When the
 negotiation yields no acceptable encoder (header absent,
@@ -361,17 +361,14 @@ oracle: ORC-206
   is the canonical example of an irserve "body bytes
   not contractual" partition.
 
-- **`Vary: Accept-Encoding` is "set if missing", not
-  "append".** The reference's `vary()` utility
-  appends `Accept-Encoding` to any existing `Vary`
-  header; irserve's `maybe_apply` only inserts when
-  no `Vary` header is present on the merged response.
-  No current probe exercises a user `headers` rule
-  that sets `Vary` on a compressible asset, so this
-  corner is undocumented in production. Not a D-NNN —
-  documented as a Compatibility note per the
-  methodology rule "don't promise more than is
-  verified".
+- **`Vary: Accept-Encoding` is appended to any existing
+  `Vary` header, mirroring reference.** Stage 7e
+  Codex round 1 P2 implemented append semantics — when
+  the merged response already carries `Vary: <field>`,
+  `maybe_apply` rewrites it to
+  `Vary: <field>, Accept-Encoding` rather than
+  leaving the existing value untouched. Wildcard
+  `Vary: *` is left alone. Not a D-NNN.
 
 - **HEAD body suppression is out of scope.** Neither
   reference nor irserve suppresses the HEAD response

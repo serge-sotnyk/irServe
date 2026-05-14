@@ -6,47 +6,79 @@
       "asset.css": "body{color:red}\n"
     }
   },
-  "serveArgs": ["--no-etag"],
+  "serveArgs": [
+    "--no-etag"
+  ],
   "requests": [
-    { "name": "first_get", "method": "GET", "path": "/asset.css" },
+    {
+      "name": "first_get",
+      "method": "GET",
+      "path": "/asset.css"
+    },
     {
       "name": "ims_exact",
       "method": "GET",
       "path": "/asset.css",
       "headers": {
-        "if-modified-since": { "$fromResponse": { "request": "first_get", "header": "last-modified" } }
+        "if-modified-since": {
+          "$fromResponse": {
+            "request": "first_get",
+            "header": "last-modified"
+          }
+        }
       }
     },
     {
       "name": "ims_future",
       "method": "GET",
       "path": "/asset.css",
-      "headers": { "if-modified-since": "Thu, 01 Jan 2099 00:00:00 GMT" }
+      "headers": {
+        "if-modified-since": "Thu, 01 Jan 2099 00:00:00 GMT"
+      }
     },
     {
       "name": "ims_past",
       "method": "GET",
       "path": "/asset.css",
-      "headers": { "if-modified-since": "Thu, 01 Jan 1970 00:00:00 GMT" }
+      "headers": {
+        "if-modified-since": "Thu, 01 Jan 1970 00:00:00 GMT"
+      }
     },
     {
       "name": "ims_malformed",
       "method": "GET",
       "path": "/asset.css",
-      "headers": { "if-modified-since": "not-a-date" }
+      "headers": {
+        "if-modified-since": "not-a-date"
+      }
     },
     {
       "name": "ims_on_404",
       "method": "GET",
       "path": "/does-not-exist.css",
-      "headers": { "if-modified-since": "Thu, 01 Jan 2099 00:00:00 GMT" }
+      "headers": {
+        "if-modified-since": "Thu, 01 Jan 2099 00:00:00 GMT"
+      }
     }
   ],
   "runner": {
     "l0": {
-      "clean": ["first_get", "ims_past", "ims_malformed", "ims_on_404"],
-      "divergent": ["ims_exact", "ims_future"],
-      "bodyMayDiffer": ["ims_on_404"]
+      "clean": [
+        "first_get",
+        "ims_past",
+        "ims_malformed",
+        "ims_on_404"
+      ],
+      "divergent": [
+        "ims_exact",
+        "ims_future"
+      ],
+      "bodyMayDiffer": [
+        "ims_on_404"
+      ],
+      "contentEncodingMayDiffer": [
+        "ims_on_404"
+      ]
     }
   }
 }

@@ -11,7 +11,10 @@
         {
           "source": "**/tagged.css",
           "headers": [
-            { "key": "Cache-Control", "value": "public, max-age=600" }
+            {
+              "key": "Cache-Control",
+              "value": "public, max-age=600"
+            }
           ]
         }
       ]
@@ -33,15 +36,45 @@
         "default_listing_json",
         "default_404_html",
         "default_404_json"
+      ],
+      "contentEncodingMayDiffer": [
+        "default_listing_html",
+        "default_listing_json",
+        "default_404_html",
+        "default_404_json"
       ]
     }
   },
   "requests": [
-    { "name": "default_file_no_rule", "path": "/asset.css" },
-    { "name": "default_listing_html", "path": "/" },
-    { "name": "default_listing_json", "path": "/", "headers": { "Accept": "application/json" } },
-    { "name": "default_404_html", "path": "/missing" },
-    { "name": "default_404_json", "path": "/missing", "headers": { "Accept": "application/json" } },
-    { "name": "rule_applies_cache_control", "path": "/tagged.css" }
+    {
+      "name": "default_file_no_rule",
+      "path": "/asset.css"
+    },
+    {
+      "name": "default_listing_html",
+      "path": "/"
+    },
+    {
+      "name": "default_listing_json",
+      "path": "/",
+      "headers": {
+        "Accept": "application/json"
+      }
+    },
+    {
+      "name": "default_404_html",
+      "path": "/missing"
+    },
+    {
+      "name": "default_404_json",
+      "path": "/missing",
+      "headers": {
+        "Accept": "application/json"
+      }
+    },
+    {
+      "name": "rule_applies_cache_control",
+      "path": "/tagged.css"
+    }
   ]
 }
