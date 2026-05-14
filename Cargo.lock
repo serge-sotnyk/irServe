@@ -525,7 +525,7 @@ dependencies = [
 
 [[package]]
 name = "irserve"
-version = "0.0.1"
+version = "0.1.0"
 dependencies = [
  "clap",
  "irserve-core",
@@ -534,7 +534,7 @@ dependencies = [
 
 [[package]]
 name = "irserve-core"
-version = "0.0.1"
+version = "0.1.0"
 dependencies = [
  "axum",
  "brotli",
