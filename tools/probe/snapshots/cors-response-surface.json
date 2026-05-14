@@ -88,6 +88,7 @@
           "access-control-allow-headers": "*",
           "access-control-allow-origin": "*",
           "access-control-allow-private-network": "true",
+          "content-encoding": "gzip",
           "content-type": "text/html; charset=utf-8",
           "vary": "Accept-Encoding"
         },

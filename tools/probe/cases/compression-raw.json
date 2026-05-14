@@ -1,0 +1,203 @@
+{
+  "id": "compression-raw",
+  "description": "Wire-level compression probe (Stage 7e slice 0). Uses raw-socket mode so the on-the-wire `Content-Encoding` is observable (Node's fetch transparently decompresses). Pins the reference's `compression@1.8.1` middleware surface: the default threshold (1024 B), the negotiation preference `br > gzip > deflate`, the `Vary: Accept-Encoding` invariant (always set when the middleware runs, even when compression is skipped), the MIME-based skip for non-compressible types, the HEAD / no-transform / Range skip conditions, and the Stage 7d OPTIONS-as-GET composition. Backs SRV-CLI-012 and closes Q-002. Snapshots here are reference-only until Stage 7e slice 2 lands the irserve implementation.",
+  "fixture": {
+    "files": {
+      "tiny.html": "<!doctype html><title>tiny</title><p>short</p>\n",
+      "big.html": "<!doctype html><html><head><title>big</title></head><body>\n<p>one fish two fish red fish blue fish — repeated to defeat the 1024-byte compression threshold so the reference's middleware engages.</p>\n<p>one fish two fish red fish blue fish — repeated to defeat the 1024-byte compression threshold so the reference's middleware engages.</p>\n<p>one fish two fish red fish blue fish — repeated to defeat the 1024-byte compression threshold so the reference's middleware engages.</p>\n<p>one fish two fish red fish blue fish — repeated to defeat the 1024-byte compression threshold so the reference's middleware engages.</p>\n<p>one fish two fish red fish blue fish — repeated to defeat the 1024-byte compression threshold so the reference's middleware engages.</p>\n<p>one fish two fish red fish blue fish — repeated to defeat the 1024-byte compression threshold so the reference's middleware engages.</p>\n<p>one fish two fish red fish blue fish — repeated to defeat the 1024-byte compression threshold so the reference's middleware engages.</p>\n<p>one fish two fish red fish blue fish — repeated to defeat the 1024-byte compression threshold so the reference's middleware engages.</p>\n<p>one fish two fish red fish blue fish — repeated to defeat the 1024-byte compression threshold so the reference's middleware engages.</p>\n<p>one fish two fish red fish blue fish — repeated to defeat the 1024-byte compression threshold so the reference's middleware engages.</p>\n</body></html>\n",
+      "big.css": "/* > 1024-byte css to defeat the compression threshold */\n.alpha { color: red; background: white; border: 1px solid black; padding: 8px; margin: 0; }\n.beta  { color: blue; background: yellow; border: 1px solid black; padding: 8px; margin: 0; }\n.gamma { color: green; background: cyan; border: 1px solid black; padding: 8px; margin: 0; }\n.delta { color: orange; background: magenta; border: 1px solid black; padding: 8px; margin: 0; }\n.alpha2 { color: red; background: white; border: 1px solid black; padding: 8px; margin: 0; }\n.beta2  { color: blue; background: yellow; border: 1px solid black; padding: 8px; margin: 0; }\n.gamma2 { color: green; background: cyan; border: 1px solid black; padding: 8px; margin: 0; }\n.delta2 { color: orange; background: magenta; border: 1px solid black; padding: 8px; margin: 0; }\n.alpha3 { color: red; background: white; border: 1px solid black; padding: 8px; margin: 0; }\n.beta3  { color: blue; background: yellow; border: 1px solid black; padding: 8px; margin: 0; }\n.gamma3 { color: green; background: cyan; border: 1px solid black; padding: 8px; margin: 0; }\n.delta3 { color: orange; background: magenta; border: 1px solid black; padding: 8px; margin: 0; }\n.alpha4 { color: red; background: white; border: 1px solid black; padding: 8px; margin: 0; }\n.beta4  { color: blue; background: yellow; border: 1px solid black; padding: 8px; margin: 0; }\n.gamma4 { color: green; background: cyan; border: 1px solid black; padding: 8px; margin: 0; }\n",
+      "big.js": "// > 1024-byte js fixture to defeat the compression threshold\nfunction greet(name) { return 'hello, ' + name + '! welcome to compression land.'; }\nfunction farewell(name) { return 'goodbye, ' + name + '. enjoy your gzip-shaped present.'; }\nfunction repeat(s, n) { let out = ''; for (let i = 0; i < n; i++) out += s; return out; }\nfunction shout(s) { return s.toUpperCase() + '!'; }\nfunction whisper(s) { return s.toLowerCase() + '...'; }\nfunction count(arr) { return arr.length; }\nfunction sum(arr) { return arr.reduce((a, b) => a + b, 0); }\nfunction avg(arr) { return arr.length === 0 ? 0 : sum(arr) / arr.length; }\nfunction min(arr) { return arr.reduce((a, b) => a < b ? a : b, Infinity); }\nfunction max(arr) { return arr.reduce((a, b) => a > b ? a : b, -Infinity); }\nfunction zip(a, b) { return a.map((x, i) => [x, b[i]]); }\nfunction range(n) { return Array.from({length: n}, (_, i) => i); }\nfunction uppercase(s) { return s.toUpperCase(); }\nfunction lowercase(s) { return s.toLowerCase(); }\nfunction firstChar(s) { return s.charAt(0); }\nfunction lastChar(s) { return s.charAt(s.length - 1); }\nexport { greet, farewell, repeat, shout, whisper, count, sum, avg, min, max, zip, range, uppercase, lowercase, firstChar, lastChar };\n",
+      "data.json": "{ \"description\": \"> 1024-byte json fixture for compression-threshold probing\", \"items\": [ { \"id\": 1, \"name\": \"alpha\", \"detail\": \"first quadrant, color red, padding default, border solid black\" }, { \"id\": 2, \"name\": \"beta\", \"detail\": \"second quadrant, color blue, padding default, border solid black\" }, { \"id\": 3, \"name\": \"gamma\", \"detail\": \"third quadrant, color green, padding default, border solid black\" }, { \"id\": 4, \"name\": \"delta\", \"detail\": \"fourth quadrant, color orange, padding default, border solid black\" }, { \"id\": 5, \"name\": \"epsilon\", \"detail\": \"fifth quadrant, color magenta, padding default, border solid black\" }, { \"id\": 6, \"name\": \"zeta\", \"detail\": \"sixth quadrant, color cyan, padding default, border solid black\" }, { \"id\": 7, \"name\": \"eta\", \"detail\": \"seventh quadrant, color yellow, padding default, border solid black\" }, { \"id\": 8, \"name\": \"theta\", \"detail\": \"eighth quadrant, color teal, padding default, border solid black\" }, { \"id\": 9, \"name\": \"iota\", \"detail\": \"ninth quadrant, color brown, padding default, border solid black\" } ] }\n",
+      "vector.svg": "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<!-- > 1024-byte svg fixture for compression-threshold probing -->\n<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 200 200\" width=\"200\" height=\"200\">\n  <rect x=\"10\" y=\"10\" width=\"40\" height=\"40\" fill=\"red\" stroke=\"black\" stroke-width=\"1\"/>\n  <rect x=\"60\" y=\"10\" width=\"40\" height=\"40\" fill=\"blue\" stroke=\"black\" stroke-width=\"1\"/>\n  <rect x=\"110\" y=\"10\" width=\"40\" height=\"40\" fill=\"green\" stroke=\"black\" stroke-width=\"1\"/>\n  <rect x=\"10\" y=\"60\" width=\"40\" height=\"40\" fill=\"orange\" stroke=\"black\" stroke-width=\"1\"/>\n  <rect x=\"60\" y=\"60\" width=\"40\" height=\"40\" fill=\"magenta\" stroke=\"black\" stroke-width=\"1\"/>\n  <rect x=\"110\" y=\"60\" width=\"40\" height=\"40\" fill=\"cyan\" stroke=\"black\" stroke-width=\"1\"/>\n  <rect x=\"10\" y=\"110\" width=\"40\" height=\"40\" fill=\"yellow\" stroke=\"black\" stroke-width=\"1\"/>\n  <rect x=\"60\" y=\"110\" width=\"40\" height=\"40\" fill=\"purple\" stroke=\"black\" stroke-width=\"1\"/>\n  <rect x=\"110\" y=\"110\" width=\"40\" height=\"40\" fill=\"pink\" stroke=\"black\" stroke-width=\"1\"/>\n</svg>\n",
+      "big-no-transform.html": "<!doctype html><html><head><title>no-transform</title></head><body>\n<p>this body is above the compression threshold but the user `headers` rule sets `Cache-Control: no-transform` so the middleware MUST skip compression per RFC 7234 §5.2.2.4 and `compression/index.js:293-300`.</p>\n<p>this body is above the compression threshold but the user `headers` rule sets `Cache-Control: no-transform` so the middleware MUST skip compression per RFC 7234 §5.2.2.4 and `compression/index.js:293-300`.</p>\n<p>this body is above the compression threshold but the user `headers` rule sets `Cache-Control: no-transform` so the middleware MUST skip compression per RFC 7234 §5.2.2.4 and `compression/index.js:293-300`.</p>\n<p>this body is above the compression threshold but the user `headers` rule sets `Cache-Control: no-transform` so the middleware MUST skip compression per RFC 7234 §5.2.2.4 and `compression/index.js:293-300`.</p>\n<p>this body is above the compression threshold but the user `headers` rule sets `Cache-Control: no-transform` so the middleware MUST skip compression per RFC 7234 §5.2.2.4 and `compression/index.js:293-300`.</p>\n</body></html>\n",
+      "image.png": {
+        "base64": "AwoRGB8mLTQ7QklQV15lbHN6gYiPlp2kq7K5wMfO1dzj6vH4/wYNFBsiKTA3PkVMU1phaG92fYSLkpmgp661vMPK0djf5u30+wIJEBceJSwzOkFIT1ZdZGtyeYCHjpWco6qxuL/GzdTb4unw9/4FDBMaISgvNj1ES1JZYGdudXyDipGYn6attLvCydDX3uXs8/oBCA8WHSQrMjlAR05VXGNqcXh/ho2Um6KpsLe+xczT2uHo7/b9BAsSGSAnLjU8Q0pRWF9mbXR7gomQl56lrLO6wcjP1t3k6/L5AAcOFRwjKjE4P0ZNVFtiaXB3foWMk5qhqK+2vcTL0tng5+71/AMKERgfJi00O0JJUFdeZWxzeoGIj5adpKuyucDHztXc4+rx+P8GDRQbIikwNz5FTFNaYWhvdn2Ei5KZoKeutbzDytHY3+bt9PsCCRAXHiUsMzpBSE9WXWRrcnmAh46VnKOqsbi/xs3U2+Lp8Pf+BQwTGiEoLzY9REtSWWBnbnV8g4qRmJ+mrbS7wsnQ197l7PP6AQgPFh0kKzI5QEdOVVxjanF4f4aNlJuiqbC3vsXM09rh6O/2/QQLEhkgJy41PENKUVhfZm10e4KJkJeepayzusHIz9bd5Ovy+QAHDhUcIyoxOD9GTVRbYmlwd36FjJOaoaivtr3Ey9LZ4Ofu9fwDChEYHyYtNDtCSVBXXmVsc3qBiI+WnaSrsrnAx87V3OPq8fj/Bg0UGyIpMDc+RUxTWmFob3Z9hIuSmaCnrrW8w8rR2N/m7fT7AgkQFx4lLDM6QUhPVl1ka3J5gIeOlZyjqrG4v8bN1Nvi6fD3/gUMExohKC82PURLUllgZ251fIOKkZifpq20u8LJ0Nfe5ezz+gEIDxYdJCsyOUBHTlVcY2pxeH+GjZSboqmwt77FzNPa4ejv9v0ECxIZICcuNTxDSlFYX2ZtdHuCiZCXnqWss7rByM/W3eTr8vkABw4VHCMqMTg/Rk1UW2JpcHd+hYyTmqGor7a9xMvS2eDn7vX8AwoRGB8mLTQ7QklQV15lbHN6gYiPlp2kq7K5wMfO1dzj6vH4/wYNFBsiKTA3PkVMU1phaG92fYSLkpmgp661vMPK0djf5u30+wIJEBceJSwzOkFIT1ZdZGtyeYCHjpWco6qxuL/GzdTb4unw9/4FDBMaISgvNj1ES1JZYGdudXyDipGYn6attLvCydDX3uXs8/oBCA8WHSQrMjlAR05VXGNqcXh/ho2Um6KpsLe+xczT2uHo7/b9BAsSGSAnLjU8Q0pRWF9mbXR7gomQl56lrLO6wcjP1t3k6/L5AAcOFRwjKjE4P0ZNVFtiaXB3foWMk5qhqK+2vcTL0tng5+71/AMKERgfJi00O0JJUFdeZWxzeoGIj5adpKuyucDHztXc4+rx+P8GDRQbIikwNz5FTFNaYWhvdn2Ei5KZoKeutbzDytHY3+bt9PsCCRAXHiUsMzpBSE9WXWRrcnmAh46VnKOqsbi/xs3U2+Lp8Pf+BQwTGiEoLzY9REtSWWBnbnV8g4qRmJ+mrbS7wsnQ197l7PP6AQgPFh0kKzI5QEdOVVxjanF4f4aNlJuiqbC3vsXM09rh6O/2/QQLEhkgJy41PENKUVhfZm10e4KJkJeepayzusHIz9bd5Ovy+QAHDhUcIyoxOD9GTVRbYmlwd36FjJOaoaivtr3Ey9LZ4Ofu9fwDChEYHyYtNDtCSVBXXmVsc3qBiI+WnaSrsrnAx87V3OPq8fj/Bg0UGyIpMDc+RUxTWmFob3Z9hIuSmaCnrrW8w8rR2N/m7fT7AgkQFx4lLDM6QUhPVl1ka3J5gIeOlZyjqrG4v8bN1Nvi6fD3/gUMExohKC82PURLUllgZ251fIOKkZifpq20u8LJ0Nfe5ezz+gEIDxYdJCsyOUBHTlVcY2pxeH+GjZSboqmwt77FzNPa4ejv9v0ECxIZICcuNTxDSlFYX2ZtdHuCiZCXnqWss7rByM/W3eTr8vkA"
+      },
+      "font.woff2": {
+        "base64": "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"
+      },
+      "media.mp4": {
+        "base64": "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"
+      },
+      "bin.wasm": {
+        "base64": "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"
+      }
+    },
+    "serveJson": {
+      "cleanUrls": false,
+      "headers": [
+        {
+          "source": "big-no-transform.html",
+          "headers": [
+            {
+              "key": "Cache-Control",
+              "value": "no-transform"
+            }
+          ]
+        }
+      ]
+    }
+  },
+  "requests": [
+    {
+      "name": "tiny_html_gzip",
+      "mode": "raw",
+      "path": "/tiny.html",
+      "headers": {
+        "Accept-Encoding": "gzip, deflate, br"
+      }
+    },
+    {
+      "name": "big_html_gzip_deflate_br",
+      "mode": "raw",
+      "path": "/big.html",
+      "headers": {
+        "Accept-Encoding": "gzip, deflate, br"
+      }
+    },
+    {
+      "name": "big_html_gzip",
+      "mode": "raw",
+      "path": "/big.html",
+      "headers": {
+        "Accept-Encoding": "gzip"
+      }
+    },
+    {
+      "name": "big_html_deflate",
+      "mode": "raw",
+      "path": "/big.html",
+      "headers": {
+        "Accept-Encoding": "deflate"
+      }
+    },
+    {
+      "name": "big_html_identity_only",
+      "mode": "raw",
+      "path": "/big.html",
+      "headers": {
+        "Accept-Encoding": "identity"
+      }
+    },
+    {
+      "name": "big_html_no_accept_encoding",
+      "mode": "raw",
+      "path": "/big.html"
+    },
+    {
+      "name": "big_html_gzip_q0",
+      "mode": "raw",
+      "path": "/big.html",
+      "headers": {
+        "Accept-Encoding": "gzip;q=0, br"
+      }
+    },
+    {
+      "name": "big_html_star_q0",
+      "mode": "raw",
+      "path": "/big.html",
+      "headers": {
+        "Accept-Encoding": "*;q=0"
+      }
+    },
+    {
+      "name": "big_css_gzip_deflate_br",
+      "mode": "raw",
+      "path": "/big.css",
+      "headers": {
+        "Accept-Encoding": "gzip, deflate, br"
+      }
+    },
+    {
+      "name": "big_js_gzip_deflate_br",
+      "mode": "raw",
+      "path": "/big.js",
+      "headers": {
+        "Accept-Encoding": "gzip, deflate, br"
+      }
+    },
+    {
+      "name": "data_json_gzip_deflate_br",
+      "mode": "raw",
+      "path": "/data.json",
+      "headers": {
+        "Accept-Encoding": "gzip, deflate, br"
+      }
+    },
+    {
+      "name": "vector_svg_gzip_deflate_br",
+      "mode": "raw",
+      "path": "/vector.svg",
+      "headers": {
+        "Accept-Encoding": "gzip, deflate, br"
+      }
+    },
+    {
+      "name": "wasm_gzip_deflate_br",
+      "mode": "raw",
+      "path": "/bin.wasm",
+      "headers": {
+        "Accept-Encoding": "gzip, deflate, br"
+      }
+    },
+    {
+      "name": "image_png_gzip",
+      "mode": "raw",
+      "path": "/image.png",
+      "headers": {
+        "Accept-Encoding": "gzip, deflate, br"
+      }
+    },
+    {
+      "name": "font_woff2_gzip",
+      "mode": "raw",
+      "path": "/font.woff2",
+      "headers": {
+        "Accept-Encoding": "gzip, deflate, br"
+      }
+    },
+    {
+      "name": "media_mp4_gzip",
+      "mode": "raw",
+      "path": "/media.mp4",
+      "headers": {
+        "Accept-Encoding": "gzip, deflate, br"
+      }
+    },
+    {
+      "name": "head_big_html_gzip",
+      "mode": "raw",
+      "method": "HEAD",
+      "path": "/big.html",
+      "headers": {
+        "Accept-Encoding": "gzip, deflate, br"
+      }
+    },
+    {
+      "name": "options_big_html_gzip",
+      "mode": "raw",
+      "method": "OPTIONS",
+      "path": "/big.html",
+      "headers": {
+        "Accept-Encoding": "gzip, deflate, br"
+      }
+    },
+    {
+      "name": "no_transform_big_html_gzip",
+      "mode": "raw",
+      "path": "/big-no-transform.html",
+      "headers": {
+        "Accept-Encoding": "gzip, deflate, br"
+      }
+    },
+    {
+      "name": "range_big_html_gzip",
+      "mode": "raw",
+      "path": "/big.html",
+      "headers": {
+        "Accept-Encoding": "gzip, deflate, br",
+        "Range": "bytes=0-15"
+      }
+    }
+  ]
+}

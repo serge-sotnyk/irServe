@@ -30,7 +30,13 @@ Affected area: cli (SRV-CLI-012)
 Suspected behavior: `serve` uses the `compression` middleware with defaults. Default threshold is roughly 1 KiB and content-types are gzippable text-like ones.
 How to verify:
 - Inspect actual `Content-Encoding` headers (the probe runner currently does not track `content-encoding`; extend the runner or use `curl -i`).
-Resolution: open.
+Resolution: closed (2026-05-14) — pinned via `tools/probe/snapshots/compression-raw.json` (20 raw-socket anchors, Stage 7e slice 0).
+- Threshold: **1024 bytes** (default of `compression@1.8.1`, never overridden). Below-threshold bodies emit `Vary: Accept-Encoding` when the MIME is compressible but no `Content-Encoding`.
+- Negotiation order: **`br > gzip > deflate`** when Node has brotli support (Node 11+; the vendored bundle does). `q=0` and `*;q=0` exclusions honored.
+- Compressible MIMEs (verified compressed): `text/html`, `text/css`, `application/javascript`, `application/json`, `application/wasm`, `image/svg+xml`.
+- Non-compressible MIMEs (verified passthrough, no `Vary`): `image/png`, `font/woff2`, `video/mp4` (and by extension every MIME that fails both the `mime-db.compressible=true` lookup AND the regex `^text/|\+(?:json|text|xml)$/i`).
+- Skip conditions: HEAD (body empty but `Vary` + original `Content-Length` retained), `Cache-Control: no-transform` (no `Vary`, no compression), `Range` request (pre-empts compression — 206 with raw body slice + `Content-Range`).
+- OPTIONS routes through the GET pipeline (Stage 7d), so OPTIONS responses ARE compressed.
 
 ## Q-003: Schema validation error format and exit codes
 

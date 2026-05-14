@@ -1,0 +1,620 @@
+{
+  "$schemaVersion": 1,
+  "case": "compression-raw",
+  "description": "Wire-level compression probe (Stage 7e slice 0). Uses raw-socket mode so the on-the-wire `Content-Encoding` is observable (Node's fetch transparently decompresses). Pins the reference's `compression@1.8.1` middleware surface: the default threshold (1024 B), the negotiation preference `br > gzip > deflate`, the `Vary: Accept-Encoding` invariant (always set when the middleware runs, even when compression is skipped), the MIME-based skip for non-compressible types, the HEAD / no-transform / Range skip conditions, and the Stage 7d OPTIONS-as-GET composition. Backs SRV-CLI-012 and closes Q-002. Snapshots here are reference-only until Stage 7e slice 2 lands the irserve implementation.",
+  "fixture": {
+    "files": {
+      "tiny.html": "<!doctype html><title>tiny</title><p>short</p>\n",
+      "big.html": "<!doctype html><html><head><title>big</title></head><body>\n<p>one fish two fish red fish blue fish — repeated to defeat the 1024-byte compression threshold so the reference's middleware engages.</p>\n<p>one fish two fish red fish blue fish — repeated to defeat the 1024-byte compression threshold so the reference's middleware engages.</p>\n<p>one fish two fish red fish blue fish — repeated to defeat the 1024-byte compression threshold so the reference's middleware engages.</p>\n<p>one fish two fish red fish blue fish — repeated to defeat the 1024-byte compression threshold so the reference's middleware engages.</p>\n<p>one fish two fish red fish blue fish — repeated to defeat the 1024-byte compression threshold so the reference's middleware engages.</p>\n<p>one fish two fish red fish blue fish — repeated to defeat the 1024-byte compression threshold so the reference's middleware engages.</p>\n<p>one fish two fish red fish blue fish — repeated to defeat the 1024-byte compression threshold so the reference's middleware engages.</p>\n<p>one fish two fish red fish blue fish — repeated to defeat the 1024-byte compression threshold so the reference's middleware engages.</p>\n<p>one fish two fish red fish blue fish — repeated to defeat the 1024-byte compression threshold so the reference's middleware engages.</p>\n<p>one fish two fish red fish blue fish — repeated to defeat the 1024-byte compression threshold so the reference's middleware engages.</p>\n</body></html>\n",
+      "big.css": "/* > 1024-byte css to defeat the compression threshold */\n.alpha { color: red; background: white; border: 1px solid black; padding: 8px; margin: 0; }\n.beta  { color: blue; background: yellow; border: 1px solid black; padding: 8px; margin: 0; }\n.gamma { color: green; background: cyan; border: 1px solid black; padding: 8px; margin: 0; }\n.delta { color: orange; background: magenta; border: 1px solid black; padding: 8px; margin: 0; }\n.alpha2 { color: red; background: white; border: 1px solid black; padding: 8px; margin: 0; }\n.beta2  { color: blue; background: yellow; border: 1px solid black; padding: 8px; margin: 0; }\n.gamma2 { color: green; background: cyan; border: 1px solid black; padding: 8px; margin: 0; }\n.delta2 { color: orange; background: magenta; border: 1px solid black; padding: 8px; margin: 0; }\n.alpha3 { color: red; background: white; border: 1px solid black; padding: 8px; margin: 0; }\n.beta3  { color: blue; background: yellow; border: 1px solid black; padding: 8px; margin: 0; }\n.gamma3 { color: green; background: cyan; border: 1px solid black; padding: 8px; margin: 0; }\n.delta3 { color: orange; background: magenta; border: 1px solid black; padding: 8px; margin: 0; }\n.alpha4 { color: red; background: white; border: 1px solid black; padding: 8px; margin: 0; }\n.beta4  { color: blue; background: yellow; border: 1px solid black; padding: 8px; margin: 0; }\n.gamma4 { color: green; background: cyan; border: 1px solid black; padding: 8px; margin: 0; }\n",
+      "big.js": "// > 1024-byte js fixture to defeat the compression threshold\nfunction greet(name) { return 'hello, ' + name + '! welcome to compression land.'; }\nfunction farewell(name) { return 'goodbye, ' + name + '. enjoy your gzip-shaped present.'; }\nfunction repeat(s, n) { let out = ''; for (let i = 0; i < n; i++) out += s; return out; }\nfunction shout(s) { return s.toUpperCase() + '!'; }\nfunction whisper(s) { return s.toLowerCase() + '...'; }\nfunction count(arr) { return arr.length; }\nfunction sum(arr) { return arr.reduce((a, b) => a + b, 0); }\nfunction avg(arr) { return arr.length === 0 ? 0 : sum(arr) / arr.length; }\nfunction min(arr) { return arr.reduce((a, b) => a < b ? a : b, Infinity); }\nfunction max(arr) { return arr.reduce((a, b) => a > b ? a : b, -Infinity); }\nfunction zip(a, b) { return a.map((x, i) => [x, b[i]]); }\nfunction range(n) { return Array.from({length: n}, (_, i) => i); }\nfunction uppercase(s) { return s.toUpperCase(); }\nfunction lowercase(s) { return s.toLowerCase(); }\nfunction firstChar(s) { return s.charAt(0); }\nfunction lastChar(s) { return s.charAt(s.length - 1); }\nexport { greet, farewell, repeat, shout, whisper, count, sum, avg, min, max, zip, range, uppercase, lowercase, firstChar, lastChar };\n",
+      "data.json": "{ \"description\": \"> 1024-byte json fixture for compression-threshold probing\", \"items\": [ { \"id\": 1, \"name\": \"alpha\", \"detail\": \"first quadrant, color red, padding default, border solid black\" }, { \"id\": 2, \"name\": \"beta\", \"detail\": \"second quadrant, color blue, padding default, border solid black\" }, { \"id\": 3, \"name\": \"gamma\", \"detail\": \"third quadrant, color green, padding default, border solid black\" }, { \"id\": 4, \"name\": \"delta\", \"detail\": \"fourth quadrant, color orange, padding default, border solid black\" }, { \"id\": 5, \"name\": \"epsilon\", \"detail\": \"fifth quadrant, color magenta, padding default, border solid black\" }, { \"id\": 6, \"name\": \"zeta\", \"detail\": \"sixth quadrant, color cyan, padding default, border solid black\" }, { \"id\": 7, \"name\": \"eta\", \"detail\": \"seventh quadrant, color yellow, padding default, border solid black\" }, { \"id\": 8, \"name\": \"theta\", \"detail\": \"eighth quadrant, color teal, padding default, border solid black\" }, { \"id\": 9, \"name\": \"iota\", \"detail\": \"ninth quadrant, color brown, padding default, border solid black\" } ] }\n",
+      "vector.svg": "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<!-- > 1024-byte svg fixture for compression-threshold probing -->\n<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 200 200\" width=\"200\" height=\"200\">\n  <rect x=\"10\" y=\"10\" width=\"40\" height=\"40\" fill=\"red\" stroke=\"black\" stroke-width=\"1\"/>\n  <rect x=\"60\" y=\"10\" width=\"40\" height=\"40\" fill=\"blue\" stroke=\"black\" stroke-width=\"1\"/>\n  <rect x=\"110\" y=\"10\" width=\"40\" height=\"40\" fill=\"green\" stroke=\"black\" stroke-width=\"1\"/>\n  <rect x=\"10\" y=\"60\" width=\"40\" height=\"40\" fill=\"orange\" stroke=\"black\" stroke-width=\"1\"/>\n  <rect x=\"60\" y=\"60\" width=\"40\" height=\"40\" fill=\"magenta\" stroke=\"black\" stroke-width=\"1\"/>\n  <rect x=\"110\" y=\"60\" width=\"40\" height=\"40\" fill=\"cyan\" stroke=\"black\" stroke-width=\"1\"/>\n  <rect x=\"10\" y=\"110\" width=\"40\" height=\"40\" fill=\"yellow\" stroke=\"black\" stroke-width=\"1\"/>\n  <rect x=\"60\" y=\"110\" width=\"40\" height=\"40\" fill=\"purple\" stroke=\"black\" stroke-width=\"1\"/>\n  <rect x=\"110\" y=\"110\" width=\"40\" height=\"40\" fill=\"pink\" stroke=\"black\" stroke-width=\"1\"/>\n</svg>\n",
+      "big-no-transform.html": "<!doctype html><html><head><title>no-transform</title></head><body>\n<p>this body is above the compression threshold but the user `headers` rule sets `Cache-Control: no-transform` so the middleware MUST skip compression per RFC 7234 §5.2.2.4 and `compression/index.js:293-300`.</p>\n<p>this body is above the compression threshold but the user `headers` rule sets `Cache-Control: no-transform` so the middleware MUST skip compression per RFC 7234 §5.2.2.4 and `compression/index.js:293-300`.</p>\n<p>this body is above the compression threshold but the user `headers` rule sets `Cache-Control: no-transform` so the middleware MUST skip compression per RFC 7234 §5.2.2.4 and `compression/index.js:293-300`.</p>\n<p>this body is above the compression threshold but the user `headers` rule sets `Cache-Control: no-transform` so the middleware MUST skip compression per RFC 7234 §5.2.2.4 and `compression/index.js:293-300`.</p>\n<p>this body is above the compression threshold but the user `headers` rule sets `Cache-Control: no-transform` so the middleware MUST skip compression per RFC 7234 §5.2.2.4 and `compression/index.js:293-300`.</p>\n</body></html>\n",
+      "image.png": {
+        "base64": "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"
+      },
+      "font.woff2": {
+        "base64": "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"
+      },
+      "media.mp4": {
+        "base64": "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"
+      },
+      "bin.wasm": {
+        "base64": "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"
+      }
+    },
+    "serveJson": {
+      "cleanUrls": false,
+      "headers": [
+        {
+          "source": "big-no-transform.html",
+          "headers": [
+            {
+              "key": "Cache-Control",
+              "value": "no-transform"
+            }
+          ]
+        }
+      ]
+    }
+  },
+  "serveArgs": [],
+  "volatileHeaders": [
+    "last-modified"
+  ],
+  "volatileBodies": [],
+  "requests": [
+    {
+      "name": "tiny_html_gzip",
+      "request": {
+        "method": "GET",
+        "mode": "raw",
+        "path": "/tiny.html",
+        "headers": {
+          "Accept-Encoding": "gzip, deflate, br"
+        }
+      },
+      "requestLine": "GET /tiny.html HTTP/1.1",
+      "response": {
+        "body": {
+          "kind": "text",
+          "length": 47,
+          "sha256": "13d41c04a4608f86a076da560b74680e8f281599574878eb96521621d0cf8e07",
+          "preview": "<!doctype html><title>tiny</title><p>short</p>\n"
+        },
+        "headers": {
+          "accept-ranges": "bytes",
+          "content-length": "47",
+          "content-type": "text/html; charset=utf-8",
+          "etag": "\"2f30c32bc4a15d43c715a236f8d2eef49921aef1\"",
+          "vary": "Accept-Encoding"
+        },
+        "status": 200,
+        "statusText": "OK"
+      }
+    },
+    {
+      "name": "big_html_gzip_deflate_br",
+      "request": {
+        "method": "GET",
+        "mode": "raw",
+        "path": "/big.html",
+        "headers": {
+          "Accept-Encoding": "gzip, deflate, br"
+        }
+      },
+      "requestLine": "GET /big.html HTTP/1.1",
+      "response": {
+        "body": {
+          "kind": "text",
+          "length": 164,
+          "sha256": "f1cdb93863b086d4fe5e15d9da290765138c0de4c545f46775f39a5da575b514",
+          "preview": "99\r\n\u001b�\u0005\u0000��?�#4\u0016*\r�-�/�^,\u0002\u0007@�Ƒ\f���0N\u000b�\u0003��3�\u0003�P7\u001c?����y+Aтƫ\u001c�1Pm[�¼t�5�E牨ڽ�q�\u0001\u001b=�ᬇ��\u0003魉c�g����,��Ⱦ\u0007��qٸ�;�r��̃�UC\"n�KN��\u000e�\\��F�����$�D\u0006M\\I�\u001c�\u0001\r\n0\r\n\r\n"
+        },
+        "headers": {
+          "accept-ranges": "bytes",
+          "content-encoding": "br",
+          "content-type": "text/html; charset=utf-8",
+          "etag": "\"eb1be01450a6e59d937d3d092ca1ba404fe322de\"",
+          "vary": "Accept-Encoding"
+        },
+        "status": 200,
+        "statusText": "OK"
+      }
+    },
+    {
+      "name": "big_html_gzip",
+      "request": {
+        "method": "GET",
+        "mode": "raw",
+        "path": "/big.html",
+        "headers": {
+          "Accept-Encoding": "gzip"
+        }
+      },
+      "requestLine": "GET /big.html HTTP/1.1",
+      "response": {
+        "body": {
+          "kind": "text",
+          "length": 199,
+          "sha256": "35bd3be6fac54ee16cc1f3896e11add097f9e8cdcf3a254143f335af06598732",
+          "preview": "a\r\n\u001f�\b\u0000\u0000\u0000\u0000\u0000\u0000\n\r\nad\r\n�1\u000e�0\u0010\u0004��⨨��(-���mbKNβ\u000fE�x\u0004/�%HI~A��H��TkO,�.\u0019\u0014tL��\t��j�\u0004����\r�يVxq��N&P\u001fk �e�\u0002ޠM����?T��\u0015L*���4�����.\n�d�\u0005�F�HCA\r������\u001e\u0005S�s�12'̾�0\r~@�Z�\u000f���9l��Ƭ�l����\u000f���x�\u0005\u0000\u0000\r\n0\r\n\r\n"
+        },
+        "headers": {
+          "accept-ranges": "bytes",
+          "content-encoding": "gzip",
+          "content-type": "text/html; charset=utf-8",
+          "etag": "\"eb1be01450a6e59d937d3d092ca1ba404fe322de\"",
+          "vary": "Accept-Encoding"
+        },
+        "status": 200,
+        "statusText": "OK"
+      }
+    },
+    {
+      "name": "big_html_deflate",
+      "request": {
+        "method": "GET",
+        "mode": "raw",
+        "path": "/big.html",
+        "headers": {
+          "Accept-Encoding": "deflate"
+        }
+      },
+      "requestLine": "GET /big.html HTTP/1.1",
+      "response": {
+        "body": {
+          "kind": "text",
+          "length": 187,
+          "sha256": "32c481f0b65f49964dd94089c65cdf2fdb23cca2f9def64840b99ddbe6799d45",
+          "preview": "2\r\nx�\r\na9\r\n�1\u000e�0\u0010\u0004��⨨��(-���mbKNβ\u000fE�x\u0004/�%HI~A��H��TkO,�.\u0019\u0014tL��\t��j�\u0004����\r�يVxq��N&P\u001fk �e�\u0002ޠM����?T��\u0015L*���4�����.\n�d�\u0005�F�HCA\r������\u001e\u0005S�s�12'̾�0\r~@�Z�\u000f���9l��Ƭ�l����\u000f�[\u0019�\r\n0\r\n\r\n"
+        },
+        "headers": {
+          "accept-ranges": "bytes",
+          "content-encoding": "deflate",
+          "content-type": "text/html; charset=utf-8",
+          "etag": "\"eb1be01450a6e59d937d3d092ca1ba404fe322de\"",
+          "vary": "Accept-Encoding"
+        },
+        "status": 200,
+        "statusText": "OK"
+      }
+    },
+    {
+      "name": "big_html_identity_only",
+      "request": {
+        "method": "GET",
+        "mode": "raw",
+        "path": "/big.html",
+        "headers": {
+          "Accept-Encoding": "identity"
+        }
+      },
+      "requestLine": "GET /big.html HTTP/1.1",
+      "response": {
+        "body": {
+          "kind": "text",
+          "length": 1494,
+          "sha256": "24e3dafb4104868c9903a122392729f9f1702b67a3ddad649bd97a76f089b61d",
+          "preview": "<!doctype html><html><head><title>big</title></head><body>\n<p>one fish two fish red fish blue fish — repeated to defeat the 1024-byte compression threshold so the reference's middleware engages.</p>"
+        },
+        "headers": {
+          "accept-ranges": "bytes",
+          "content-length": "1494",
+          "content-type": "text/html; charset=utf-8",
+          "etag": "\"eb1be01450a6e59d937d3d092ca1ba404fe322de\"",
+          "vary": "Accept-Encoding"
+        },
+        "status": 200,
+        "statusText": "OK"
+      }
+    },
+    {
+      "name": "big_html_no_accept_encoding",
+      "request": {
+        "method": "GET",
+        "mode": "raw",
+        "path": "/big.html"
+      },
+      "requestLine": "GET /big.html HTTP/1.1",
+      "response": {
+        "body": {
+          "kind": "text",
+          "length": 1494,
+          "sha256": "24e3dafb4104868c9903a122392729f9f1702b67a3ddad649bd97a76f089b61d",
+          "preview": "<!doctype html><html><head><title>big</title></head><body>\n<p>one fish two fish red fish blue fish — repeated to defeat the 1024-byte compression threshold so the reference's middleware engages.</p>"
+        },
+        "headers": {
+          "accept-ranges": "bytes",
+          "content-length": "1494",
+          "content-type": "text/html; charset=utf-8",
+          "etag": "\"eb1be01450a6e59d937d3d092ca1ba404fe322de\"",
+          "vary": "Accept-Encoding"
+        },
+        "status": 200,
+        "statusText": "OK"
+      }
+    },
+    {
+      "name": "big_html_gzip_q0",
+      "request": {
+        "method": "GET",
+        "mode": "raw",
+        "path": "/big.html",
+        "headers": {
+          "Accept-Encoding": "gzip;q=0, br"
+        }
+      },
+      "requestLine": "GET /big.html HTTP/1.1",
+      "response": {
+        "body": {
+          "kind": "text",
+          "length": 164,
+          "sha256": "f1cdb93863b086d4fe5e15d9da290765138c0de4c545f46775f39a5da575b514",
+          "preview": "99\r\n\u001b�\u0005\u0000��?�#4\u0016*\r�-�/�^,\u0002\u0007@�Ƒ\f���0N\u000b�\u0003��3�\u0003�P7\u001c?����y+Aтƫ\u001c�1Pm[�¼t�5�E牨ڽ�q�\u0001\u001b=�ᬇ��\u0003魉c�g����,��Ⱦ\u0007��qٸ�;�r��̃�UC\"n�KN��\u000e�\\��F�����$�D\u0006M\\I�\u001c�\u0001\r\n0\r\n\r\n"
+        },
+        "headers": {
+          "accept-ranges": "bytes",
+          "content-encoding": "br",
+          "content-type": "text/html; charset=utf-8",
+          "etag": "\"eb1be01450a6e59d937d3d092ca1ba404fe322de\"",
+          "vary": "Accept-Encoding"
+        },
+        "status": 200,
+        "statusText": "OK"
+      }
+    },
+    {
+      "name": "big_html_star_q0",
+      "request": {
+        "method": "GET",
+        "mode": "raw",
+        "path": "/big.html",
+        "headers": {
+          "Accept-Encoding": "*;q=0"
+        }
+      },
+      "requestLine": "GET /big.html HTTP/1.1",
+      "response": {
+        "body": {
+          "kind": "text",
+          "length": 1494,
+          "sha256": "24e3dafb4104868c9903a122392729f9f1702b67a3ddad649bd97a76f089b61d",
+          "preview": "<!doctype html><html><head><title>big</title></head><body>\n<p>one fish two fish red fish blue fish — repeated to defeat the 1024-byte compression threshold so the reference's middleware engages.</p>"
+        },
+        "headers": {
+          "accept-ranges": "bytes",
+          "content-length": "1494",
+          "content-type": "text/html; charset=utf-8",
+          "etag": "\"eb1be01450a6e59d937d3d092ca1ba404fe322de\"",
+          "vary": "Accept-Encoding"
+        },
+        "status": 200,
+        "statusText": "OK"
+      }
+    },
+    {
+      "name": "big_css_gzip_deflate_br",
+      "request": {
+        "method": "GET",
+        "mode": "raw",
+        "path": "/big.css",
+        "headers": {
+          "Accept-Encoding": "gzip, deflate, br"
+        }
+      },
+      "requestLine": "GET /big.css HTTP/1.1",
+      "response": {
+        "body": {
+          "kind": "text",
+          "length": 206,
+          "sha256": "6d08a8150e13ad6c6b1a7caf762598bf06f884ac2ea485e1f915d40b0104b95f",
+          "preview": "c3\r\n\u001b�\u0005\u0000���}_I�\u0007}!��\u001b\u0000��\u001d8$�`�\u0017���-i\u000b�[�f\u0014>P�j�F<<\u000f���g��\u000f��\\\u0007B�=�\u001a�\u0011_\b�T]6\u001d�>\u001d\u001b�c�ԅ��\u0019�H\u0004\u0019;�\u0015}G}�J�I:�\u0013\b�o\u0004\u000et�F��\u0016�T��\u001b�\u0007��J\u000e\u0002�\u000fd1R!V\u0016E=�Ǣ,�_�\u001dYy�ZEe�Y\f���\u0011��\u0018��Y\r�?���P�PZ�o�\u0013~4�\u0002�\u0002�\u0002�\u0002�\n�\n�\n\r"
+        },
+        "headers": {
+          "accept-ranges": "bytes",
+          "content-encoding": "br",
+          "content-type": "text/css; charset=utf-8",
+          "etag": "\"57762e00c717ec0497143c3559c6e6266ecba1ae\"",
+          "vary": "Accept-Encoding"
+        },
+        "status": 200,
+        "statusText": "OK"
+      }
+    },
+    {
+      "name": "big_js_gzip_deflate_br",
+      "request": {
+        "method": "GET",
+        "mode": "raw",
+        "path": "/big.js",
+        "headers": {
+          "Accept-Encoding": "gzip, deflate, br"
+        }
+      },
+      "requestLine": "GET /big.js HTTP/1.1",
+      "response": {
+        "body": {
+          "kind": "text",
+          "length": 516,
+          "sha256": "8f1490383086788bf80d3babf71e90c4983c280639009661cfc119697942b91d",
+          "preview": "1f8\r\n\u001b�\u0004\u0000�7���5ջ\n3h7W\u0017b\u0015~��,\u0016\u0001>�<�7��S�c�-\u001c�1��= sSҵ\u0000so\u001d�ZAk0�R�նe0ƈ���K�Zd��l�',����<&�wD�\u000fik�����\u001f\u0005�mt\b&1��#\f��V����4&��ȃ�8���n�J�+!C�2�(\nd��K�ѡ��b���j���zq�&{��\nҨV�Q�馐�[�8��М|�Ė�T�^}\\\r�"
+        },
+        "headers": {
+          "accept-ranges": "bytes",
+          "content-encoding": "br",
+          "content-type": "application/javascript; charset=utf-8",
+          "etag": "\"c0dd773df26ad7af9e48b4c3efb4cb72e70671f9\"",
+          "vary": "Accept-Encoding"
+        },
+        "status": 200,
+        "statusText": "OK"
+      }
+    },
+    {
+      "name": "data_json_gzip_deflate_br",
+      "request": {
+        "method": "GET",
+        "mode": "raw",
+        "path": "/data.json",
+        "headers": {
+          "Accept-Encoding": "gzip, deflate, br"
+        }
+      },
+      "requestLine": "GET /data.json HTTP/1.1",
+      "response": {
+        "body": {
+          "kind": "text",
+          "length": 306,
+          "sha256": "ed91c732c6a29a9d92f10a86fc32087415e14c7d620a9702a1d939de53c74ad2",
+          "preview": "126\r\n\u001b)\u0004\u0000����e�O3�ڦ��C6\nE��J�ܹ\u001eQ�D\"\u000b�D�Z+��o\u000b�-|\b2�t��\u000e��{̼��\u0007PX���s\u0017��\fz�����b�u�_ӊQ�}e�Q\rK-�qk�uѣq��\u0003f�A�D\u000e$�K�g|�\u0000�@ϸr��\u000b�3��9zr���K�g�(�:�W>���a�Y\r��a�!H�\u0010x���\u001d\u0006����Y\u0002\u001e�\t'\u00076��\u0006�\u0011v�wa�C^�\u0003�"
+        },
+        "headers": {
+          "accept-ranges": "bytes",
+          "content-encoding": "br",
+          "content-type": "application/json; charset=utf-8",
+          "etag": "\"da5d65119295e4e2019682819bb8d94aec4b7a7f\"",
+          "vary": "Accept-Encoding"
+        },
+        "status": 200,
+        "statusText": "OK"
+      }
+    },
+    {
+      "name": "vector_svg_gzip_deflate_br",
+      "request": {
+        "method": "GET",
+        "mode": "raw",
+        "path": "/vector.svg",
+        "headers": {
+          "Accept-Encoding": "gzip, deflate, br"
+        }
+      },
+      "requestLine": "GET /vector.svg HTTP/1.1",
+      "response": {
+        "body": {
+          "kind": "text",
+          "length": 285,
+          "sha256": "cce7c73fcce805b88a3d41ac587cdc2a91e595ec557fb13d25183ae506bd67ef",
+          "preview": "111\r\n\u001b\n\u0004\u0000ds.?�r�Ϩ� �Q\n��s\u0000����&\r�\n��h{���|��yyt>��l���(��S�\u0011|��[o\u0011�\r���K�w(�\u001f�a��\u001fW�\u0012\b|� t\t�\u0011\bv��d\u001cy�y^\u0005��+\u001e;0�\u001b=K\b ���G��\u0017�\u0010�}��9��a�Nn���v�DH���\u000b�����0\u000f\"�/�a<xW\u0000OGm����\u0016a�9�#�}�\"\b=�/t�!��x�\u0017&\u0003I"
+        },
+        "headers": {
+          "accept-ranges": "bytes",
+          "content-encoding": "br",
+          "content-type": "image/svg+xml",
+          "etag": "\"24eb144a779ede52bc60158086860f0ff5300689\"",
+          "vary": "Accept-Encoding"
+        },
+        "status": 200,
+        "statusText": "OK"
+      }
+    },
+    {
+      "name": "wasm_gzip_deflate_br",
+      "request": {
+        "method": "GET",
+        "mode": "raw",
+        "path": "/bin.wasm",
+        "headers": {
+          "Accept-Encoding": "gzip, deflate, br"
+        }
+      },
+      "requestLine": "GET /bin.wasm HTTP/1.1",
+      "response": {
+        "body": {
+          "kind": "binary",
+          "length": 290,
+          "sha256": "58ec2f2d89f2bc0b61bd930110f0595b58a769318051a478d315ea6744dd6a6a"
+        },
+        "headers": {
+          "accept-ranges": "bytes",
+          "content-encoding": "br",
+          "content-type": "application/wasm",
+          "etag": "\"b9f5f3cd2888ac96e83ce36825117affb7698e40\"",
+          "vary": "Accept-Encoding"
+        },
+        "status": 200,
+        "statusText": "OK"
+      }
+    },
+    {
+      "name": "image_png_gzip",
+      "request": {
+        "method": "GET",
+        "mode": "raw",
+        "path": "/image.png",
+        "headers": {
+          "Accept-Encoding": "gzip, deflate, br"
+        }
+      },
+      "requestLine": "GET /image.png HTTP/1.1",
+      "response": {
+        "body": {
+          "kind": "binary",
+          "length": 1500,
+          "sha256": "3b34240629311f96144fbd49d885f4576c7b6acbe7538025a737439faa429a5d"
+        },
+        "headers": {
+          "accept-ranges": "bytes",
+          "content-length": "1500",
+          "content-type": "image/png",
+          "etag": "\"4793261f1255487a9b00fd5253be632daf79d239\""
+        },
+        "status": 200,
+        "statusText": "OK"
+      }
+    },
+    {
+      "name": "font_woff2_gzip",
+      "request": {
+        "method": "GET",
+        "mode": "raw",
+        "path": "/font.woff2",
+        "headers": {
+          "Accept-Encoding": "gzip, deflate, br"
+        }
+      },
+      "requestLine": "GET /font.woff2 HTTP/1.1",
+      "response": {
+        "body": {
+          "kind": "binary",
+          "length": 1500,
+          "sha256": "3b34240629311f96144fbd49d885f4576c7b6acbe7538025a737439faa429a5d"
+        },
+        "headers": {
+          "accept-ranges": "bytes",
+          "content-length": "1500",
+          "content-type": "font/woff2",
+          "etag": "\"f7803fac5ef834bdeafac9512247663525b25a26\""
+        },
+        "status": 200,
+        "statusText": "OK"
+      }
+    },
+    {
+      "name": "media_mp4_gzip",
+      "request": {
+        "method": "GET",
+        "mode": "raw",
+        "path": "/media.mp4",
+        "headers": {
+          "Accept-Encoding": "gzip, deflate, br"
+        }
+      },
+      "requestLine": "GET /media.mp4 HTTP/1.1",
+      "response": {
+        "body": {
+          "kind": "binary",
+          "length": 1500,
+          "sha256": "3b34240629311f96144fbd49d885f4576c7b6acbe7538025a737439faa429a5d"
+        },
+        "headers": {
+          "accept-ranges": "bytes",
+          "content-length": "1500",
+          "content-type": "video/mp4",
+          "etag": "\"fdc8067289c7678b4bdf69df5105ba685684eb42\""
+        },
+        "status": 200,
+        "statusText": "OK"
+      }
+    },
+    {
+      "name": "head_big_html_gzip",
+      "request": {
+        "method": "HEAD",
+        "mode": "raw",
+        "path": "/big.html",
+        "headers": {
+          "Accept-Encoding": "gzip, deflate, br"
+        }
+      },
+      "requestLine": "HEAD /big.html HTTP/1.1",
+      "response": {
+        "body": {
+          "kind": "empty",
+          "length": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        "headers": {
+          "accept-ranges": "bytes",
+          "content-length": "1494",
+          "content-type": "text/html; charset=utf-8",
+          "etag": "\"eb1be01450a6e59d937d3d092ca1ba404fe322de\"",
+          "vary": "Accept-Encoding"
+        },
+        "status": 200,
+        "statusText": "OK"
+      }
+    },
+    {
+      "name": "options_big_html_gzip",
+      "request": {
+        "method": "OPTIONS",
+        "mode": "raw",
+        "path": "/big.html",
+        "headers": {
+          "Accept-Encoding": "gzip, deflate, br"
+        }
+      },
+      "requestLine": "OPTIONS /big.html HTTP/1.1",
+      "response": {
+        "body": {
+          "kind": "text",
+          "length": 164,
+          "sha256": "f1cdb93863b086d4fe5e15d9da290765138c0de4c545f46775f39a5da575b514",
+          "preview": "99\r\n\u001b�\u0005\u0000��?�#4\u0016*\r�-�/�^,\u0002\u0007@�Ƒ\f���0N\u000b�\u0003��3�\u0003�P7\u001c?����y+Aтƫ\u001c�1Pm[�¼t�5�E牨ڽ�q�\u0001\u001b=�ᬇ��\u0003魉c�g����,��Ⱦ\u0007��qٸ�;�r��̃�UC\"n�KN��\u000e�\\��F�����$�D\u0006M\\I�\u001c�\u0001\r\n0\r\n\r\n"
+        },
+        "headers": {
+          "accept-ranges": "bytes",
+          "content-encoding": "br",
+          "content-type": "text/html; charset=utf-8",
+          "etag": "\"eb1be01450a6e59d937d3d092ca1ba404fe322de\"",
+          "vary": "Accept-Encoding"
+        },
+        "status": 200,
+        "statusText": "OK"
+      }
+    },
+    {
+      "name": "no_transform_big_html_gzip",
+      "request": {
+        "method": "GET",
+        "mode": "raw",
+        "path": "/big-no-transform.html",
+        "headers": {
+          "Accept-Encoding": "gzip, deflate, br"
+        }
+      },
+      "requestLine": "GET /big-no-transform.html HTTP/1.1",
+      "response": {
+        "body": {
+          "kind": "text",
+          "length": 1153,
+          "sha256": "8954d31271f7fa40cf76f3318c7464d6ff153edc296361143b52bdafade382da",
+          "preview": "<!doctype html><html><head><title>no-transform</title></head><body>\n<p>this body is above the compression threshold but the user `headers` rule sets `Cache-Control: no-transform` so the middleware MUS"
+        },
+        "headers": {
+          "accept-ranges": "bytes",
+          "cache-control": "no-transform",
+          "content-length": "1153",
+          "content-type": "text/html; charset=utf-8",
+          "etag": "\"dced1caa70cb0dda23ef360fe0baef4e34e8f9e0\""
+        },
+        "status": 200,
+        "statusText": "OK"
+      }
+    },
+    {
+      "name": "range_big_html_gzip",
+      "request": {
+        "method": "GET",
+        "mode": "raw",
+        "path": "/big.html",
+        "headers": {
+          "Accept-Encoding": "gzip, deflate, br",
+          "Range": "bytes=0-15"
+        }
+      },
+      "requestLine": "GET /big.html HTTP/1.1",
+      "response": {
+        "body": {
+          "kind": "text",
+          "length": 16,
+          "sha256": "c330b4c3b3740c0a215cfbe665bbf96e7799994af049f2dbf06cbb104aa09b63",
+          "preview": "<!doctype html><"
+        },
+        "headers": {
+          "accept-ranges": "bytes",
+          "content-length": "16",
+          "content-range": "bytes 0-15/1494",
+          "content-type": "text/html; charset=utf-8",
+          "etag": "\"eb1be01450a6e59d937d3d092ca1ba404fe322de\"",
+          "vary": "Accept-Encoding"
+        },
+        "status": 206,
+        "statusText": "Partial Content"
+      }
+    }
+  ]
+}

@@ -156,6 +156,7 @@
           "preview": "<!DOCTYPE html><head> <meta name=\"viewport\" content=\"width=device-width, initial-scale=1, user-scalable=no\"/> <style> body { margin: 0; font-family: -apple-system, BlinkMacSystemFont, \"Segoe UI\", \"Rob"
         },
         "headers": {
+          "content-encoding": "gzip",
           "content-type": "text/html; charset=utf-8",
           "vary": "Accept-Encoding"
         },
@@ -178,6 +179,7 @@
           "preview": "<!DOCTYPE html><head> <meta name=\"viewport\" content=\"width=device-width, initial-scale=1, user-scalable=no\"/> <style> body { margin: 0; font-family: -apple-system, BlinkMacSystemFont, \"Segoe UI\", \"Rob"
         },
         "headers": {
+          "content-encoding": "gzip",
           "content-type": "text/html; charset=utf-8",
           "vary": "Accept-Encoding"
         },
@@ -200,6 +202,7 @@
           "preview": "<!DOCTYPE html><head> <meta name=\"viewport\" content=\"width=device-width, initial-scale=1, user-scalable=no\"/> <style> body { margin: 0; font-family: -apple-system, BlinkMacSystemFont, \"Segoe UI\", \"Rob"
         },
         "headers": {
+          "content-encoding": "gzip",
           "content-type": "text/html; charset=utf-8",
           "vary": "Accept-Encoding"
         },
@@ -222,6 +225,7 @@
           "preview": "<!DOCTYPE html><head> <meta name=\"viewport\" content=\"width=device-width, initial-scale=1, user-scalable=no\"/> <style> body { margin: 0; font-family: -apple-system, BlinkMacSystemFont, \"Segoe UI\", \"Rob"
         },
         "headers": {
+          "content-encoding": "gzip",
           "content-type": "text/html; charset=utf-8",
           "vary": "Accept-Encoding"
         },
@@ -244,6 +248,7 @@
           "preview": "<!DOCTYPE html><head> <meta name=\"viewport\" content=\"width=device-width, initial-scale=1, user-scalable=no\"/> <style> body { margin: 0; font-family: -apple-system, BlinkMacSystemFont, \"Segoe UI\", \"Rob"
         },
         "headers": {
+          "content-encoding": "gzip",
           "content-type": "text/html; charset=utf-8",
           "vary": "Accept-Encoding"
         },
@@ -286,6 +291,7 @@
           "preview": "<!DOCTYPE html><head> <meta name=\"viewport\" content=\"width=device-width, initial-scale=1, user-scalable=no\"/> <style> body { margin: 0; font-family: -apple-system, BlinkMacSystemFont, \"Segoe UI\", \"Rob"
         },
         "headers": {
+          "content-encoding": "gzip",
           "content-type": "text/html; charset=utf-8",
           "vary": "Accept-Encoding"
         },
@@ -308,6 +314,7 @@
           "preview": "<!DOCTYPE html><head> <meta name=\"viewport\" content=\"width=device-width, initial-scale=1, user-scalable=no\"/> <style> body { margin: 0; font-family: -apple-system, BlinkMacSystemFont, \"Segoe UI\", \"Rob"
         },
         "headers": {
+          "content-encoding": "gzip",
           "content-type": "text/html; charset=utf-8",
           "vary": "Accept-Encoding"
         },
