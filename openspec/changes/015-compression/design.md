@@ -299,18 +299,30 @@ module. Its gate ordering, top-to-bottom:
 6. `method == HEAD` → return with `Vary` set, body
    untouched. Axum / hyper strip the HEAD body on the
    wire.
-7. `bytes.len() < DEFAULT_THRESHOLD` (1024) → return
+7. `existing_encoding != None && existing_encoding != Some("identity")`
+   (Codex round 2 P2, refined round 3 P2) → return
+   with `Vary` set, no re-encoding. A user `headers`
+   rule may set `Content-Encoding` on the merged
+   response; the centralized pass honors any
+   non-identity value verbatim, mirroring
+   `compression/index.js:182-188`
+   (`encoding = res.getHeader('Content-Encoding') || 'identity';
+   if (encoding !== 'identity') { ... return }`).
+   `Content-Encoding: identity` falls through to the
+   encode step — the reference treats it as "no
+   encoding applied; compress normally".
+8. `bytes.len() < DEFAULT_THRESHOLD` (1024) → return
    with `Vary` set, body untouched.
-8. `negotiate(accept_encoding) == None` → return with
+9. `negotiate(accept_encoding) == None` → return with
    `Vary` set, body untouched (identity-only or
    all-q-zero).
-9. Otherwise: encode `bytes` via the chosen encoder,
-   set `Content-Encoding: <token>`, set
-   `Content-Length: <compressed-len>`, replace body.
-   `Vary` was set in step 4.
+10. Otherwise: encode `bytes` via the chosen encoder,
+    set `Content-Encoding: <token>`, set
+    `Content-Length: <compressed-len>`, replace body.
+    `Vary` was set in step 4.
 
 The order mirrors the reference's `compression`
-middleware exactly EXCEPT for step 8's framing — the
+middleware exactly EXCEPT for step 10's framing — the
 reference emits chunked transfer-encoding without
 `Content-Length`. Documented as **D-020 #1**.
 
