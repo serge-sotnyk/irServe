@@ -9,7 +9,7 @@ Let's plan stage {NX — short name}.
   each sub-stage closes. Verify {NX} is "Next" per the README and the
   roadmap.
 - Architectural foundations:
-  `openspec/changes/001-port-minimal-static-server/design.md`
+  `openspec/changes/archive/2026-05-15-001-port-minimal-static-server/design.md`
   (§4 — the 13-phase pipeline, §6 — the oracle harness layer).
 - Contract for the capability: `openspec/specs/<capability>/spec.md`
   (mapping in the roadmap).

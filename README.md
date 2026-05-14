@@ -44,21 +44,21 @@ The methodology runs in nine stages. Status is updated when entering or completi
 | 2 | Capability map | `docs/reference/serve/compatibility-levels.md` refined | done |
 | 3 | Oracle matrix | `docs/reference/serve/oracle-matrix.md` + `tools/probe/snapshots/` | done |
 | 4 | OpenSpec bootstrap change | `openspec/changes/000-establish-serve-compatibility-baseline/` | done |
-| 5a | First implementation proposal (specs delta + design + tasks, no code) | `openspec/changes/001-port-minimal-static-server/` (proposal/design/tasks/specs only) | done |
+| 5a | First implementation proposal (specs delta + design + tasks, no code) | `openspec/changes/archive/2026-05-15-001-port-minimal-static-server/` (proposal/design/tasks/specs only) | done |
 | 5b | Rust scaffold + first vertical slice | `Cargo.toml` + `tests/oracle/` + first crate code | done |
-| 6a | `serve.json` loader | `openspec/changes/003-load-serve-json` | done |
-| 6b | Routing normalization (trailingSlash, multi-slash) | `openspec/changes/004-route-normalization` | done |
-| 6c | cleanUrls (301 + extensionless resolution) | `openspec/changes/005-clean-urls` | done |
-| 6d | Configured redirects | `openspec/changes/006-configured-redirects` | done |
-| 6e | Configured rewrites + `--single` SPA fallback | `openspec/changes/007-configured-rewrites` | done |
-| 6f | Custom error pages, full L2 security, custom response headers | `openspec/changes/008-error-pages-and-security` | done |
-| 6g | Directory listing (HTML / JSON, `unlisted`, `renderSingle`) | `openspec/changes/009-directory-listing` | done |
-| 6h | CLI fill-in (`tcp://`, `-p`, `--cors` L1, `--debug`, `--no-request-logging`, `--no-port-switching`) | `openspec/changes/010-cli-fill-in` | done |
-| 7a | ETag + 304 conditional GET | `openspec/changes/011-etag-conditional` | done |
-| 7b | `Last-Modified` + `--no-etag` + `If-Modified-Since` | `openspec/changes/012-last-modified` | done |
-| 7c | Range requests (`206`/`416`) | `openspec/changes/013-range-requests` | done |
-| 7d | `Cache-Control` default + `OPTIONS` (CORS preflight) | `openspec/changes/014-cache-headers-and-preflight` | done |
-| 7e | HTTP compression (`-u`/`--no-compression`) | `openspec/changes/015-compression` | done |
+| 6a | `serve.json` loader | `openspec/changes/archive/2026-05-15-003-load-serve-json` | done |
+| 6b | Routing normalization (trailingSlash, multi-slash) | `openspec/changes/archive/2026-05-15-004-route-normalization` | done |
+| 6c | cleanUrls (301 + extensionless resolution) | `openspec/changes/archive/2026-05-15-005-clean-urls` | done |
+| 6d | Configured redirects | `openspec/changes/archive/2026-05-15-006-configured-redirects` | done |
+| 6e | Configured rewrites + `--single` SPA fallback | `openspec/changes/archive/2026-05-15-007-configured-rewrites` | done |
+| 6f | Custom error pages, full L2 security, custom response headers | `openspec/changes/archive/2026-05-15-008-error-pages-and-security` | done |
+| 6g | Directory listing (HTML / JSON, `unlisted`, `renderSingle`) | `openspec/changes/archive/2026-05-15-009-directory-listing` | done |
+| 6h | CLI fill-in (`tcp://`, `-p`, `--cors` L1, `--debug`, `--no-request-logging`, `--no-port-switching`) | `openspec/changes/archive/2026-05-15-010-cli-fill-in` | done |
+| 7a | ETag + 304 conditional GET | `openspec/changes/archive/2026-05-15-011-etag-conditional` | done |
+| 7b | `Last-Modified` + `--no-etag` + `If-Modified-Since` | `openspec/changes/archive/2026-05-15-012-last-modified` | done |
+| 7c | Range requests (`206`/`416`) | `openspec/changes/archive/2026-05-15-013-range-requests` | done |
+| 7d | `Cache-Control` default + `OPTIONS` (CORS preflight) | `openspec/changes/archive/2026-05-15-014-cache-headers-and-preflight` | done |
+| 7e | HTTP compression (`-u`/`--no-compression`) | `openspec/changes/archive/2026-05-15-015-compression` | done |
 
 The first concrete Rust crate appears at Stage 5b, not earlier. Stages 1–5a produce only research notes and OpenSpec specs.
 

@@ -790,7 +790,7 @@ code.
 - **`If-Unmodified-Since`, weak validator semantics, multiple
   IMS values, `Vary` on validators are not supported.** No
   P-class SRV; out of scope for L3. The reference handles
-  none of these either. See `openspec/changes/012-last-modified/proposal.md`'s
+  none of these either. See `openspec/changes/archive/2026-05-15-012-last-modified/proposal.md`'s
   "Out of scope" section for the full list.
 
 - **ETag/Last-Modified mutex lives at the default-emission
