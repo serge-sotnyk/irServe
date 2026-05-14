@@ -380,20 +380,20 @@ Priority: P2
 
 Reference source:
 - README: yes — help text: `Do not compress files`.
-- serve source: CLI flag enumeration; the gating happens in `source/utilities/server.ts` (compression middleware).
+- serve source: CLI flag enumeration at `source/utilities/cli.ts:53,154,171` (`-u, --no-compression`); the per-request gate at `source/utilities/server.ts:71-72` (`if (!args['--no-compression']) await compress(...)`); middleware at `node_modules/compression/index.js` (`compression@1.8.1`).
 - Existing test: absent.
-- Probe: `tools/probe/cases/compression-default.json` — with default settings, `vary: Accept-Encoding` is present on text responses, but the probe runner's `fetch` automatically decompresses, so the on-the-wire encoding cannot be observed directly.
-- Oracle test: ORC-058 (snapshots in tools/probe/snapshots/).
+- Probe: `tools/probe/cases/compression-default.json` (single-anchor `Vary: Accept-Encoding` check, dual-target after Stage 7e slice 2); `tools/probe/cases/compression-raw.json` (20 raw-socket anchors authored in Stage 7e slice 0, pinning the threshold / negotiation / MIME filter / skip conditions / Range pre-emption — closes Q-002).
+- Oracle test: ORC-058 (`compression-default.json#with_accept_encoding`, dual-target post-7e), ORC-191..ORC-210 (`compression-raw.json` 20 anchors, all promoted dual-target via the slice-2 `runner.l0.clean` partition with `bodyMayDiffer` on the 10 compressed anchors per D-020 #4).
 
 Requirement (draft):
-By default the server applies HTTP compression to text-typed responses for clients that send a compatible `Accept-Encoding`. With `--no-compression`, no compression is applied; the response is sent as-is.
+By default the server applies HTTP compression to compressible-MIME responses above the 1024-byte body-size threshold for clients that send a compatible `Accept-Encoding`. The supported encoders, in preference order, are brotli (`br`), gzip, and deflate (mirroring `compression/index.js:44-45`'s `PREFERRED_ENCODING`). With `-u`/`--no-compression`, no compression is applied and `Vary: Accept-Encoding` is not emitted; the response is sent as-is.
 
 Compatibility notes:
-- The presence of `Vary: Accept-Encoding` is a stable signal in probe output even when the client transparently decodes the body.
-- L3-priority. MVP MAY ship without compression and gain it via decision `D-006`.
+- The presence of `Vary: Accept-Encoding` is a stable signal in probe output even when the client transparently decodes the body; for on-the-wire `Content-Encoding` observation the raw-socket pathway in `tools/probe/run.mjs::runRequestRaw` is the contract (Node's `fetch` transparently decompresses, hiding the encoding from `fetch`-mode probes).
+- ~~L3-priority. MVP MAY ship without compression and gain it via decision `D-006`.~~ **Stage 7e closed this.** D-006 stays in `docs/reference/serve/decisions.md` as a historical record of when compression was 100 % deferred; the flag is now functional and the four surviving divergences from the reference's `compression@1.8.1` middleware (framing, mime-db port, q-rank, body bytes) are catalogued in **D-020**. Body bytes of compressed responses are NOT byte-identical to reference's; the probe runner's per-anchor `bodyMayDiffer` overlay strips `content-encoding` and `content-length` from the L0 contract on the 10 compressed anchors in `compression-raw.json`.
 
 Open questions:
-- Q-002 (exact set of compressed content types and minimum body size threshold).
+- None. Q-002 was closed in Stage 7e slice 0 via the `compression-raw.json` snapshot (resolution dated 2026-05-14 in `docs/reference/serve/open-questions.md`).
 
 #### SRV-CLI-013: `--no-etag` switches default to `Last-Modified`
 

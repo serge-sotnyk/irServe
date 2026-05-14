@@ -190,6 +190,57 @@ The flag is accepted for CLI compatibility and ignored.
 - THEN startup succeeds and the server is reachable
 - AND the system clipboard is not modified
 
+### Requirement: `-u`/`--no-compression` disables HTTP compression
+
+By default the server SHALL apply HTTP compression to
+compressible-MIME responses above a fixed body-size threshold
+(1024 bytes) when the client's `Accept-Encoding` header admits
+a supported encoder (`br` / `gzip` / `deflate`, in preference
+order). With `-u`/`--no-compression`, the server SHALL NOT
+apply any compression to any response: bodies are sent
+uncompressed, no `Content-Encoding` is emitted, and
+`Vary: Accept-Encoding` is also NOT emitted (the negotiation
+hook is skipped wholesale). The flag SHALL be accepted in
+both its short and long forms, mirroring the reference's
+`-u, --no-compression` declaration at
+`third_party/serve/source/utilities/cli.ts:53,154,171`.
+
+The full L3 wire surface — encoder set, preference order,
+threshold, MIME filter, `Vary` semantics, skip conditions
+(HEAD, `Cache-Control: no-transform`, below-threshold,
+identity-only, all-`q=0`), and Range pre-emption — is
+documented as a separate L3 requirement under the
+`http-compression` capability and is not part of this
+baseline. The four deliberate divergences from the
+reference's `compression@1.8.1` middleware are recorded as
+**D-020** in `docs/reference/serve/decisions.md`.
+
+Evidence: SRV-CLI-012 (status: verified, level: L3); oracle:
+ORC-058 (`compression-default.json#with_accept_encoding`),
+ORC-191..ORC-210 (`compression-raw.json` — 20 anchors
+covering the MIME allowlist, negotiation matrix, and skip
+conditions).
+
+#### Scenario: Default — compressible asset above threshold compresses
+
+- GIVEN `serve` (defaults) over a directory containing
+  `big.css` whose body is > 1024 bytes
+- WHEN `GET /big.css` with
+  `Accept-Encoding: gzip, deflate, br`
+- THEN status is 200
+- AND the response carries `Vary: Accept-Encoding`
+- AND the response carries `Content-Encoding: br`
+
+#### Scenario: Flag disables compression wholesale
+
+- GIVEN `serve --no-compression` (or `serve -u`) over the
+  same fixture
+- WHEN `GET /big.css` with the same `Accept-Encoding`
+- THEN status is 200
+- AND the response does NOT carry `Vary`
+- AND the response does NOT carry `Content-Encoding`
+- AND the response body is the raw file contents
+
 ### Requirement: `-d`/`--debug` toggles verbose output
 
 The `-d`/`--debug` flag SHALL be accepted. IrServe MAY map it to a

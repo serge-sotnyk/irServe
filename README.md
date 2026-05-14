@@ -31,6 +31,7 @@ Concretely: take `vercel/serve` (a small but real Node.js static file server), r
 - **Stage 7b — `Last-Modified` + `--no-etag` + `If-Modified-Since`.** Done.
 - **Stage 7c — Range requests (`206`/`416`).** Done.
 - **Stage 7d — `Cache-Control` default + `OPTIONS` (CORS preflight).** Done.
+- **Stage 7e — HTTP compression (`-u`/`--no-compression`).** Done.
 
 Rust code lives under `crates/irserve` (the bin) and `crates/irserve-core` (the lib). The first slice (Stage 5b) is strict-L0: eight SRVs (`SRV-CLI-001/002/007/019`, `SRV-FILE-001/002/004/005`). Stage 6a un-defers SRV-CFG-001, SRV-CFG-002, and SRV-CLI-009 (`-c/--config`); the remaining capabilities are still deferred per `D-008`/`D-009`.
 
@@ -76,7 +77,7 @@ The methodology runs in nine stages. Status is updated when entering or completi
 | 7b | `Last-Modified` + `--no-etag` + `If-Modified-Since` | `openspec/changes/012-last-modified` | done |
 | 7c | Range requests (`206`/`416`) | `openspec/changes/013-range-requests` | done |
 | 7d | `Cache-Control` default + `OPTIONS` (CORS preflight) | `openspec/changes/014-cache-headers-and-preflight` | done |
-| 7e | HTTP compression (`-u`/`--no-compression`) | `openspec/changes/015-compression` | todo |
+| 7e | HTTP compression (`-u`/`--no-compression`) | `openspec/changes/015-compression` | done |
 
 The first concrete Rust crate appears at Stage 5b, not earlier. Stages 1–5a produce only research notes and OpenSpec specs.
 
@@ -303,6 +304,16 @@ curl -i -X OPTIONS -H 'Origin: https://example.com' \
 # Default Cache-Control is absent (Stage 7d, SRV-CACHE-005); only user `headers` rules emit it.
 curl -sI http://127.0.0.1:3010/asset.css | grep -i cache-control || echo "(no cache-control)"
 
+# HTTP compression (Stage 7e, SRV-CLI-012). Default on; threshold 1024 bytes; preference br > gzip > deflate.
+# python -c "print('body{color:red}'*100)" > _tmp/big.css
+curl -i -H 'Accept-Encoding: gzip, deflate, br' http://127.0.0.1:3010/big.css
+# 200 + vary: Accept-Encoding + content-encoding: br + brotli-compressed body
+curl -i -H 'Accept-Encoding: gzip' http://127.0.0.1:3010/big.css
+# 200 + vary: Accept-Encoding + content-encoding: gzip
+cargo run -- --no-compression --listen 3010 _tmp
+curl -i -H 'Accept-Encoding: gzip, br' http://127.0.0.1:3010/big.css
+# 200, no vary, no content-encoding, body raw (the -u / --no-compression flag skips the whole pipeline)
+
 # --no-port-switching (Stage 6h, SRV-CLI-016, D-016): refuse fallback on a busy port.
 # Terminal A:
 cargo run -- --listen 3010 _tmp
@@ -326,8 +337,8 @@ curl -s http://127.0.0.1:3010/ > /dev/null
 ./target/release/irserve a b           # exit non-zero, two positionals rejected
 ```
 
-What is NOT yet observable (still deferred to Stage 7e+ / L4):
-gzip compression, symlink resolution, TLS.
+What is NOT yet observable (still deferred to L4):
+symlink resolution, TLS.
 
 ## References
 
