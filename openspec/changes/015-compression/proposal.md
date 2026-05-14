@@ -137,7 +137,7 @@ implementation — see "What" below and the canonical
   one). Added `runner.l0.clean` blocks to
   `compression-default.json` (legacy 1-anchor) and
   `compression-raw.json` (new, with `bodyMayDiffer` on the
-  10 compressed anchors per D-020's body-bytes
+  12 compressed anchors per D-020's body-bytes
   divergence). Promoted **ORC-058** in
   `docs/reference/serve/oracle-matrix.md` from
   reference-only to dual-target and added 20 new ORC rows

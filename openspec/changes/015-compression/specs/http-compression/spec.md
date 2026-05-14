@@ -391,7 +391,7 @@ oracle: ORC-206
   variations may still differ at the bit level). The
   probe runner's per-anchor `bodyMayDiffer` overlay
   strips body bytes and `content-length` from the L0
-  contract on the 10 compressed anchors in
+  contract on the 12 compressed anchors in
   `compression-raw.json`; `content-encoding` is
   separately must-match (Codex round 1 P1 pinned this
   distinction — `bodyMayDiffer` does NOT imply

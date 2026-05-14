@@ -23,22 +23,27 @@ and the per-request gate at
 The full L3 wire surface — encoder set, negotiation
 preference order, threshold, MIME filter, Vary semantics,
 skip conditions (HEAD, `Cache-Control: no-transform`,
-below-threshold, identity-only, all-`q=0`), Range
-pre-emption — is documented as a separate L3 capability
-spec at `openspec/specs/http-compression/spec.md` and is
-not duplicated in this baseline. The compatibility
+below-threshold, identity-only, all-`q=0`, already-encoded
+non-identity `Content-Encoding` passthrough), 206 /
+threshold-gate composition (small ranges pass through
+uncompressed with Vary; large ranges encode like 200s)
+— is documented as a separate L3 capability spec at
+`openspec/specs/http-compression/spec.md` and is not
+duplicated in this baseline. The compatibility
 divergences from the reference's `compression@1.8.1`
 middleware are recorded as **D-020** in
 `docs/reference/serve/decisions.md`.
 
 Evidence: SRV-CLI-012 (status: verified, level: L3);
 oracle: ORC-058 (`compression-default.json#with_accept_encoding`),
-ORC-191..ORC-210 (`compression-raw.json` — 20 anchors
-covering the MIME allowlist, negotiation matrix, and
-skip conditions). Promoted via Stage 7e slice 2 (commit
-`d1b9a15`); the `-u` flag was wired but no-op pre-7e per
-D-006, which transitions from `adapted` (100 % deferred)
-to implemented by 7e (D-006 historical entry stays; D-020
+ORC-191..ORC-213 (`compression-raw.json` — 23 anchors
+covering the MIME allowlist, negotiation matrix, skip
+conditions, user-`Content-Encoding` identity / non-identity
+passthrough, and the above-threshold-range encode case).
+Promoted via Stage 7e slice 2 (commit `d1b9a15`);
+the `-u` flag was wired but no-op pre-7e per D-006,
+which transitions from `adapted` (100 % deferred) to
+implemented by 7e (D-006 historical entry stays; D-020
 records the four surviving divergences from reference).
 
 Implementation:
@@ -47,14 +52,17 @@ Implementation:
 the flag; the post-parse override forces
 `serve_config.compression = Some(false)` when set.
 Absence leaves `serve_config.compression` as `None`
-(= compress by default). The dispatcher seam at
-`crates/irserve-core/src/dispatch.rs::build_file_or_304`
-calls `compression::maybe_apply(...)` after
-`apply_custom_headers` and before Range pre-emption;
+(= compress by default). The seam is a centralized
+post-dispatch pass in
+`crates/irserve-core/src/server.rs::handler` (between
+`apply_cors` and the request log — moved from
+`build_file_or_304` by Codex round 1 P2 so directory
+listings and error pages also get compression).
 `maybe_apply`'s first gate is
 `if serve_config.compression == Some(false) { return
 response; }`, mirroring the reference's per-request
-`if (!args['--no-compression'])` gate.
+`if (!args['--no-compression'])` gate at
+`third_party/serve/source/utilities/server.ts:71-72`.
 
 #### Scenario: Default behavior — compressible asset compresses with `Vary` set
 

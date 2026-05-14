@@ -208,18 +208,22 @@ both its short and long forms, mirroring the reference's
 The full L3 wire surface — encoder set, preference order,
 threshold, MIME filter, `Vary` semantics, skip conditions
 (HEAD, `Cache-Control: no-transform`, below-threshold,
-identity-only, all-`q=0`), and Range pre-emption — is
-documented as a separate L3 requirement under the
-`http-compression` capability and is not part of this
-baseline. The four deliberate divergences from the
-reference's `compression@1.8.1` middleware are recorded as
-**D-020** in `docs/reference/serve/decisions.md`.
+identity-only, all-`q=0`, already-encoded non-identity
+`Content-Encoding` passthrough), and the 206 / threshold-
+gate composition (small ranges pass through uncompressed
+with Vary; large ranges encode like 200s) — is documented
+as a separate L3 requirement under the `http-compression`
+capability and is not part of this baseline. The four
+deliberate divergences from the reference's
+`compression@1.8.1` middleware are recorded as **D-020** in
+`docs/reference/serve/decisions.md`.
 
 Evidence: SRV-CLI-012 (status: verified, level: L3); oracle:
 ORC-058 (`compression-default.json#with_accept_encoding`),
-ORC-191..ORC-210 (`compression-raw.json` — 20 anchors
-covering the MIME allowlist, negotiation matrix, and skip
-conditions).
+ORC-191..ORC-213 (`compression-raw.json` — 23 anchors
+covering the MIME allowlist, negotiation matrix, skip
+conditions, user-`Content-Encoding` identity / non-identity
+passthrough, and the above-threshold-range encode case).
 
 #### Scenario: Default — compressible asset above threshold compresses
 

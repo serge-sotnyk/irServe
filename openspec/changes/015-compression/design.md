@@ -393,7 +393,7 @@ brief for spec-delta cross-reference:
    `brotli` crate) differ at the bit level. The
    probe runner's per-anchor `bodyMayDiffer` overlay
    strips body bytes + `content-length` from the L0
-   contract on the 10 compressed anchors;
+   contract on the 12 compressed anchors;
    `content-encoding` stays must-match (Codex round 1
    P1 — `bodyMayDiffer` no longer implies
    `contentEncodingMayDiffer`).
