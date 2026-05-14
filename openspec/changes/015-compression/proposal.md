@@ -137,11 +137,14 @@ implementation — see "What" below and the canonical
   one). Added `runner.l0.clean` blocks to
   `compression-default.json` (legacy 1-anchor) and
   `compression-raw.json` (new, with `bodyMayDiffer` on the
-  12 compressed anchors per D-020's body-bytes
+  10 compressed anchors per D-020's body-bytes
   divergence). Promoted **ORC-058** in
   `docs/reference/serve/oracle-matrix.md` from
   reference-only to dual-target and added 20 new ORC rows
   for the compression-raw anchors (ORC-191..ORC-210).
+  (Current-state counts after Codex rounds 3 and 4:
+  23 anchors, 12 in `bodyMayDiffer`, ORC-191..ORC-213
+  — see D-020 / capability spec / inventory.)
   `cargo test --test oracle` ends at **81 passed, 2
   skipped, 0 failed** (was 79 / 3 / 0 at end of Stage 7d).
 
