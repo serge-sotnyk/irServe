@@ -132,9 +132,20 @@ actually shipped.
     should adopt or diverge from the no-preflight-short-
     circuit behavior") since it's resolved to **adopt**.
     Status stays `verified` for both SRVs.
-  - [ ] Run `npx -y @fission-ai/openspec@latest validate
-    --all --strict` and report any failures.
-  - [ ] Commit: `docs(stage-7d): spec deltas + cors capability + meta`
+  - [x] Run `npx -y @fission-ai/openspec@latest validate
+    --all --strict` and report any failures. Initial run
+    after `3baedf5` flagged two issues fixed in Codex round
+    1 (`docs(stage-7d): address Codex review round 1`):
+    (a) `specs/cors/spec.md` in the change package was a
+    full spec rather than an `## ADDED Requirements` delta
+    — rewritten as a delta; (b) the canonical
+    `openspec/specs/cors/spec.md` Requirement #0 had its
+    `SHALL` clause wrapped onto the second body line — the
+    title's first body line now leads with `Every response
+    under -C / --cors SHALL`. Re-run after the round-1
+    commit lands green.
+  - [x] Commit: `docs(stage-7d): spec deltas + cors capability + meta`
+    (`3baedf5`).
 
 ## Validation
 

@@ -45,27 +45,27 @@ identically for GET / HEAD / OPTIONS / POST / PUT / DELETE
   suppress HEAD bodies either (out of scope, see proposal).
 
 CLI-side at `third_party/serve/source/utilities/server.ts:42-93`:
-the `--cors` branch (L65-70) sets the four
+the `--cors` branch (L65-70) sets exactly four
 `access-control-*` headers via `response.setHeader` BEFORE
 delegating to `serve-handler`. No method check at the CLI
 layer either:
 
 ```ts
-// L65-70 (excerpted)
-if (cors) {
+// L65-70 (verbatim)
+if (args['--cors']) {
   response.setHeader('Access-Control-Allow-Origin', '*');
-  response.setHeader('Access-Control-Allow-Methods',
-    'GET, POST, PUT, DELETE, PATCH, OPTIONS');
-  // ... etc, plus headers / credentials / private-network
+  response.setHeader('Access-Control-Allow-Headers', '*');
+  response.setHeader('Access-Control-Allow-Credentials', 'true');
+  response.setHeader('Access-Control-Allow-Private-Network', 'true');
 }
 ```
 
-(Note: the reference's `Access-Control-Allow-Methods`
-listing is **not** mirrored by irserve — see the cors
-capability spec's Compatibility notes for why. The
-inventory entry for SRV-CORS-001 explicitly catalogues
-the four headers irserve **does** emit; `Allow-Methods` is
-not among them.)
+(Note: the reference does NOT emit
+`Access-Control-Allow-Methods`,
+`Access-Control-Allow-Expose-Headers`, or
+`Access-Control-Max-Age` from this branch — only the four
+headers above. irserve mirrors. The inventory entry for
+SRV-CORS-001 catalogues the same four headers.)
 
 **irserve dispatcher seam.** `crates/irserve-core/src/dispatch.rs:91-108`.
 
