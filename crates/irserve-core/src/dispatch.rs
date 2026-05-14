@@ -88,10 +88,18 @@ async fn dispatch_inner(
     rewrite_rules: &[RewriteRuleCompiled],
     header_rules: &[HeaderRuleCompiled],
 ) -> (Response<Body>, Option<String>) {
-    // Phase 1–2: method gate (existing). 405 carries the request's
-    // raw URI path forward so that `apply_custom_headers` matches
-    // against it (decode hasn't run yet).
-    if req.method() != Method::GET && req.method() != Method::HEAD {
+    // Phase 1–2: method gate. 405 carries the request's raw URI path
+    // forward so that `apply_custom_headers` matches against it
+    // (decode hasn't run yet).
+    //
+    // OPTIONS flows through the static pipeline like GET/HEAD per
+    // SRV-CORS-001 — the reference (`serve-handler/src/index.js`)
+    // never inspects `request.method`, so an `OPTIONS /asset.css`
+    // walks phases 3..13 and yields the same response shape (200 +
+    // file body / 304 / 404 / etc.) plus the `--cors` overlay
+    // applied post-dispatch. No D-NNN: mirror semantics, not
+    // adaptation.
+    if !matches!(*req.method(), Method::GET | Method::HEAD | Method::OPTIONS) {
         let resp = Response::builder()
             .status(StatusCode::METHOD_NOT_ALLOWED)
             .body(Body::empty())

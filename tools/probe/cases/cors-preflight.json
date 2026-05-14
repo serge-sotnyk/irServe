@@ -7,6 +7,12 @@
     }
   },
   "serveArgs": ["--cors"],
+  "runner": {
+    "l0": {
+      "clean": ["preflight_options"],
+      "divergent": []
+    }
+  },
   "requests": [
     {
       "name": "preflight_options",
