@@ -470,17 +470,28 @@ Latest totals at end of Stage 7e (refreshed after every
 Codex round; doc-hygiene rounds do not change the
 underlying counts):
 
-- `cargo test --workspace --lib` — green; new unit
-  tests under `compression::tests` and updates to
-  `dispatch::tests` cover the compression gate corners
-  (HEAD, no-transform, below-threshold, identity-only,
-  flag-disabled, OPTIONS-as-GET composition, Range
-  pre-emption).
+- `cargo test --workspace --lib` — 362 passed. New
+  unit tests under `compression::tests` and updates
+  to `dispatch::tests` cover the compression gate
+  corners: HEAD, no-transform, below-threshold,
+  identity-only, flag-disabled, OPTIONS-as-GET
+  composition (Stage 7d), 206 follows the same
+  threshold gate as 200 (below-threshold sub-case
+  keeps `Vary` and skips encode; above-threshold
+  sub-case encodes with `Content-Range` retained
+  verbatim — round 4 P2), `Vary` append against an
+  existing `Vary` header (round 1 P2), and the
+  user-`Content-Encoding` passthrough with identity
+  fall-through (round 2 P2 + round 3 P2).
 - Oracle harness: `target=irserve total=83 passed=81
   skipped=2 failed=0`. Promotion delta vs. end-of-7d:
-  `compression-default.json` (1 anchor via slice 2)
-  and `compression-raw.json` (20 anchors via slice 2)
-  both promoted from skipped to passed.
+  `compression-default.json` (1 anchor) and
+  `compression-raw.json` (23 anchors at end of
+  stage — slice 2 authored 20 of them, round 3 P2
+  added 2 for the identity / non-identity
+  `Content-Encoding` passthrough dichotomy, round 4
+  P2 added 1 for the above-threshold-range encode
+  case) both promoted from skipped to passed.
 - `node tools/probe/run.mjs compression-default
   --target=reference --snapshot=verify` — green.
 - `node tools/probe/run.mjs compression-default
