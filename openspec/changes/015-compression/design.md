@@ -456,14 +456,26 @@ The plan-mode AskUserQuestion forks resolved:
   implementation; body-bytes divergence observable in
   the snapshot).
 
-There is no D-021 candidate for Range × compression
-interaction — slice 0's `range_big_html_gzip` anchor
-confirmed the reference's Range pre-empts
-compression (option (a) in the plan-mode risk list:
-the reference DOES NOT compress 206 responses). The
-irserve implementation mirrors via the explicit
-`StatusCode::PARTIAL_CONTENT` check in `maybe_apply`
-(post-7e Codex round 1 P1: the check sits AFTER the
-Vary set so the negotiation hook is still visible on
-206 responses, mirroring the reference's `vary()`
-ordering relative to threshold / status filtering).
+There is no D-021 candidate for the Range × compression
+interaction — the empirical surface ended up simpler
+than plan-mode anticipated. Slice 0's
+`range_big_html_gzip` anchor (16-byte range, sliced
+body well below the 1024-byte threshold) showed
+reference returning 206 with `Vary` set but no
+`Content-Encoding`, which slice 2 modelled as a
+status-based skip (option (a) in the plan-mode risk
+list). Codex round 4 P2 empirically refined this:
+`Range: bytes=0-1499` on a 4723-byte HTML in
+reference returns `206 + Content-Encoding: br +
+Transfer-Encoding: chunked` — reference DOES compress
+above-threshold 206 bodies, there is no status-based
+skip; `compression/index.js:177` evaluates
+`chunkLength < threshold` uniformly for 200 and 206.
+The slice-0 anchor passed only because the 16-byte
+slice fails the threshold gate naturally. irserve
+mirrors via the unified threshold gate (the round-1
+explicit `StatusCode::PARTIAL_CONTENT` short-circuit
+was removed in round 4 P2). Both sub-cases are pinned
+dual-target: `range_big_html_gzip` (below threshold,
+ORC-206) and `range_big_html_above_threshold` (above
+threshold, ORC-213).

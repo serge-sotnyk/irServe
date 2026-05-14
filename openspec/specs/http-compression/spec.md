@@ -7,14 +7,22 @@ HTTP compression for static-file responses under the `-u` /
 (`br > gzip > deflate` in preference order), the
 1024-byte body-size threshold, the MIME filter (curated
 allowlist + regex fallback), the `Vary: Accept-Encoding`
-semantics, the skip conditions (HEAD,
+semantics (append-aware), the skip conditions (HEAD,
 `Cache-Control: no-transform`, below-threshold,
-identity-only, all-`q=0`), and the Range-pre-empts-
-compression interaction. Introduced in Stage 7e (commit
-`d1b9a15`); reference behavior pinned empirically in slice
-0 via 20 raw-socket anchors in
-`tools/probe/snapshots/compression-raw.json` (commit
-`9bd52f0`, closing Q-002).
+identity-only, all-`q=0`, already-encoded non-identity
+`Content-Encoding` passthrough), and the 206 /
+threshold-gate composition with Stage 7c (small ranges
+pass through uncompressed with Vary; large ranges
+encode like 200s — no status-based 206 skip).
+Introduced in Stage 7e (commit `d1b9a15`); reference
+behavior pinned empirically in slice 0 via 20
+raw-socket anchors (slice 0 — commit `9bd52f0`,
+closing Q-002), with +2 anchors in Codex round 3 P2
+(identity / non-identity `Content-Encoding`
+passthrough — commit `a49609c`) and +1 anchor in
+Codex round 4 P2 (above-threshold-range encode —
+commit `1c526eb`) — 23 anchors total at current state
+in `tools/probe/snapshots/compression-raw.json`.
 
 This capability's surface is L3 (verified-behavior
 catalogue). The L1 baseline Requirement on the `-u` /
