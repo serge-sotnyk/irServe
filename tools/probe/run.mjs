@@ -39,14 +39,15 @@ const DEFAULT_VOLATILE_HEADERS = ['last-modified'];
 // (or differs on them) by deliberate L0 design (D-008/D-003 etc.). They are
 // masked from BOTH sides of the diff so the comparison stays meaningful.
 //
-// `content-encoding` is masked temporarily during Stage 7e slice 0: the
-// runner now tracks it (since reference emits `content-encoding: gzip` on
-// any compressible body > 1024 bytes, including the 1.6 KiB error pages
-// that several existing probes hit), but irserve does not yet emit
-// compression. Slice 2 lands the compression module; at that point this
-// entry is removed so dual-target verification on `content-encoding`
-// becomes meaningful.
-const L0_EXTRA_VOLATILE_HEADERS = ['etag', 'vary', 'accept-ranges', 'content-encoding'];
+// `content-encoding` was masked during Stage 7e slice 0 while irserve was
+// still pre-compression; slice 2 (this commit) lands the compression
+// module so the mask is dropped — `content-encoding` becomes a
+// dual-target must-match. The compressed-body BYTES still differ between
+// reference (Node zlib / brotli at their default params) and irserve
+// (Rust `flate2` / `brotli` crates at their defaults) — per D-020 — so
+// the per-case `bodyMayDiffer` overlay on compressed anchors handles
+// that side of the divergence.
+const L0_EXTRA_VOLATILE_HEADERS = ['etag', 'vary', 'accept-ranges'];
 
 // Flags deferred from the strict L0 implementation (D-008). If a case asks
 // for one of these via `serveArgs`, the runner refuses to run it against
@@ -749,6 +750,16 @@ function applyL0Filter(snap, l0) {
         // is may-differ, content-length must also be may-differ.
         if (r.response.headers && 'content-length' in r.response.headers) {
           delete r.response.headers['content-length'];
+        }
+        // Stage 7e: `content-encoding` is a function of body length vs the
+        // 1024-byte compression threshold AND the MIME-compressibility
+        // decision. When the body itself is may-differ (e.g. a custom error
+        // page whose HTML is implementation-defined per D-002 / D-003), the
+        // compression outcome is necessarily may-differ too — reference's
+        // 1.6 KiB fallback gets compressed, irserve's 23-byte `<h1>` line
+        // does not.
+        if (r.response.headers && 'content-encoding' in r.response.headers) {
+          delete r.response.headers['content-encoding'];
         }
       }
       if (contentLengthMayDiffer.has(r.name) && r.response?.headers) {

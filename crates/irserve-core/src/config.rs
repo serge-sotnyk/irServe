@@ -46,6 +46,17 @@ pub struct ServeConfig {
     pub render_single: Option<bool>,
     pub symlinks: Option<bool>,
     pub etag: Option<bool>,
+    /// SRV-CLI-012: the CLI-only `-u`/`--no-compression` flag wires
+    /// `Some(false)` here to disable HTTP compression. Mirrors
+    /// `third_party/serve/source/utilities/server.ts:71-72`
+    /// (`if (!args['--no-compression']) await compress(...)`). The
+    /// field is **not** part of the `serve.json` schema — the
+    /// reference does not expose it there either; `#[serde(skip)]`
+    /// keeps it out of the deserializer so an unknown `compression`
+    /// field in a user's `serve.json` is rejected by
+    /// `deny_unknown_fields` just like any other unknown key.
+    #[serde(skip)]
+    pub compression: Option<bool>,
 }
 
 #[derive(Debug, Clone, Deserialize)]

@@ -82,6 +82,16 @@ struct Cli {
     #[arg(long = "no-etag")]
     no_etag: bool,
 
+    /// SRV-CLI-012: disable HTTP compression. Mirrors
+    /// `third_party/serve/source/utilities/cli.ts:53,154,171`
+    /// (`-u, --no-compression`). Default is compression-on; this
+    /// flag flips the dispatcher's compression config to disabled.
+    /// Until Stage 7e this was deferred per D-006; D-020 documents
+    /// the divergences from the reference's `compression@1.8.1`
+    /// middleware (framing and encoder defaults).
+    #[arg(short = 'u', long = "no-compression")]
+    no_compression: bool,
+
     #[arg(short = 'c', long = "config", value_name = "PATH")]
     config: Option<PathBuf>,
 
@@ -143,6 +153,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Stage-7a default).
     if cli.no_etag {
         serve_config.etag = Some(false);
+    }
+
+    // SRV-CLI-012: `--no-compression` / `-u` forces `compression: false`.
+    // Mirrors reference's `if (!args['--no-compression']) await compress(...)`
+    // at `third_party/serve/source/utilities/server.ts:71-72`. The absence
+    // of the flag leaves `compression` as `None` (= compress by default,
+    // mirroring the reference's middleware engaging unconditionally).
+    if cli.no_compression {
+        serve_config.compression = Some(false);
     }
 
     // SRV-CLI-008: when `--single` is given, prepend a synthetic

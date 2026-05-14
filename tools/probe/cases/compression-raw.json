@@ -38,6 +38,44 @@
       ]
     }
   },
+  "runner": {
+    "l0": {
+      "clean": [
+        "tiny_html_gzip",
+        "big_html_gzip_deflate_br",
+        "big_html_gzip",
+        "big_html_deflate",
+        "big_html_identity_only",
+        "big_html_no_accept_encoding",
+        "big_html_gzip_q0",
+        "big_html_star_q0",
+        "big_css_gzip_deflate_br",
+        "big_js_gzip_deflate_br",
+        "data_json_gzip_deflate_br",
+        "vector_svg_gzip_deflate_br",
+        "wasm_gzip_deflate_br",
+        "image_png_gzip",
+        "font_woff2_gzip",
+        "media_mp4_gzip",
+        "head_big_html_gzip",
+        "options_big_html_gzip",
+        "no_transform_big_html_gzip",
+        "range_big_html_gzip"
+      ],
+      "bodyMayDiffer": [
+        "big_html_gzip_deflate_br",
+        "big_html_gzip",
+        "big_html_deflate",
+        "big_html_gzip_q0",
+        "big_css_gzip_deflate_br",
+        "big_js_gzip_deflate_br",
+        "data_json_gzip_deflate_br",
+        "vector_svg_gzip_deflate_br",
+        "wasm_gzip_deflate_br",
+        "options_big_html_gzip"
+      ]
+    }
+  },
   "requests": [
     {
       "name": "tiny_html_gzip",

@@ -1,6 +1,7 @@
 #![forbid(unsafe_code)]
 
 mod clean_urls;
+mod compression;
 pub mod config;
 mod cors;
 mod custom_headers;

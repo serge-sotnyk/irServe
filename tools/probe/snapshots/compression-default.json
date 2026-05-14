@@ -1,7 +1,7 @@
 {
   "$schemaVersion": 1,
   "case": "compression-default",
-  "description": "Default compression behavior: serve uses connect/compression middleware. Sends Accept-Encoding: gzip and inspects whether body is decompressed by fetch. The 'vary: Accept-Encoding' is the easy signal.",
+  "description": "Default compression behavior: serve uses connect/compression middleware. Sends Accept-Encoding: gzip and inspects whether body is decompressed by fetch. The 'vary: Accept-Encoding' is the easy signal. Stage 7e slice 2 promoted this case to dual-target — the reference and irserve both emit Vary on a compressible (CSS) response, even when the body itself is below the 1024-byte threshold (and so no compression actually applies).",
   "fixture": {
     "files": {
       "asset.css": "body{color:red}body{color:red}body{color:red}body{color:red}body{color:red}body{color:red}body{color:red}body{color:red}body{color:red}body{color:red}body{color:red}body{color:red}\n"
