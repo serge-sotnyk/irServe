@@ -30,6 +30,7 @@ Concretely: take `vercel/serve` (a small but real Node.js static file server), r
 - **Stage 7a — ETag + 304 conditional GET.** Done.
 - **Stage 7b — `Last-Modified` + `--no-etag` + `If-Modified-Since`.** Done.
 - **Stage 7c — Range requests (`206`/`416`).** Done.
+- **Stage 7d — `Cache-Control` default + `OPTIONS` (CORS preflight).** Done.
 
 Rust code lives under `crates/irserve` (the bin) and `crates/irserve-core` (the lib). The first slice (Stage 5b) is strict-L0: eight SRVs (`SRV-CLI-001/002/007/019`, `SRV-FILE-001/002/004/005`). Stage 6a un-defers SRV-CFG-001, SRV-CFG-002, and SRV-CLI-009 (`-c/--config`); the remaining capabilities are still deferred per `D-008`/`D-009`.
 
@@ -74,7 +75,7 @@ The methodology runs in nine stages. Status is updated when entering or completi
 | 7a | ETag + 304 conditional GET | `openspec/changes/011-etag-conditional` | done |
 | 7b | `Last-Modified` + `--no-etag` + `If-Modified-Since` | `openspec/changes/012-last-modified` | done |
 | 7c | Range requests (`206`/`416`) | `openspec/changes/013-range-requests` | done |
-| 7d | `Cache-Control` default + `OPTIONS` (CORS preflight) | `openspec/changes/014-cache-headers-and-preflight` | todo |
+| 7d | `Cache-Control` default + `OPTIONS` (CORS preflight) | `openspec/changes/014-cache-headers-and-preflight` | done |
 | 7e | HTTP compression (`-u`/`--no-compression`) | `openspec/changes/015-compression` | todo |
 
 The first concrete Rust crate appears at Stage 5b, not earlier. Stages 1–5a produce only research notes and OpenSpec specs.
@@ -291,6 +292,17 @@ curl -i http://127.0.0.1:3011/                   # 200
 cargo run -- --cors --listen 3010 _tmp
 curl -i http://127.0.0.1:3010/                   # 200 + 4 access-control-* headers
 
+# OPTIONS preflight under --cors (Stage 7d, SRV-CORS-001).
+# Reference does NOT short-circuit; OPTIONS flows through the static pipeline like GET.
+curl -i -X OPTIONS -H 'Origin: https://example.com' \
+  -H 'Access-Control-Request-Method: GET' \
+  -H 'Access-Control-Request-Headers: x-custom-header' \
+  http://127.0.0.1:3010/asset.css
+# 200 + asset body + ETag + content-type + 4 access-control-* headers; no 204.
+
+# Default Cache-Control is absent (Stage 7d, SRV-CACHE-005); only user `headers` rules emit it.
+curl -sI http://127.0.0.1:3010/asset.css | grep -i cache-control || echo "(no cache-control)"
+
 # --no-port-switching (Stage 6h, SRV-CLI-016, D-016): refuse fallback on a busy port.
 # Terminal A:
 cargo run -- --listen 3010 _tmp
@@ -314,8 +326,8 @@ curl -s http://127.0.0.1:3010/ > /dev/null
 ./target/release/irserve a b           # exit non-zero, two positionals rejected
 ```
 
-What is NOT yet observable (still deferred to Stage 7+ L3 polish):
-Default `Cache-Control`, full L3 CORS preflight surface, gzip compression, symlink resolution, TLS.
+What is NOT yet observable (still deferred to Stage 7e+ / L4):
+gzip compression, symlink resolution, TLS.
 
 ## References
 

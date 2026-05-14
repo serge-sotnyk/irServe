@@ -1266,10 +1266,10 @@ Scenarios:
 Compatibility notes:
 - The presence of `Access-Control-Allow-Private-Network: true` is the surprising bit: it's a relatively recent CORS extension and not universally supported by clients.
 - IrServe MUST emit at minimum `Access-Control-Allow-Origin: *` for L1 parity with SRV-CLI-010 (the flag-presence requirement). The full four-header surface is L3 polish (this SRV).
-- The lack of preflight short-circuit means `OPTIONS` requests against non-existent paths still 404. IrServe MAY choose to return 204 to preflight requests instead — this would be tracked as an `adapted` decision.
+- The lack of preflight short-circuit means `OPTIONS` requests against non-existent paths still 404. Stage 7d slice 1 adopted this mirror behavior — irserve allows `OPTIONS` through the dispatcher method gate alongside `GET`/`HEAD` and routes it through the full static pipeline like the reference, with no 204 short-circuit. The full four-header surface rides on the response post-dispatch via `apply_cors` (Stage 6h). See `openspec/specs/cors/spec.md` and the Stage 7d change package `openspec/changes/014-cache-headers-and-preflight/`.
 
 Open questions:
-- None for the headers themselves. Whether IrServe should adopt or diverge from the no-preflight-short-circuit behavior is an open design call to be settled when this SRV is promoted past `candidate`.
+- None. The pre-7d open call ("adopt or diverge from no-preflight-short-circuit") resolved to adopt in Stage 7d slice 1 (commit `381f9bd`); no `D-NNN` entry — mirror semantics, not adaptation.
 
 ### DLST
 
