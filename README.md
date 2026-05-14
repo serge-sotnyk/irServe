@@ -12,28 +12,9 @@ Concretely: take `vercel/serve` (a small but real Node.js static file server), r
 
 ## Status
 
-- **Stage 0 — repository scaffolding.** Done.
-- **Stage 1 — reverse inventory of `serve` behavior.** Done.
-- **Stage 2 — capability map refresh.** Done.
-- **Stage 3 — oracle matrix.** Done.
-- **Stage 4 — OpenSpec bootstrap change.** Done.
-- **Stage 5a — first implementation proposal.** Done.
-- **Stage 5b — Rust scaffold + first vertical slice.** Done.
-- **Stage 6a — `serve.json` loader.** Done.
-- **Stage 6b — routing normalization (trailingSlash, multi-slash).** Done.
-- **Stage 6c — cleanUrls (301 + extensionless resolution).** Done.
-- **Stage 6d — configured redirects.** Done.
-- **Stage 6e — configured rewrites + `--single`.** Done.
-- **Stage 6f — custom error pages, full L2 security, custom response headers.** Done.
-- **Stage 6g — directory listing (HTML / JSON, `unlisted`, `renderSingle`).** Done.
-- **Stage 6h — CLI fill-in (`tcp://`, `-p`, `--cors`, `--debug`, `--no-request-logging`, `--no-port-switching`).** Done.
-- **Stage 7a — ETag + 304 conditional GET.** Done.
-- **Stage 7b — `Last-Modified` + `--no-etag` + `If-Modified-Since`.** Done.
-- **Stage 7c — Range requests (`206`/`416`).** Done.
-- **Stage 7d — `Cache-Control` default + `OPTIONS` (CORS preflight).** Done.
-- **Stage 7e — HTTP compression (`-u`/`--no-compression`).** Done.
+MVP shipped as **v0.1.0** (2026-05-15). Levels L0–L3 implemented; L4 (symlinks, TLS, Windows path quirks) deferred. See [`CHANGELOG.md`](./CHANGELOG.md) for the released surface and [`docs/methodology_retrospective.md`](./docs/methodology_retrospective.md) for the experiment write-up.
 
-Rust code lives under `crates/irserve` (the bin) and `crates/irserve-core` (the lib). The first slice (Stage 5b) is strict-L0: eight SRVs (`SRV-CLI-001/002/007/019`, `SRV-FILE-001/002/004/005`). Stage 6a un-defers SRV-CFG-001, SRV-CFG-002, and SRV-CLI-009 (`-c/--config`); the remaining capabilities are still deferred per `D-008`/`D-009`.
+Rust code lives under `crates/irserve` (the bin) and `crates/irserve-core` (the lib).
 
 ## Repository layout
 
@@ -114,14 +95,35 @@ These rules are the methodology core. Violations undermine the entire experiment
 
 The MVP target is L2; reaching L3 is a stretch goal. L4 is explicitly out of scope unless prioritized later.
 
-## Getting started
+## Install
+
+Requires a Rust toolchain (1.81+). Not published to crates.io; install from the git repo:
 
 ```bash
-git clone --recurse-submodules git@github.com:serge-sotnyk/irServe.git
+cargo install --git https://github.com/serge-sotnyk/irServe --bin irserve
+```
+
+`cargo install` does not need the submodules — those are only required for running the oracle test suite during development.
+
+Smoke-test:
+
+```bash
+mkdir _tmp && echo hello > _tmp/index.html
+irserve --listen 3010 _tmp &
+curl -i http://127.0.0.1:3010/
+# expect: 200 OK, body "hello"
+```
+
+For per-feature usage examples, see [`docs/user-guide.md`](./docs/user-guide.md). The full behavior contract lives in [`openspec/specs/`](./openspec/specs/).
+
+## For development / contributors
+
+```bash
+git clone --recurse-submodules https://github.com/serge-sotnyk/irServe.git
 # If already cloned without --recurse-submodules:
 git submodule update --init --recursive
 
-# Install reference-implementation dependencies and build the runnable bundle.
+# Build the reference-implementation oracle (vercel/serve, pinned).
 # vercel/serve uses pnpm; corepack ships with Node 16+, no global install needed.
 cd third_party/serve
 corepack pnpm install        # the prepare script may print a non-fatal warning about pnpm not on PATH; ignore it
@@ -129,216 +131,7 @@ corepack pnpm compile        # produces build/main.js (the runnable entry point)
 cd ../..
 ```
 
-Smoke-test that the reference oracle is operational:
-
-```bash
-mkdir -p _tmp && echo hello > _tmp/index.html
-node third_party/serve/build/main.js -l 3010 --no-clipboard _tmp &
-sleep 2
-curl -i http://127.0.0.1:3010/
-# expect: 200 OK, body "hello"
-# (note: GET /index.html returns 301 → /index because cleanUrls is on by default in serve)
-```
-
-Rust toolchain (1.81+) is required to build and test `irserve`. `cargo build` produces the bin under `target/debug/irserve(.exe)`. `cargo test --test oracle` builds the bin and shells out to `node tools/probe/run.mjs --all --target=irserve --snapshot=verify`; Node 18+ on PATH is a prerequisite (already needed for the reference oracle bundle above).
-
-## Try IrServe (post-6h)
-
-The current binary covers the Stage-5b strict-L0 SRVs (`SRV-CLI-001/002/007/019`, `SRV-FILE-001/002/004/005`), the Stage-6a `serve.json` loader surface (`SRV-CFG-001`, `SRV-CFG-002`, `SRV-CLI-009`), the Stage-6b routing normalization phases (`SRV-ROUT-003` `trailingSlash` add, `SRV-ROUT-004` `trailingSlash` strip, `SRV-ROUT-005` silent multi-slash collapse), the Stage-6c `cleanUrls` phases (`SRV-ROUT-001` `.html`/`/index` 301, `SRV-ROUT-002` extensionless `<P>/index.html`-then-`<P>.html` resolution; both `bool` and `string[]` glob forms), the Stage-6d configured redirects (`SRV-RDIR-001`/`002`/`003`: phase-6 first-match-wins iteration with literal / glob / `:name`-pattern source matching, `type` override for any 3xx, absolute / scheme-relative / relative destination handling per Q-007), the Stage-6e configured rewrites + `--single` SPA fallback (`SRV-RWRT-001`, `SRV-CLI-008`: phase-7 chained recursion mirroring `applyRewrites` at `serve-handler/src/index.js:91-117`, with an irserve-only depth cap of 64 per D-014; `--single` injects a synthetic `**` rewrite at config-load time per `main.ts:78-90`), the Stage-6f cross-cutting bundle (`SRV-FILE-003` custom `<status>.html` from served root, `SRV-SEC-001` full wire-level surface — strict `%xx` syntax + lexical `..` containment both yielding 400 — and `SRV-SEC-002` single-pass URL decode, plus `SRV-HDR-001`/`002` custom response headers with accumulate / case-insensitive override / 3xx-skip / `value: null` prune), the Stage-6g directory listing branch (`SRV-DLST-001`/`002`/`003`: phase 11 with HTML / JSON content negotiation; `directoryListing: bool | string[]` scope; hardcoded `[".DS_Store", ".git"]` defaults plus user `unlisted` globs; `renderSingle` short-circuit checked against the unfiltered count per reference; D-007 sanitization with `"."`/`"sub"`/`"sub/deep"` JSON shape; listing 200 responses bypass `apply_custom_headers` mirroring reference), and the Stage-6h CLI fill-in (`SRV-CLI-003` `tcp://host:port` URI form with Q-001 defaults host=`localhost`/port=`3000`, `SRV-CLI-006` `-p` deprecated alias, `SRV-CLI-010` `-C`/`--cors` enabling all four reference CORS headers — `access-control-allow-origin: *`, `access-control-allow-headers: *`, `access-control-allow-credentials: true`, `access-control-allow-private-network: true` — applied post-dispatch so they ride on 3xx redirects too, `SRV-CLI-014` `-d`/`--debug` with elapsed-ms suffix on the per-request log, `SRV-CLI-015` `-L`/`--no-request-logging` silencing the per-request log line, and `SRV-CLI-016` `--no-port-switching` enforcing the documented contract — default retry on `EADDRINUSE`, flag-set non-zero exit — per D-016 since the reference's flag is a no-op in v14+ via vercel/serve#751). Remaining capabilities are deferred per `D-008`/`D-009`/`D-010`/`D-011`/`D-012`/`D-013`/`D-014`/`D-015`/`D-016` (see `docs/reference/serve/decisions.md`).
-
-```bash
-mkdir -p _tmp && echo hello > _tmp/index.html
-
-# Quick dev run — no separate build step, debug profile under target/debug/
-cargo run -- --listen 3010 _tmp
-
-# Or build a release binary once and reuse it
-cargo build --release
-./target/release/irserve --listen 3010 _tmp
-
-# Either form: omit --listen to bind 3000; use `PORT=3010 ...` env;
-# pass `--listen 3010 --listen 3011 _tmp` to bind both ports.
-```
-
-Exercise it:
-
-```bash
-curl -i http://127.0.0.1:3010/                                       # 200, index.html
-curl -i http://127.0.0.1:3010/index.html                             # 301, Location: /index   (cleanUrls default)
-curl -i http://127.0.0.1:3010/missing                                # 404, text/html, "<h1>404 Not Found</h1>"
-curl -i -H 'Accept: application/json' http://127.0.0.1:3010/missing  # 404, JSON envelope verbatim
-curl -i -X POST http://127.0.0.1:3010/                               # 405
-
-# cleanUrls extensionless resolution (default cleanUrls=true).
-# echo '<p>about</p>' > _tmp/about.html
-curl -i http://127.0.0.1:3010/about.html                             # 301, Location: /about
-curl -i http://127.0.0.1:3010/about                                  # 200, body of about.html
-
-# cleanUrls array form (scope via globs):
-# In _tmp create serve.json: {"cleanUrls": ["/docs/**"]}
-# mkdir _tmp/docs _tmp/blog && echo guide > _tmp/docs/guide.html && echo post > _tmp/blog/post.html
-curl -i http://127.0.0.1:3010/docs/guide.html                        # 301, Location: /docs/guide
-curl -i http://127.0.0.1:3010/blog/post.html                         # 200 (out of scope; served direct)
-
-# Multi-slash collapse (silent; no redirect):
-curl -i 'http://127.0.0.1:3010///'                                   # 200, index.html (path collapses to /)
-
-# trailingSlash 301 (requires serve.json with `{"trailingSlash": true|false, "cleanUrls": false}`).
-# In _tmp create serve.json: {"trailingSlash": true, "cleanUrls": false}
-curl -i http://127.0.0.1:3010/about                                  # 301, Location: /about/  (when trailingSlash=true)
-curl -i http://127.0.0.1:3010/about/                                 # 301, Location: /about   (when trailingSlash=false)
-
-# Configured redirects (Stage 6d). In _tmp create serve.json:
-# {"redirects":[
-#   {"source":"/old","destination":"/new","type":302},
-#   {"source":"/old-docs/:id","destination":"/new-docs/:id"}
-# ]}
-curl -i http://127.0.0.1:3010/old                                    # 302, Location: /new
-curl -i http://127.0.0.1:3010/old-docs/42                            # 301, Location: /new-docs/42
-
-# Configured rewrites (Stage 6e). In _tmp create serve.json:
-# {"cleanUrls":false,"rewrites":[
-#   {"source":"/projects/:id/edit","destination":"/edit-project-:id.html"},
-#   {"source":"/spa/**","destination":"/index.html"}
-# ]}
-# echo '<p>edit-123</p>' > _tmp/edit-project-123.html
-curl -i http://127.0.0.1:3010/projects/123/edit                      # 200, body of edit-project-123.html
-curl -i http://127.0.0.1:3010/spa/some/deep/path                     # 200, body of index.html
-
-# --single SPA fallback (Stage 6e). No serve.json needed:
-# echo '<p>spa-root</p>' > _tmp/index.html
-cargo run -- --single --listen 3010 _tmp
-curl -i http://127.0.0.1:3010/anything/deep                          # 200, body of index.html
-
-# Custom error page (Stage 6f, SRV-FILE-003). Drop a <status>.html in the served root:
-# echo '<p>custom-not-found</p>' > _tmp/404.html
-curl -i http://127.0.0.1:3010/missing                                # 404, body of 404.html
-curl -i -H 'Accept: application/json' http://127.0.0.1:3010/missing  # 404, JSON envelope (custom HTML page is HTML-only)
-
-# Path-traversal → 400 (Stage 6f, SRV-SEC-001).
-curl -i --path-as-is http://127.0.0.1:3010/../package.json           # 400 (lexical `..` escapes root)
-curl -i 'http://127.0.0.1:3010/%zz'                                  # 400 (malformed %xx escape)
-
-# Custom response headers (Stage 6f, SRV-HDR-001). In _tmp create serve.json:
-# {"headers":[{"source":"**/*.css","headers":[
-#   {"key":"Cache-Control","value":"public, max-age=600"},
-#   {"key":"X-Custom","value":"yes"}
-# ]}]}
-# echo 'body{}' > _tmp/asset.css
-curl -i http://127.0.0.1:3010/asset.css                              # 200, x-custom: yes, cache-control: public, max-age=600
-
-# ETag + 304 conditional GET (Stage 7a, SRV-CACHE-001).
-# echo 'body{color:red}' > _tmp/asset.css
-curl -sI http://127.0.0.1:3010/asset.css | grep -i ^etag             # capture the ETag value (strong-quoted hex)
-# Then replay with the captured value:
-curl -i -H 'If-None-Match: "<captured-etag>"' http://127.0.0.1:3010/asset.css   # 304, no body
-# Disable ETag per-deployment via serve.json: {"etag": false} (no header emitted, no 304).
-
-# Last-Modified + If-Modified-Since (Stage 7b, SRV-CACHE-002/003 + SRV-CLI-013, D-018).
-# Under --no-etag, the file response carries Last-Modified instead of ETag
-# (mutex per serve-handler/src/index.js:227-236).
-cargo run -- --no-etag --listen 3010 _tmp
-curl -sI http://127.0.0.1:3010/asset.css | grep -iE '^(etag|last-modified):'
-# Expect: last-modified: <IMF-fixdate UTC>; no etag header.
-# Then replay the captured Last-Modified as If-Modified-Since:
-curl -i -H 'If-Modified-Since: <captured-LM>' http://127.0.0.1:3010/asset.css   # 304, no body
-# (D-018 irserve adaptation — the pinned reference returns 200 here since it has no IMS branch.)
-# Malformed IMS is treated as absent per RFC 9111 §13.1.3:
-curl -i -H 'If-Modified-Since: not-a-date' http://127.0.0.1:3010/asset.css      # 200, full body
-# serve.json {"etag": false} achieves the same Last-Modified surface without the CLI flag.
-
-# Range requests (Stage 7c, SRV-CACHE-004). On a 16-byte asset.css:
-curl -i -H 'Range: bytes=0-3' http://127.0.0.1:3010/asset.css
-# 206 Partial Content; content-range: bytes 0-3/16; content-length: 4; body: 4 bytes
-curl -i -H 'Range: bytes=-4' http://127.0.0.1:3010/asset.css
-# 206; suffix form returns the last 4 bytes; content-range: bytes 12-15/16
-curl -i -H 'Range: bytes=999-1000' http://127.0.0.1:3010/asset.css
-# 416 Range Not Satisfiable; content-range: bytes */16; body: full file (RFC 7233 §4.4)
-# Range pre-empts both 304 short-circuits — even with a matching If-None-Match
-# (or, under --no-etag, a matching If-Modified-Since), Range emits 206/416 not 304.
-
-# Directory listing (Stage 6g). Default config — start in a directory
-# without index.html and request its root:
-# rm _tmp/index.html; touch _tmp/a.txt _tmp/b.txt; mkdir _tmp/sub
-curl -i http://127.0.0.1:3010/                                       # 200, text/html, listing of a.txt / b.txt / sub/
-curl -i -H 'Accept: application/json' http://127.0.0.1:3010/         # 200, application/json, {"files":[...],"directory":".","paths":[]}
-
-# Disable listing globally (SRV-DLST-001). In _tmp/serve.json:
-# {"directoryListing": false}
-curl -i http://127.0.0.1:3010/                                       # 404
-
-# unlisted filter (SRV-DLST-002). In _tmp/serve.json:
-# {"unlisted":["secret.txt"]}
-# echo shh > _tmp/secret.txt; touch _tmp/.DS_Store
-curl -i http://127.0.0.1:3010/                                       # 200; listing omits secret.txt and .DS_Store
-curl -i http://127.0.0.1:3010/secret.txt                             # 200; unlisted only hides from listings, not from direct fetch
-
-# renderSingle (SRV-DLST-003). In _tmp/serve.json:
-# {"renderSingle": true}
-# rm -rf _tmp/*; mkdir _tmp/media; cp some.png _tmp/media/photo.png
-curl -i http://127.0.0.1:3010/media/                                 # 200, image/png, body is photo.png bytes (no listing)
-
-# tcp:// listen URI (Stage 6h, SRV-CLI-003).
-cargo run -- --listen tcp://127.0.0.1:3010 _tmp
-curl -i http://127.0.0.1:3010/                   # 200
-# Q-001 default port (3000) when omitted:
-cargo run -- --listen tcp://localhost _tmp
-curl -i http://localhost:3000/                   # 200
-
-# `-p` deprecated alias for `--listen` (Stage 6h, SRV-CLI-006).
-cargo run -- -p 3011 _tmp
-curl -i http://127.0.0.1:3011/                   # 200
-
-# --cors enables all four reference CORS headers (Stage 6h, SRV-CLI-010).
-cargo run -- --cors --listen 3010 _tmp
-curl -i http://127.0.0.1:3010/                   # 200 + 4 access-control-* headers
-
-# OPTIONS preflight under --cors (Stage 7d, SRV-CORS-001).
-# Reference does NOT short-circuit; OPTIONS flows through the static pipeline like GET.
-curl -i -X OPTIONS -H 'Origin: https://example.com' \
-  -H 'Access-Control-Request-Method: GET' \
-  -H 'Access-Control-Request-Headers: x-custom-header' \
-  http://127.0.0.1:3010/asset.css
-# 200 + asset body + ETag + content-type + 4 access-control-* headers; no 204.
-
-# Default Cache-Control is absent (Stage 7d, SRV-CACHE-005); only user `headers` rules emit it.
-curl -sI http://127.0.0.1:3010/asset.css | grep -i cache-control || echo "(no cache-control)"
-
-# HTTP compression (Stage 7e, SRV-CLI-012). Default on; threshold 1024 bytes; preference br > gzip > deflate.
-# python -c "print('body{color:red}'*100)" > _tmp/big.css
-curl -i -H 'Accept-Encoding: gzip, deflate, br' http://127.0.0.1:3010/big.css
-# 200 + vary: Accept-Encoding + content-encoding: br + brotli-compressed body
-curl -i -H 'Accept-Encoding: gzip' http://127.0.0.1:3010/big.css
-# 200 + vary: Accept-Encoding + content-encoding: gzip
-cargo run -- --no-compression --listen 3010 _tmp
-curl -i -H 'Accept-Encoding: gzip, br' http://127.0.0.1:3010/big.css
-# 200, no vary, no content-encoding, body raw (the -u / --no-compression flag skips the whole pipeline)
-
-# --no-port-switching (Stage 6h, SRV-CLI-016, D-016): refuse fallback on a busy port.
-# Terminal A:
-cargo run -- --listen 3010 _tmp
-# Terminal B (default — retries):
-cargo run -- --listen 3010 _tmp
-# stderr: "warning: listen address 127.0.0.1:3010 is already in use, switched to 127.0.0.1:NNNNN"
-# Terminal B (with flag — exits):
-cargo run -- --no-port-switching --listen 3010 _tmp
-# stderr: "error: listen address 127.0.0.1:3010 is already in use (--no-port-switching is set)"; non-zero exit.
-
-# --debug + --no-request-logging (Stage 6h, SRV-CLI-014/015).
-cargo run -- --debug --listen 3010 _tmp
-curl -s http://127.0.0.1:3010/ > /dev/null
-# stdout: "GET / -> 200 (Xms)"
-cargo run -- --no-request-logging --listen 3010 _tmp
-curl -s http://127.0.0.1:3010/ > /dev/null
-# stdout: (empty)
-
-./target/release/irserve --help        # exit 0
-./target/release/irserve -v            # exit 0, prints version
-./target/release/irserve a b           # exit non-zero, two positionals rejected
-```
-
-What is NOT yet observable (still deferred to L4):
-symlink resolution, TLS.
+`cargo build` produces the bin under `target/debug/irserve(.exe)`. `cargo test --test oracle` builds the bin and shells out to `node tools/probe/run.mjs --all --target=irserve --snapshot=verify`; Node 18+ on PATH is a prerequisite.
 
 ## References
 
