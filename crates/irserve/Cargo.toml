@@ -4,7 +4,7 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 rust-version.workspace = true
-description = "Strict-L0 Rust port of vercel/serve"
+description = "Rust port of vercel/serve (L0-L3 compatibility)"
 
 [dependencies]
 irserve-core = { path = "../irserve-core" }

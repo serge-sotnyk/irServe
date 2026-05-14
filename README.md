@@ -118,10 +118,12 @@ For per-feature usage examples, see [`docs/user-guide.md`](./docs/user-guide.md)
 
 ## For development / contributors
 
+The `third_party/` submodules are pinned to `update = none` in `.gitmodules` so `cargo install` does not pull tens of megabytes of Node fixtures that the build does not need. To fetch them explicitly for the oracle test suite, pass `--checkout` (overrides the `none` strategy):
+
 ```bash
-git clone --recurse-submodules https://github.com/serge-sotnyk/irServe.git
-# If already cloned without --recurse-submodules:
-git submodule update --init --recursive
+git clone https://github.com/serge-sotnyk/irServe.git
+cd irServe
+git submodule update --init --checkout --recursive
 
 # Build the reference-implementation oracle (vercel/serve, pinned).
 # vercel/serve uses pnpm; corepack ships with Node 16+, no global install needed.

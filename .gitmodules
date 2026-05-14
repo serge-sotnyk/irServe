@@ -1,6 +1,8 @@
 [submodule "third_party/serve"]
 	path = third_party/serve
 	url = https://github.com/vercel/serve.git
+	update = none
 [submodule "third_party/serve-handler"]
 	path = third_party/serve-handler
 	url = https://github.com/vercel/serve-handler.git
+	update = none

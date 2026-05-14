@@ -67,7 +67,7 @@ SRVs: `SRV-ROUT-001/002/006`, `SRV-RDIR-001/002/003`, `SRV-RWRT-001`, `SRV-HDR-0
 
 - 81 oracle probes pinned against `vercel/serve` v14 + `vercel/serve-handler` (committed under `tools/probe/snapshots/`).
 - 362 unit tests across `irserve-core` and `irserve`.
-- 15 archived OpenSpec change packages capture the contract evolution from `000-establish-serve-compatibility-baseline` through `015-compression`.
+- 16 archived OpenSpec change packages capture the contract evolution: the `000` baseline plus `001`–`015` implementation deltas.
 
 [Unreleased]: https://github.com/serge-sotnyk/irServe/compare/v0.1.0...HEAD
 [0.1.0]: https://github.com/serge-sotnyk/irServe/releases/tag/v0.1.0

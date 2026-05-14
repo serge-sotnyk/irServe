@@ -4,7 +4,7 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 rust-version.workspace = true
-description = "Static-file server core for irserve"
+description = "Static-file server core for irserve (L0-L3 compatibility with vercel/serve)"
 
 [dependencies]
 axum = { workspace = true }
