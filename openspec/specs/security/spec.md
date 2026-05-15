@@ -87,3 +87,24 @@ Evidence: SRV-SEC-002 (status: verified, level: L2); oracle: ORC-034, ORC-035, O
 - GIVEN fixture has `/secret.txt` (in root, not unlisted)
 - WHEN a `fetch`-mode `GET /sub/%2e%2e/secret.txt` is sent (decoded once → `/secret.txt`, which IS inside root)
 - THEN status is 200 (single-pass decode does not double-decode and does not over-strip)
+
+## Compatibility notes
+
+- **D-015 (irserve un-defer).** Stage 6f delivers the full SRV-SEC-001
+  surface. Phase 1 of the dispatcher decodes the URL via
+  `try_percent_decode`, which validates `%xx` syntax AND decodes
+  strictly under UTF-8 (rejecting both malformed escapes and valid
+  escapes whose byte sequence is invalid UTF-8 like `/%FF` —
+  mirroring `decodeURIComponent`'s URIError branch at
+  `serve-handler/src/index.js:561-567`). A `lexical_path_escapes_root`
+  walk on `..` segments fires before any filesystem I/O, so a `..`
+  traversal whose escaped target happens not to exist still yields
+  400 (not the 404 a fs-only check would emit). The
+  `ResolveOutcome::EscapedRoot` arm in dispatch routes to 400 as
+  defense-in-depth for symlink/canonicalize-based escapes.
+
+- **`bodyMayDiffer` on traversal anchors.** D-003 stands; irserve
+  emits a generic `<h1>400 Bad Request</h1>\n` body where the
+  reference emits its full `errorTemplate` HTML (with chunked-encoding
+  artifacts in raw-mode probes). The contract pins status code and
+  `Content-Type` only.

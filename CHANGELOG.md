@@ -6,7 +6,9 @@ All notable changes to irServe land here. Format follows
 
 ## [Unreleased]
 
-Nothing yet.
+### Fixed
+
+- OpenSpec consolidation: created missing `openspec/specs/headers/` capability and restored `## Compatibility notes` sections on `security` and `static-files` specs. The corresponding deltas from change `2026-05-15-008-error-pages-and-security` had not been synced into the source-of-truth before archival. Behavior, oracle probes, and `cargo test` results unchanged — this is a spec catalogue fix only.
 
 ## [0.1.0] - 2026-05-15
 
